@@ -1,0 +1,30 @@
+tailgate_add_library(
+    tailgate_core
+    STATIC
+    Base64.cpp
+    ControlClient.cpp
+    ControlHandshake.cpp
+    ControlRequests.cpp
+    Crypto.cpp
+    DerpClient.cpp
+    Disco.cpp
+    Dns.cpp
+    H2.cpp
+    Ipv4.cpp
+    Keys.cpp
+    Logging.cpp
+    NetworkMap.cpp
+    Noise.cpp
+    NoiseTransport.cpp
+    ReplayWindow.cpp
+    TlsStream.cpp
+    WireGuardTunnel.cpp
+)
+target_link_libraries(tailgate_core PUBLIC tailgate_wireguard_crypto)
+target_link_libraries(
+    tailgate_core
+    PRIVATE
+    sodium
+    MbedTLS::mbedtls
+    nlohmann_json::nlohmann_json
+)

@@ -1,0 +1,28 @@
+include(CheckCXXCompilerFlag)
+
+set(TAILGATE_SANITIZER_FLAGS "")
+set(TAILGATE_SANITIZER_PREVENT_STATIC_LINKING FALSE)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT CMAKE_CROSSCOMPILING AND
+   CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    check_cxx_compiler_flag("-fsanitize=address" TAILGATE_HAS_ASAN)
+    check_cxx_compiler_flag("-fsanitize=undefined" TAILGATE_HAS_UBSAN)
+    if(TAILGATE_HAS_ASAN)
+        list(APPEND TAILGATE_SANITIZER_FLAGS -fsanitize=address)
+        if(NOT WIN32)
+            set(TAILGATE_SANITIZER_PREVENT_STATIC_LINKING TRUE)
+        endif()
+    endif()
+    if(TAILGATE_HAS_UBSAN)
+        list(APPEND TAILGATE_SANITIZER_FLAGS -fsanitize=undefined)
+    endif()
+endif()
+
+function(tailgate_target_add_sanitizers target)
+    if(TAILGATE_SANITIZER_FLAGS)
+        target_compile_options(${target} PRIVATE ${TAILGATE_SANITIZER_FLAGS})
+        target_link_options(${target} PRIVATE ${TAILGATE_SANITIZER_FLAGS})
+    endif()
+endfunction()
+
+string(JOIN " " TAILGATE_SANITIZER_FLAGS_STRING ${TAILGATE_SANITIZER_FLAGS})
+string(APPEND TAILGATE_THIRD_PARTY_COMPILE_FLAGS " ${TAILGATE_SANITIZER_FLAGS_STRING}")

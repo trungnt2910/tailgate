@@ -1,0 +1,3 @@
+tailgate_add_library(tailgate_c STATIC TailgateC.cpp)
+target_link_libraries(tailgate_c PUBLIC tailgate_core)
+target_link_libraries(tailgate_c PRIVATE nlohmann_json::nlohmann_json)
