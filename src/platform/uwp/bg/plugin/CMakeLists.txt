@@ -1,0 +1,20 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.Background.Plugin
+    STATIC
+    TailgateVpnPlugin.cpp
+    TailgateVpnPlugin.h
+)
+target_include_directories(
+    Tailgate.Uwp.Background.Plugin
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(
+    Tailgate.Uwp.Background.Plugin
+    PUBLIC
+        Tailgate.Uwp.Common
+    PRIVATE
+        Tailgate.Uwp.Background.DI
+        nlohmann_json::nlohmann_json
+        tailgate_core
+)

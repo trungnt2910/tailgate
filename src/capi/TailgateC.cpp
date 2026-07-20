@@ -114,6 +114,25 @@ tailgate::protocol::WireGuardTunnel::Key Key(const std::uint8_t* source)
     return result;
 }
 
+tailgate::control::NetworkConfig CompleteRegistration(tailgate::control::ControlClient& client,
+                                                      const char* authKey)
+{
+    tailgate::control::RegistrationResult result = client.Register(authKey);
+    if (result.State == tailgate::control::RegistrationState::LoginRequired)
+    {
+        throw std::runtime_error("interactive login is required: " + result.AuthorizationUrl);
+    }
+    if (result.State == tailgate::control::RegistrationState::MachineApprovalRequired)
+    {
+        throw std::runtime_error("machine approval is required: " + result.ApprovalUrl);
+    }
+    if (!result.Network)
+    {
+        throw std::runtime_error("control registration completed without a network map");
+    }
+    return std::move(*result.Network);
+}
+
 } // namespace
 
 struct tg_control
@@ -135,6 +154,7 @@ struct tg_tunnel
     explicit tg_tunnel(const tailgate::protocol::WireGuardTunnel::Key& key) : Tunnel(key)
     {
     }
+
     tailgate::protocol::WireGuardTunnel Tunnel;
 };
 
@@ -163,6 +183,7 @@ struct tg_disco
         : Client(privateKey, nodePublicKey)
     {
     }
+
     tailgate::protocol::Disco Client;
 };
 
@@ -173,6 +194,7 @@ extern "C"
     {
         return LastError.c_str();
     }
+
     void tg_buffer_free(tg_buffer buffer)
     {
         std::free(buffer.data);
@@ -205,7 +227,9 @@ extern "C"
             [&]()
             {
                 if (private_key == nullptr)
+                {
                     throw std::invalid_argument("private key is required");
+                }
                 const auto key = tailgate::protocol::GeneratePrivateKey();
                 std::copy(key.begin(), key.end(), private_key);
             });
@@ -218,11 +242,15 @@ extern "C"
             [&]()
             {
                 if (packet == nullptr || destination_host_order == nullptr)
+                {
                     throw std::invalid_argument("packet arguments are required");
+                }
                 const auto destination = tailgate::network::Ipv4Destination(
                     std::vector<std::uint8_t>(packet, packet + packet_size));
                 if (!destination)
+                {
                     throw std::runtime_error("packet is not IPv4");
+                }
                 *destination_host_order = *destination;
             });
     }
@@ -242,12 +270,14 @@ extern "C"
             tailgate::protocol::Bytes32 node{};
             std::copy_n(machine_private_key, machine.size(), machine.begin());
             std::copy_n(node_private_key, node.size(), node.begin());
-            tailgate::protocol::HostInfo info{
-                host->hostname == nullptr ? "" : host->hostname,
-                host->operating_system == nullptr ? "" : host->operating_system,
-                host->operating_system_version == nullptr ? "" : host->operating_system_version,
-                host->architecture == nullptr ? "" : host->architecture,
-                host->client_version == nullptr ? "Tailgate" : host->client_version};
+            tailgate::protocol::HostInfo info;
+            info.Hostname = host->hostname == nullptr ? "" : host->hostname;
+            info.OperatingSystem = host->operating_system == nullptr ? "" : host->operating_system;
+            info.OperatingSystemVersion =
+                host->operating_system_version == nullptr ? "" : host->operating_system_version;
+            info.Architecture = host->architecture == nullptr ? "" : host->architecture;
+            info.ClientVersion =
+                host->client_version == nullptr ? "Tailgate" : host->client_version;
             return new tg_control(stream, machine, node, info);
         }
         catch (const std::exception& error)
@@ -272,7 +302,7 @@ extern "C"
                     throw std::invalid_argument("control register arguments are required");
                 }
                 const tailgate::control::NetworkConfig config =
-                    control->Client.RegisterAndGetNetworkMap(auth_key);
+                    CompleteRegistration(control->Client, auth_key);
                 nlohmann::json peers = nlohmann::json::array();
                 for (const auto& peer : config.Peers)
                 {
@@ -308,9 +338,11 @@ extern "C"
             [&]()
             {
                 if (control == nullptr || auth_key == nullptr || network_config == nullptr)
+                {
                     throw std::invalid_argument("control register arguments are required");
+                }
                 auto result = std::make_unique<tg_network_config>();
-                result->Config = control->Client.RegisterAndGetNetworkMap(auth_key);
+                result->Config = CompleteRegistration(control->Client, auth_key);
                 *network_config = result.release();
             });
     }
@@ -321,7 +353,9 @@ extern "C"
             [&]()
             {
                 if (control == nullptr)
+                {
                     throw std::invalid_argument("control is required");
+                }
                 control->Client.SetPreferredDerp(region);
             });
     }
@@ -362,7 +396,9 @@ extern "C"
             [&]()
             {
                 if (control == nullptr)
+                {
                     throw std::invalid_argument("control is required");
+                }
                 control->Client.Logout();
             });
     }
@@ -373,7 +409,9 @@ extern "C"
             [&]()
             {
                 if (control == nullptr || public_key == nullptr)
+                {
                     throw std::invalid_argument("control arguments are required");
+                }
                 const auto& key = control->Client.NodePublicKey();
                 std::copy(key.begin(), key.end(), public_key);
             });
@@ -385,7 +423,9 @@ extern "C"
             [&]()
             {
                 if (control == nullptr || private_key == nullptr)
+                {
                     throw std::invalid_argument("control arguments are required");
+                }
                 const auto& key = control->Client.DiscoPrivateKey();
                 std::copy(key.begin(), key.end(), private_key);
             });
@@ -450,18 +490,20 @@ extern "C"
             [&]()
             {
                 if (config == nullptr || peer == nullptr || index >= config->Config.Peers.size())
+                {
                     throw std::invalid_argument("peer index is invalid");
+                }
                 const auto& source = config->Config.Peers[index];
-                *peer = {source.Name.c_str(),
-                         source.Address.c_str(),
-                         source.Key.c_str(),
-                         source.DiscoKey.c_str(),
-                         source.OperatingSystem.c_str(),
-                         source.DerpRegion,
-                         source.DerpCode.c_str(),
-                         source.DerpHost.c_str(),
-                         source.Online ? 1 : 0,
-                         source.ExitNodeOption ? 1 : 0};
+                *peer = tg_peer_info{.name = source.Name.c_str(),
+                                     .address = source.Address.c_str(),
+                                     .node_key = source.Key.c_str(),
+                                     .disco_key = source.DiscoKey.c_str(),
+                                     .operating_system = source.OperatingSystem.c_str(),
+                                     .derp_region = source.DerpRegion,
+                                     .derp_code = source.DerpCode.c_str(),
+                                     .derp_host = source.DerpHost.c_str(),
+                                     .online = source.Online ? 1 : 0,
+                                     .offers_exit_node = source.ExitNodeOption ? 1 : 0};
             });
     }
 
@@ -473,13 +515,19 @@ extern "C"
             {
                 if (config == nullptr || node_key == nullptr ||
                     index >= config->Config.Peers.size())
+                {
                     throw std::invalid_argument("peer index is invalid");
+                }
                 const auto& text = config->Config.Peers[index].Key;
                 if (text.rfind("nodekey:", 0) != 0)
+                {
                     throw std::runtime_error("peer has no node key");
+                }
                 const auto key = tailgate::protocol::HexToBytes(text.substr(8));
                 if (key.size() != 32)
+                {
                     throw std::runtime_error("peer node key is invalid");
+                }
                 std::copy(key.begin(), key.end(), node_key);
             });
     }
@@ -492,13 +540,19 @@ extern "C"
             {
                 if (config == nullptr || disco_key == nullptr ||
                     index >= config->Config.Peers.size())
+                {
                     throw std::invalid_argument("peer index is invalid");
+                }
                 const auto& text = config->Config.Peers[index].DiscoKey;
                 if (text.rfind("discokey:", 0) != 0)
+                {
                     throw std::runtime_error("peer has no disco key");
+                }
                 const auto key = tailgate::protocol::HexToBytes(text.substr(9));
                 if (key.size() != 32)
+                {
                     throw std::runtime_error("peer disco key is invalid");
+                }
                 std::copy(key.begin(), key.end(), disco_key);
             });
     }
@@ -516,7 +570,9 @@ extern "C"
     {
         if (config == nullptr || peerIndex >= config->Config.Peers.size() ||
             endpointIndex >= config->Config.Peers[peerIndex].Endpoints.size())
+        {
             return nullptr;
+        }
         return config->Config.Peers[peerIndex].Endpoints[endpointIndex].c_str();
     }
 
@@ -525,10 +581,14 @@ extern "C"
                                   size_t* peerIndex)
     {
         if (config == nullptr || peerIndex == nullptr)
+        {
             return -1;
+        }
         const auto found = tailgate::control::FindRoute(config->Config.Peers, destination);
         if (!found)
+        {
             return 1;
+        }
         *peerIndex = *found;
         return 0;
     }
@@ -539,7 +599,9 @@ extern "C"
                                    size_t* peerIndex)
     {
         if (config == nullptr || preferences == nullptr || peerIndex == nullptr)
+        {
             return -1;
+        }
         std::optional<std::size_t> exitNode;
         if (preferences->exit_node != nullptr && preferences->exit_node[0] != '\0')
         {
@@ -569,11 +631,15 @@ extern "C"
             [&]()
             {
                 if (config == nullptr || nameOrAddress == nullptr || peerIndex == nullptr)
+                {
                     throw std::invalid_argument("exit-node lookup arguments are required");
+                }
                 const auto found =
                     tailgate::control::FindExitNode(config->Config.Peers, nameOrAddress);
                 if (!found)
+                {
                     throw std::runtime_error("requested exit node is unavailable");
+                }
                 *peerIndex = *found;
             });
     }
@@ -604,7 +670,9 @@ extern "C"
             [&]()
             {
                 if (derp == nullptr || hostname == nullptr)
+                {
                     throw std::invalid_argument("DERP connect arguments are required");
+                }
                 derp->Client.Connect(hostname);
             });
     }
@@ -615,7 +683,9 @@ extern "C"
             [&]()
             {
                 if (derp == nullptr)
+                {
                     throw std::invalid_argument("DERP client is required");
+                }
                 derp->Client.SetPreferred(preferred != 0);
             });
     }
@@ -630,7 +700,9 @@ extern "C"
             {
                 if (derp == nullptr || destination_node_key == nullptr ||
                     (packet == nullptr && packet_size != 0))
+                {
                     throw std::invalid_argument("DERP send arguments are required");
+                }
                 const std::vector<std::uint8_t> data =
                     packet_size == 0 ? std::vector<std::uint8_t>{}
                                      : std::vector<std::uint8_t>(packet, packet + packet_size);
@@ -644,7 +716,9 @@ extern "C"
             [&]()
             {
                 if (derp == nullptr || source_node_key == nullptr || packet == nullptr)
+                {
                     throw std::invalid_argument("DERP receive arguments are required");
+                }
                 const auto received = derp->Client.Receive();
                 std::copy(received.Source.begin(), received.Source.end(), source_node_key);
                 *packet = CopyBuffer(received.Payload);
@@ -685,7 +759,9 @@ extern "C"
             [&]()
             {
                 if (derp == nullptr)
+                {
                     throw std::invalid_argument("DERP client is required");
+                }
                 derp->Client.Flush();
             });
     }
@@ -720,7 +796,9 @@ extern "C"
             [&]()
             {
                 if (disco == nullptr || public_key == nullptr)
+                {
                     throw std::invalid_argument("disco arguments are required");
+                }
                 const auto& key = disco->Client.PublicKey();
                 std::copy(key.begin(), key.end(), public_key);
             });
@@ -732,7 +810,9 @@ extern "C"
             [&]()
             {
                 if (disco == nullptr || transaction_id == nullptr)
+                {
                     throw std::invalid_argument("disco arguments are required");
+                }
                 const auto transaction = disco->Client.NewTransactionId();
                 std::copy(transaction.begin(), transaction.end(), transaction_id);
             });
@@ -748,7 +828,9 @@ extern "C"
             {
                 if (disco == nullptr || recipient_disco_key == nullptr ||
                     transaction_id == nullptr || packet == nullptr)
+                {
                     throw std::invalid_argument("disco ping arguments are required");
+                }
                 tailgate::protocol::Disco::TransactionId transaction{};
                 std::copy_n(transaction_id, transaction.size(), transaction.begin());
                 *packet =
@@ -768,7 +850,9 @@ extern "C"
             {
                 if (disco == nullptr || recipient_disco_key == nullptr ||
                     transaction_id == nullptr || packet == nullptr)
+                {
                     throw std::invalid_argument("disco pong arguments are required");
+                }
                 tailgate::protocol::Disco::TransactionId transaction{};
                 std::copy_n(transaction_id, transaction.size(), transaction.begin());
                 *packet = CopyBuffer(disco->Client.BuildPong(
@@ -789,7 +873,9 @@ extern "C"
                 if (disco == nullptr || recipient_discco_key == nullptr ||
                     endpoint_addresses_host_order == nullptr || endpoint_ports == nullptr ||
                     packet == nullptr)
+                {
                     throw std::invalid_argument("disco CallMeMaybe arguments are required");
+                }
                 std::vector<tailgate::protocol::Disco::Endpoint> endpoints;
                 endpoints.reserve(endpoint_count);
                 for (std::size_t index = 0; index < endpoint_count; ++index)
@@ -811,11 +897,15 @@ extern "C"
             [&]()
             {
                 if (disco == nullptr || packet == nullptr || message == nullptr)
+                {
                     throw std::invalid_argument("disco parse arguments are required");
+                }
                 const auto parsed =
                     disco->Client.Parse(std::vector<std::uint8_t>(packet, packet + packet_size));
                 if (!parsed)
+                {
                     throw std::runtime_error("packet is not a valid disco message");
+                }
                 message->type = parsed->Type == tailgate::protocol::Disco::MessageType::Ping
                                     ? TG_DISCO_PING
                                 : parsed->Type == tailgate::protocol::Disco::MessageType::Pong
@@ -846,6 +936,7 @@ extern "C"
             return nullptr;
         }
     }
+
     void tg_tunnel_destroy(tg_tunnel* tunnel)
     {
         delete tunnel;
@@ -861,7 +952,9 @@ extern "C"
             [&]()
             {
                 if (tunnel == nullptr || public_key == nullptr || peer_id == nullptr)
+                {
                     throw std::invalid_argument("peer arguments are required");
+                }
                 *peer_id = tunnel->Tunnel.AddPeer(Key(public_key), Key(preshared_key), keepalive);
             });
     }
@@ -885,7 +978,9 @@ extern "C"
             [&]()
             {
                 if (tunnel == nullptr || packet == nullptr || result == nullptr)
+                {
                     throw std::invalid_argument("packet arguments are required");
+                }
                 *result = {};
                 const auto received = tunnel->Tunnel.ProcessPacket(
                     peer_id, std::vector<std::uint8_t>(packet, packet + packet_size));
@@ -909,7 +1004,9 @@ extern "C"
             {
                 if (tunnel == nullptr || packet == nullptr ||
                     (plaintext == nullptr && plaintext_size != 0))
+                {
                     throw std::invalid_argument("encrypt arguments are required");
+                }
                 const std::vector<std::uint8_t> input =
                     plaintext_size == 0
                         ? std::vector<std::uint8_t>{}
@@ -921,7 +1018,9 @@ extern "C"
     int tg_tunnel_has_session(tg_tunnel* tunnel, size_t peer_id)
     {
         if (tunnel == nullptr)
+        {
             return 0;
+        }
         try
         {
             return tunnel->Tunnel.HasSession(peer_id) ? 1 : 0;
@@ -939,7 +1038,9 @@ extern "C"
             [&]()
             {
                 if (tunnel == nullptr || action == nullptr)
+                {
                     throw std::invalid_argument("tunnel timer arguments are required");
+                }
                 *action = static_cast<tg_tunnel_action>(tunnel->Tunnel.UpdateTimers(peer_id));
             });
     }

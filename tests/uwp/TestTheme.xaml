@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Fixed Windows light-theme inputs consumed by TailgateResources.xaml. -->
+    <Color x:Key="SystemAccentColor">#FF0078D4</Color>
+    <Color x:Key="SystemAccentColorLight1">#FF429CE3</Color>
+    <Color x:Key="SystemAccentColorLight2">#FF76B9ED</Color>
+    <Color x:Key="SystemAccentColorLight3">#FFA6D8FF</Color>
+    <Color x:Key="SystemAccentColorDark1">#FF005A9E</Color>
+    <Color x:Key="SystemAccentColorDark2">#FF004578</Color>
+    <Color x:Key="SystemAccentColorDark3">#FF003966</Color>
+    <Color x:Key="SystemAltHighColor">#FFFFFFFF</Color>
+    <Color x:Key="SystemAltMediumHighColor">#CCFFFFFF</Color>
+    <Color x:Key="SystemBaseHighColor">#FF000000</Color>
+    <Color x:Key="SystemBaseMediumColor">#99000000</Color>
+    <Color x:Key="SystemBaseMediumLowColor">#66000000</Color>
+    <Color x:Key="SystemBaseLowColor">#33000000</Color>
+    <Color x:Key="SystemChromeBlackHighColor">#FF000000</Color>
+    <Color x:Key="SystemChromeMediumLowColor">#FFF2F2F2</Color>
+    <Color x:Key="SystemChromeWhiteColor">#FFFFFFFF</Color>
+    <Color x:Key="SystemListLowColor">#19000000</Color>
+
+    <!-- High contrast is rejected by the test environment, but keep every production key fixed. -->
+    <Color x:Key="SystemColorButtonFaceColor">#FFF0F0F0</Color>
+    <Color x:Key="SystemColorGrayTextColor">#FF6D6D6D</Color>
+    <Color x:Key="SystemColorHighlightColor">#FF0078D4</Color>
+    <Color x:Key="SystemColorHighlightTextColor">#FFFFFFFF</Color>
+    <Color x:Key="SystemColorWindowColor">#FFFFFFFF</Color>
+    <Color x:Key="SystemColorWindowTextColor">#FF000000</Color>
+
+    <SolidColorBrush
+        x:Key="ContentDialogBackground"
+        Color="{StaticResource SystemAltHighColor}" />
+    <SolidColorBrush
+        x:Key="SystemControlBackgroundAltMediumLowBrush"
+        Color="{StaticResource SystemAltMediumHighColor}" />
+    <SolidColorBrush
+        x:Key="SystemControlDisabledTransparentBrush"
+        Color="Transparent" />
+    <SolidColorBrush
+        x:Key="SystemControlHighlightAccentBrush"
+        Color="{StaticResource SystemAccentColor}" />
+    <SolidColorBrush
+        x:Key="TailgateTestSurfaceBrush"
+        Color="{StaticResource SystemAltHighColor}" />
+
+    <!-- Keep text and icon metrics on the Windows 10 UWP font families. -->
+    <FontFamily x:Key="ContentControlThemeFontFamily">Segoe UI</FontFamily>
+    <FontFamily x:Key="SymbolThemeFontFamily">Segoe MDL2 Assets</FontFamily>
+
+    <x:Double x:Key="GridViewItemMinHeight">44</x:Double>
+</ResourceDictionary>

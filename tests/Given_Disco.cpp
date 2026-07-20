@@ -3,7 +3,7 @@
 #include "tailgate/protocol/Crypto.h"
 #include "tailgate/protocol/Disco.h"
 
-TEST(Tailgate, GivenDiscoPeers_WhenPinging_ThenTheTransactionRoundTrips)
+TEST(Given_DiscoPeers, When_Pinging_Then_TheTransactionRoundTrips)
 {
     const auto nodeA = tailgate::protocol::GeneratePrivateKey();
     const auto nodeB = tailgate::protocol::GeneratePrivateKey();
@@ -28,7 +28,7 @@ TEST(Tailgate, GivenDiscoPeers_WhenPinging_ThenTheTransactionRoundTrips)
     ASSERT_TRUE(receivedPong->Transaction == transaction);
 }
 
-TEST(Tailgate, GivenDiscoPeers_WhenAdvertisingEndpoints_ThenIpv4CandidatesRoundTrip)
+TEST(Given_DiscoPeers, When_AdvertisingEndpoints_Then_Ipv4CandidatesRoundTrip)
 {
     const auto nodeA = tailgate::protocol::GeneratePrivateKey();
     const auto nodeB = tailgate::protocol::GeneratePrivateKey();

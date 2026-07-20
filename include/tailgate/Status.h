@@ -28,11 +28,14 @@ struct Status
     std::string BackendState = "Stopped";
     bool Online = false;
     std::string Address;
+    std::string Domain;
     std::string Hostname;
     std::string OperatingSystem;
     std::string OperatingSystemVersion;
     std::string ClientVersion;
+    std::string AuthorizationUrl;
     std::string Error;
+    std::uint64_t ConfigurationRevision = 0;
     std::vector<PeerStatus> Peers;
 };
 

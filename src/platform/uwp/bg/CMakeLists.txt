@@ -1,0 +1,44 @@
+add_subdirectory(manager)
+add_subdirectory(service)
+
+tailgate_uwp_add_library(
+    Tailgate.Uwp.Background.DI
+    STATIC
+    DI.cpp
+    DI.h
+    ResourceLoader.cpp
+    ResourceLoader.h
+)
+target_include_directories(
+    Tailgate.Uwp.Background.DI
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(
+    Tailgate.Uwp.Background.DI
+    PUBLIC
+        Boost.DI
+        Tailgate.Uwp.Background.Manager
+        Tailgate.Uwp.Background.Service
+)
+
+add_subdirectory(plugin)
+
+tailgate_uwp_add_library(
+    Tailgate.Uwp.Background
+    STATIC
+    VpnBackgroundTask.cpp
+    VpnBackgroundTask.h
+)
+target_include_directories(
+    Tailgate.Uwp.Background
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(
+    Tailgate.Uwp.Background
+    PUBLIC
+        Tailgate.Uwp.Common
+    PRIVATE
+        Tailgate.Uwp.Background.Plugin
+)

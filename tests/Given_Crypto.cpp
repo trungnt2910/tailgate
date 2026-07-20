@@ -5,7 +5,7 @@
 
 #include <algorithm>
 
-TEST(Tailgate, GivenCrypto_WhenDerivingPublicKey_ThenMatchesTailscaleVector)
+TEST(Given_Crypto, When_DerivingPublicKey_Then_MatchesTailscaleVector)
 {
     std::vector<std::uint8_t> privateBytes = tailgate::protocol::HexToBytes(
         "40ab1b58e9076c7a4d9d07291f5edf9d1aa017eb949624ba683317f48a640369");
@@ -18,7 +18,7 @@ TEST(Tailgate, GivenCrypto_WhenDerivingPublicKey_ThenMatchesTailscaleVector)
                 "50d20b455ecf12bc453f83c2cfdb2a24925d06cf2598dcaa54e91af82ce9f765");
 }
 
-TEST(Tailgate, GivenNoiseInitiator_WhenWritingMessage1_ThenFrameShapeMatchesTs2021)
+TEST(Given_NoiseInitiator, When_WritingMessage1_Then_FrameShapeMatchesTs2021)
 {
     tailgate::protocol::Bytes32 machinePrivate{};
     tailgate::protocol::Bytes32 ephemeralPrivate{};
@@ -36,7 +36,7 @@ TEST(Tailgate, GivenNoiseInitiator_WhenWritingMessage1_ThenFrameShapeMatchesTs20
     ASSERT_TRUE(message[4] == 96);
 }
 
-TEST(Tailgate, GivenCrypto_WhenGeneratingPrivateKeys_ThenTheyAreClampedAndUnique)
+TEST(Given_Crypto, When_GeneratingPrivateKeys_Then_TheyAreClampedAndUnique)
 {
     const auto first = tailgate::protocol::GeneratePrivateKey();
     const auto second = tailgate::protocol::GeneratePrivateKey();

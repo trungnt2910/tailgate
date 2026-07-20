@@ -1,0 +1,42 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.Common
+    STATIC
+    Arguments.cpp
+    Arguments.h
+    AuthorizationState.cpp
+    AuthorizationState.h
+    EventSignal.cpp
+    EventSignal.h
+    HostInfo.cpp
+    HostInfo.h
+    MappedView.cpp
+    MappedView.h
+    ResourceKey.h
+    ResourceLoader.cpp
+    ResourceLoader.h
+    Settings.cpp
+    Settings.h
+    TailgateRelay.cpp
+    TailgateRelay.h
+    UwpAliases.h
+    UwpAppServiceProtocol.cpp
+    UwpAppServiceProtocol.h
+    UwpError.cpp
+    UwpError.h
+    UwpFireAndForget.h
+    UwpFormat.h
+    UwpLogger.cpp
+    UwpLogger.h
+    UwpMachineIdentity.cpp
+    UwpMachineIdentity.h
+    UwpTcpStream.cpp
+    UwpTcpStream.h
+    VpnConstants.h
+)
+target_include_directories(
+    Tailgate.Uwp.Common
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+        ${TAILGATE_UWP_GENERATED_DIR}
+)
+target_link_libraries(Tailgate.Uwp.Common PUBLIC tailgate_core)

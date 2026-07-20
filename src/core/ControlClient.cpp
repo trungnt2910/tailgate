@@ -1,19 +1,25 @@
 #include "tailgate/control/ControlClient.h"
 
-#include "tailgate/Logging.h"
-#include "tailgate/protocol/ControlHandshake.h"
-#include "tailgate/protocol/Crypto.h"
-#include "tailgate/protocol/H2.h"
-#include "tailgate/protocol/NoiseTransport.h"
+#include <algorithm>
+#include <charconv>
+#include <chrono>
+#include <format>
+#include <stdexcept>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 #include <sodium.h>
 
-#include <algorithm>
-#include <sstream>
-#include <stdexcept>
-#include <utility>
-#include <vector>
+#include <tailgate/Logging.h>
+#include <tailgate/Strings.h>
+#include <tailgate/protocol/Base64.h>
+#include <tailgate/protocol/ControlHandshake.h>
+#include <tailgate/protocol/Crypto.h>
+#include <tailgate/protocol/H2.h>
+#include <tailgate/protocol/NoiseTransport.h>
 
 namespace tailgate::control
 {
@@ -25,6 +31,163 @@ constexpr std::uint32_t MaximumH2FrameLength = 1024U * 1024U;
 constexpr std::uint32_t InitialH2WindowSize = 1024U * 1024U;
 constexpr std::uint8_t H2EndOrAckFlag = 0x01;
 constexpr int MaximumControlResponseFrames = 80;
+constexpr std::size_t MapLengthSize = 4;
+constexpr std::size_t MaximumSmallHpackLiteral = 127;
+constexpr int MaximumInitialMapAttempts = 12;
+constexpr std::chrono::milliseconds InitialMapRetryDelay{250};
+constexpr std::chrono::milliseconds MaximumMapRetryDelay{2000};
+constexpr std::chrono::seconds UnchangedAuthorizationUrlRetryDelay{5};
+constexpr std::chrono::seconds DefaultRegistrationRateLimitRetryDelay{5};
+constexpr std::chrono::hours MaximumRegistrationRateLimitRetryDelay{1};
+constexpr std::size_t MaximumStreamingMapSize = 16U * 1024U * 1024U;
+
+std::string ControlHttpErrorMessage(const std::string& path, int status, std::string_view body)
+{
+    const std::string_view trimmedBody = TrimEnd(body);
+    if (trimmedBody.empty())
+    {
+        return std::format("Control request {} failed with HTTP status {}.", path, status);
+    }
+    return std::format(
+        "Control request {} failed with HTTP status {}: {}.", path, status, trimmedBody);
+}
+
+class ControlHttpError final : public std::runtime_error
+{
+public:
+    ControlHttpError(const std::string& path,
+                     int status,
+                     std::string body,
+                     std::optional<std::uint32_t> retryAfterSeconds)
+        : std::runtime_error(ControlHttpErrorMessage(path, status, body)),
+          Status(status),
+          Body(std::move(body)),
+          RetryAfterSeconds(retryAfterSeconds)
+    {
+    }
+
+    int Status;
+    std::string Body;
+    std::optional<std::uint32_t> RetryAfterSeconds;
+};
+
+std::chrono::milliseconds
+RegistrationRateLimitRetryDelay(std::optional<std::uint32_t> retryAfterSeconds)
+{
+    if (!retryAfterSeconds || *retryAfterSeconds == 0)
+    {
+        return DefaultRegistrationRateLimitRetryDelay;
+    }
+
+    const std::chrono::seconds requestedDelay{*retryAfterSeconds};
+    if (requestedDelay > MaximumRegistrationRateLimitRetryDelay)
+    {
+        return DefaultRegistrationRateLimitRetryDelay;
+    }
+    return requestedDelay;
+}
+
+std::optional<std::uint32_t> ControlRetryAfterSeconds(const protocol::H2Headers& responseHeaders)
+{
+    const auto [begin, end] = responseHeaders.equal_range("retry-after");
+    for (auto header = begin; header != end; ++header)
+    {
+        std::uint32_t seconds = 0;
+        const auto parseResult = std::from_chars(
+            header->second.data(), header->second.data() + header->second.size(), seconds);
+        if (parseResult.ec == std::errc{} &&
+            parseResult.ptr == header->second.data() + header->second.size())
+        {
+            return seconds;
+        }
+    }
+    return std::nullopt;
+}
+
+std::string UrlPathAndQuery(const std::string& url)
+{
+    const std::size_t scheme = url.find("://");
+    std::size_t pathStart = 0;
+    if (scheme != std::string::npos)
+    {
+        pathStart = url.find('/', scheme + 3);
+    }
+    if (pathStart == std::string::npos)
+    {
+        return "/";
+    }
+    std::string path = url.substr(pathStart);
+    if (path.empty())
+    {
+        return "/";
+    }
+    return path;
+}
+
+std::optional<std::string> HttpRequestPath(const std::vector<std::uint8_t>& payload)
+{
+    const std::string text(payload.begin(), payload.end());
+    const std::size_t lineEnd = text.find("\r\n");
+    const std::string firstLine = text.substr(0, lineEnd);
+    const std::size_t methodEnd = firstLine.find(' ');
+    if (methodEnd == std::string::npos)
+    {
+        return std::nullopt;
+    }
+    const std::size_t pathStart = methodEnd + 1;
+    const std::size_t pathEnd = firstLine.find(' ', pathStart);
+    if (pathEnd == std::string::npos || pathEnd == pathStart)
+    {
+        return std::nullopt;
+    }
+    std::string path = firstLine.substr(pathStart, pathEnd - pathStart);
+    const std::size_t queryStart = path.find('?');
+    if (queryStart != std::string::npos)
+    {
+        path.resize(queryStart);
+    }
+    return path;
+}
+
+std::vector<std::uint8_t> HttpJsonResponse(const std::string& body, int status, std::string reason)
+{
+    const std::string text = std::format(
+        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        status,
+        reason,
+        body.size(),
+        body);
+    return {text.begin(), text.end()};
+}
+
+std::optional<std::vector<std::uint8_t>> BuildC2NResponse(const nlohmann::json& pingRequest)
+{
+    if (!pingRequest.is_object() || pingRequest.value("Types", "") != "c2n")
+    {
+        return std::nullopt;
+    }
+    const std::string payload = pingRequest.value("Payload", "");
+    if (payload.empty())
+    {
+        return std::nullopt;
+    }
+
+    std::vector<std::uint8_t> decoded = protocol::Base64Decode(payload);
+    std::optional<std::string> path = HttpRequestPath(decoded);
+    if (!path)
+    {
+        return std::nullopt;
+    }
+    if (*path == "/tls-cert-status")
+    {
+        return HttpJsonResponse(R"({"Error":"no certificate","Missing":true})", 200, "OK");
+    }
+    if (*path == "/vip-services")
+    {
+        return HttpJsonResponse(R"({"VIPServices":[],"ServicesHash":""})", 200, "OK");
+    }
+    return HttpJsonResponse(R"({"Error":"unhandled c2n request"})", 404, "Not Found");
+}
 
 bool LooksLikeH2(const std::vector<std::uint8_t>& data)
 {
@@ -72,34 +235,134 @@ std::optional<std::string> DescribeIncrementalNetworkMap(const std::string& text
         return std::nullopt;
     }
 
-    std::ostringstream description;
-    description << "incremental network-map update:";
+    std::string description = "incremental network-map update:";
     if (map.value("KeepAlive", false))
     {
-        description << " keepalive";
+        description += " keepalive";
     }
     if (map.contains("Seq"))
     {
-        description << " seq=" << map.at("Seq");
+        description += std::format(" seq={}", map.at("Seq").dump());
     }
-    description << " peers_changed=" << count("PeersChanged");
-    description << " peers_removed=" << count("PeersRemoved");
-    description << " peer_patches=" << count("PeersChangedPatch");
-    description << " online_changes=" << count("OnlineChange");
-    description << " seen_changes=" << count("PeerSeenChange");
+    description +=
+        std::format(" peers_changed={} peers_removed={} peer_patches={} online_changes={} "
+                    "seen_changes={}",
+                    count("PeersChanged"),
+                    count("PeersRemoved"),
+                    count("PeersChangedPatch"),
+                    count("OnlineChange"),
+                    count("PeerSeenChange"));
     if (map.contains("DERPMap"))
     {
-        description << " derp_map";
+        description += " derp_map";
     }
     if (map.contains("DNSConfig"))
     {
-        description << " dns_config";
+        description += " dns_config";
     }
     if (map.contains("PingRequest"))
     {
-        description << " ping_request";
+        description += " ping_request";
+        const nlohmann::json& pingRequest = map.at("PingRequest");
+        if (pingRequest.is_object())
+        {
+            description += std::format("(types={} noise={})",
+                                       pingRequest.value("Types", ""),
+                                       pingRequest.value("URLIsNoise", false) ? 1 : 0);
+        }
     }
-    return description.str();
+    const auto patches = map.find("PeersChangedPatch");
+    if (patches != map.end() && patches->is_array())
+    {
+        description += " patches=[";
+        bool firstPatch = true;
+        for (const nlohmann::json& patch : *patches)
+        {
+            if (!patch.is_object())
+            {
+                continue;
+            }
+            if (!firstPatch)
+            {
+                description += ';';
+            }
+            firstPatch = false;
+            description += std::format("{}:", patch.value("NodeID", 0ULL));
+            bool firstField = true;
+            for (const auto& [field, value] : patch.items())
+            {
+                (void)value;
+                if (field == "NodeID")
+                {
+                    continue;
+                }
+                if (!firstField)
+                {
+                    description += ',';
+                }
+                firstField = false;
+                description += field;
+            }
+        }
+        description += ']';
+    }
+    return description;
+}
+
+NetworkConfig ParseMapResponseBody(const std::vector<std::uint8_t>& body)
+{
+    const auto start = std::find(body.begin(), body.end(), static_cast<std::uint8_t>('{'));
+    if (start == body.end())
+    {
+        throw std::runtime_error("Control map response did not contain JSON.");
+    }
+    const std::size_t jsonOffset = static_cast<std::size_t>(start - body.begin());
+    std::size_t jsonLength = body.size() - jsonOffset;
+    if (jsonOffset >= MapLengthSize)
+    {
+        const std::size_t framedLength = body[jsonOffset - 4] |
+                                         (static_cast<std::size_t>(body[jsonOffset - 3]) << 8U) |
+                                         (static_cast<std::size_t>(body[jsonOffset - 2]) << 16U) |
+                                         (static_cast<std::size_t>(body[jsonOffset - 1]) << 24U);
+        if (framedLength > 0 && jsonOffset + framedLength <= body.size())
+        {
+            jsonLength = framedLength;
+        }
+    }
+    return ParseNetworkMap(std::string(start, start + static_cast<std::ptrdiff_t>(jsonLength)));
+}
+
+void LogMapResponse(const NetworkConfig& config, std::string_view source)
+{
+    Log(LogLevel::Info,
+        "control",
+        std::format("{}: address={} name={} peers={} derp={} dns={} cert-domains={}",
+                    source,
+                    config.SelfAddress,
+                    config.SelfName,
+                    config.Peers.size(),
+                    config.DerpCode,
+                    config.DnsResolver,
+                    config.CertDomains.size()));
+    for (const std::string& domain : config.CertDomains)
+    {
+        Log(LogLevel::Info, "control", "cert domain available: " + domain);
+    }
+    if (config.SelfIngressEnabled || config.SelfWireIngress || config.SelfPeerApi4Port != 0 ||
+        config.SelfPeerApi6Port != 0)
+    {
+        Log(LogLevel::Info,
+            "control",
+            std::format(
+                "{} self ingress metadata: version={} ingress={} wire-ingress={} peerapi4={} "
+                "peerapi6={}",
+                source,
+                config.SelfClientVersion,
+                config.SelfIngressEnabled ? 1 : 0,
+                config.SelfWireIngress ? 1 : 0,
+                config.SelfPeerApi4Port,
+                config.SelfPeerApi6Port));
+    }
 }
 
 } // namespace
@@ -109,17 +372,17 @@ class ControlClient::Impl
 public:
     Impl(IByteStream& stream,
          const protocol::Bytes32& machinePrivateKey,
-         const protocol::Bytes32& nodePrivateKey,
+         const protocol::Bytes32& nodePublicKey,
          protocol::HostInfo host)
         : Host(std::move(host)),
-          NodePublic(protocol::X25519PublicFromPrivate(nodePrivateKey)),
+          NodePublic(nodePublicKey),
           NodeKey("nodekey:" + protocol::BytesToHex(NodePublic.data(), NodePublic.size()))
     {
         const protocol::Bytes32 ephemeralKey = protocol::GeneratePrivateKey();
         protocol::ControlHandshake handshake(machinePrivateKey, ephemeralKey);
         protocol::ControlHandshakeResult result =
             handshake.Run(stream, protocol::ControlHandshake::DefaultHost);
-        Transport = std::make_unique<protocol::NoiseTransport>(stream, result.Keys);
+        Transport = std::make_unique<protocol::NoiseTransport>(stream, std::move(result));
         Transport->Send(protocol::BuildH2Preface(InitialH2WindowSize));
     }
 
@@ -145,6 +408,8 @@ public:
         }
 
         std::vector<std::uint8_t> response;
+        protocol::H2Headers responseHeaders;
+        std::optional<int> status;
         for (int attempt = 0; attempt < MaximumControlResponseFrames; ++attempt)
         {
             std::vector<std::uint8_t> plaintext = Transport->Receive();
@@ -160,17 +425,179 @@ public:
                 {
                     Transport->Send(protocol::BuildH2SettingsAck());
                 }
+                if (frame.Type == protocol::H2FrameType::Headers)
+                {
+                    const auto headers = HeaderDecoder.Decode(frame.Payload);
+                    if (headers && frame.StreamId == streamId)
+                    {
+                        responseHeaders.insert(headers->begin(), headers->end());
+                        if (const auto decodedStatus = protocol::H2Status(*headers))
+                        {
+                            status = decodedStatus;
+                        }
+                    }
+                }
                 if (frame.Type == protocol::H2FrameType::Data && frame.StreamId == streamId)
                 {
                     response.insert(response.end(), frame.Payload.begin(), frame.Payload.end());
                 }
                 if (frame.StreamId == streamId && (frame.Flags & H2EndOrAckFlag) != 0)
                 {
+                    if (status && *status >= 300)
+                    {
+                        throw ControlHttpError(path,
+                                               *status,
+                                               std::string(response.begin(), response.end()),
+                                               ControlRetryAfterSeconds(responseHeaders));
+                    }
                     return response;
                 }
             }
         }
-        throw std::runtime_error("control response did not finish");
+        throw std::runtime_error("Control response did not finish.");
+    }
+
+    void AnswerControlPing(const std::string& text)
+    {
+        const nlohmann::json map = nlohmann::json::parse(text, nullptr, false);
+        if (map.is_discarded() || !map.is_object() || !map.contains("PingRequest"))
+        {
+            return;
+        }
+
+        const nlohmann::json& pingRequest = map.at("PingRequest");
+        if (!pingRequest.is_object())
+        {
+            return;
+        }
+        const std::string url = pingRequest.value("URL", "");
+        if (url.empty())
+        {
+            Log(LogLevel::Warning, "control", "ignoring control ping request without URL");
+            return;
+        }
+        if (url == LastPingUrl)
+        {
+            return;
+        }
+        LastPingUrl = url;
+
+        std::optional<std::vector<std::uint8_t>> response = BuildC2NResponse(pingRequest);
+        if (!response)
+        {
+            Log(LogLevel::Debug,
+                "control",
+                std::format("ignoring unsupported control ping request types={}",
+                            pingRequest.value("Types", "")));
+            return;
+        }
+
+        const std::string path = UrlPathAndQuery(url);
+        if (path.size() > MaximumSmallHpackLiteral)
+        {
+            Log(LogLevel::Warning, "control", "control ping response URL is too long");
+            return;
+        }
+        const std::uint32_t streamId = NextStreamId;
+        NextStreamId += 2;
+        std::vector<std::uint8_t> request =
+            protocol::BuildH2Headers("POST",
+                                     path,
+                                     protocol::ControlHandshake::DefaultHost,
+                                     "application/octet-stream",
+                                     {{"ts-lb", NodeKey}},
+                                     streamId,
+                                     false);
+        std::vector<std::uint8_t> data = protocol::BuildH2Data(*response, streamId, true);
+        request.insert(request.end(), data.begin(), data.end());
+        Transport->Send(request);
+        Log(LogLevel::Info,
+            "control",
+            std::format("answered c2n control ping path={} bytes={}", path, response->size()));
+    }
+
+    std::optional<NetworkConfig> TakeNetworkMapUpdate()
+    {
+        for (const protocol::H2Frame& frame : protocol::TakeCompleteH2Frames(H2Buffer))
+        {
+            if (frame.Type == protocol::H2FrameType::Settings &&
+                (frame.Flags & H2EndOrAckFlag) == 0)
+            {
+                Transport->Send(protocol::BuildH2SettingsAck());
+            }
+            else if (frame.Type == protocol::H2FrameType::Ping &&
+                     (frame.Flags & H2EndOrAckFlag) == 0)
+            {
+                Transport->Send(protocol::BuildH2PingAck(frame.Payload));
+            }
+            else if (frame.Type == protocol::H2FrameType::GoAway)
+            {
+                throw std::runtime_error("Control server closed the HTTP/2 connection.");
+            }
+            else if (frame.Type == protocol::H2FrameType::Data && frame.StreamId == MapStreamId)
+            {
+                MapBody.insert(MapBody.end(), frame.Payload.begin(), frame.Payload.end());
+                if (!frame.Payload.empty())
+                {
+                    Transport->Send(protocol::BuildH2WindowUpdate(
+                        0, static_cast<std::uint32_t>(frame.Payload.size())));
+                    Transport->Send(protocol::BuildH2WindowUpdate(
+                        frame.StreamId, static_cast<std::uint32_t>(frame.Payload.size())));
+                }
+            }
+        }
+        while (MapBody.size() >= MapLengthSize)
+        {
+            const std::size_t mapSize = MapBody[0] | (static_cast<std::size_t>(MapBody[1]) << 8U) |
+                                        (static_cast<std::size_t>(MapBody[2]) << 16U) |
+                                        (static_cast<std::size_t>(MapBody[3]) << 24U);
+            if (mapSize > MaximumStreamingMapSize)
+            {
+                throw std::runtime_error("Streaming network map exceeds the protocol limit.");
+            }
+            if (MapBody.size() < MapLengthSize + mapSize)
+            {
+                return std::nullopt;
+            }
+            const std::string json(MapBody.begin() + static_cast<std::ptrdiff_t>(MapLengthSize),
+                                   MapBody.begin() +
+                                       static_cast<std::ptrdiff_t>(MapLengthSize + mapSize));
+            MapBody.erase(MapBody.begin(),
+                          MapBody.begin() + static_cast<std::ptrdiff_t>(MapLengthSize + mapSize));
+            try
+            {
+                AnswerControlPing(json);
+            }
+            catch (const std::exception& error)
+            {
+                Log(LogLevel::Warning,
+                    "control",
+                    std::format("failed to answer control ping request: {}", error.what()));
+            }
+            if (std::optional<std::string> incremental = DescribeIncrementalNetworkMap(json))
+            {
+                Log(LogLevel::Debug, "control", *incremental);
+                if (CurrentMap && ApplyNetworkMapUpdate(*CurrentMap, json))
+                {
+                    return CurrentMap;
+                }
+                continue;
+            }
+            try
+            {
+                NetworkConfig config = ParseNetworkMap(json);
+                LogMapResponse(config, "streaming network map received");
+                CurrentMap = config;
+                return config;
+            }
+            catch (const std::exception& error)
+            {
+                Log(LogLevel::Debug,
+                    "control",
+                    std::format("consumed incremental network-map update: {}", error.what()));
+            }
+        }
+        return std::nullopt;
     }
 
     protocol::HostInfo Host;
@@ -182,7 +609,10 @@ public:
     std::uint32_t MapStreamId = 0;
     std::vector<std::uint8_t> H2Buffer;
     std::vector<std::uint8_t> MapBody;
+    std::vector<protocol::MapEndpoint> Endpoints;
     std::optional<NetworkConfig> CurrentMap;
+    std::string LastPingUrl;
+    protocol::H2HeaderDecoder HeaderDecoder;
     std::unique_ptr<protocol::NoiseTransport> Transport;
 };
 
@@ -190,7 +620,16 @@ ControlClient::ControlClient(IByteStream& stream,
                              const protocol::Bytes32& machinePrivateKey,
                              const protocol::Bytes32& nodePrivateKey,
                              const protocol::HostInfo& host)
-    : Implementation(std::make_unique<Impl>(stream, machinePrivateKey, nodePrivateKey, host))
+    : Implementation(std::make_unique<Impl>(
+          stream, machinePrivateKey, protocol::X25519PublicFromPrivate(nodePrivateKey), host))
+{
+}
+
+ControlClient::ControlClient(IByteStream& stream,
+                             const protocol::Bytes32& machinePrivateKey,
+                             ExternalNodePublicKey nodePublicKey,
+                             const protocol::HostInfo& host)
+    : Implementation(std::make_unique<Impl>(stream, machinePrivateKey, nodePublicKey.Value, host))
 {
 }
 
@@ -198,16 +637,49 @@ ControlClient::~ControlClient() = default;
 ControlClient::ControlClient(ControlClient&&) noexcept = default;
 ControlClient& ControlClient::operator=(ControlClient&&) noexcept = default;
 
-NetworkConfig ControlClient::RegisterAndGetNetworkMap(const std::string& authKey)
+RegistrationResult ControlClient::Register(const std::string& authKey,
+                                           const std::string& followupUrl)
 {
-    (void)Implementation->Request(
-        Implementation->NextStreamId,
-        "/machine/register",
-        protocol::BuildRegisterRequest(Implementation->NodeKey, authKey, Implementation->Host),
-        true);
-    Log(LogLevel::Info, "control", "node registration accepted");
+    const std::uint32_t streamId = Implementation->NextStreamId;
     Implementation->NextStreamId += 2;
-
+    const std::vector<std::uint8_t> registration = Implementation->Request(
+        streamId,
+        "/machine/register",
+        protocol::BuildRegisterRequest(
+            Implementation->NodeKey, authKey, followupUrl, Implementation->Host),
+        true);
+    const std::optional<protocol::RegisterResponse> response =
+        protocol::ParseRegisterResponse(registration);
+    if (!response)
+    {
+        throw std::runtime_error("Control returned an invalid node registration response.");
+    }
+    if (!response->Error.empty())
+    {
+        throw std::runtime_error(std::format("Node registration failed: {}.", response->Error));
+    }
+    if (response->NodeKeyExpired)
+    {
+        throw std::runtime_error("Control rejected the newly generated node key as expired.");
+    }
+    if (!response->AuthUrl.empty())
+    {
+        if (!protocol::IsValidAuthorizationUrl(response->AuthUrl))
+        {
+            throw std::runtime_error("Control returned an unsafe node authorization URL.");
+        }
+        Log(LogLevel::Info, "control", "interactive node login is required");
+        return RegistrationResult{.State = RegistrationState::LoginRequired,
+                                  .AuthorizationUrl = response->AuthUrl,
+                                  .AuthorizationCode =
+                                      protocol::AuthorizationCode(response->AuthUrl),
+                                  .ApprovalUrl = {},
+                                  .Network = std::nullopt};
+    }
+    Log(LogLevel::Info,
+        "control",
+        std::format("node registration accepted machine-authorized={}",
+                    response->MachineAuthorized));
     if (std::all_of(Implementation->DiscoPrivate.begin(),
                     Implementation->DiscoPrivate.end(),
                     [](std::uint8_t byte)
@@ -221,74 +693,257 @@ NetworkConfig ControlClient::RegisterAndGetNetworkMap(const std::string& authKey
         protocol::X25519PublicFromPrivate(Implementation->DiscoPrivate);
     Implementation->DiscoKey =
         "discokey:" + protocol::BytesToHex(discoPublic.data(), discoPublic.size());
-    std::vector<std::uint8_t> body = Implementation->Request(
+    NetworkConfig network = RequestNetworkMap();
+    network.SelfMachineAuthorized = response->MachineAuthorized;
+    return RegistrationResult{
+        .State = response->MachineAuthorized ? RegistrationState::Complete
+                                             : RegistrationState::MachineApprovalRequired,
+        .AuthorizationUrl = {},
+        .AuthorizationCode = {},
+        .ApprovalUrl = response->MachineAuthorized
+                           ? std::string{}
+                           : protocol::MachineApprovalUrl(network.SelfAddress),
+        .Network = std::move(network)};
+}
+
+RegistrationResult ControlClient::RegisterUntilAuthorized(const std::string& authKey,
+                                                          const RegistrationOptions& options)
+{
+    const auto registerWithRateLimitRetry =
+        [this, &options](const std::string& key, const std::string& followupUrl)
+    {
+        while (true)
+        {
+            try
+            {
+                return Register(key, followupUrl);
+            }
+            catch (const ControlHttpError& error)
+            {
+                if (error.Status != 429)
+                {
+                    throw;
+                }
+
+                const std::chrono::milliseconds retryDelay =
+                    RegistrationRateLimitRetryDelay(error.RetryAfterSeconds);
+                Log(LogLevel::Warning,
+                    "control",
+                    std::format("node registration rate limited; retrying after {} milliseconds",
+                                retryDelay.count()));
+                bool shouldContinue = true;
+                if (options.WaitForRetry)
+                {
+                    shouldContinue = options.WaitForRetry(retryDelay);
+                }
+                else
+                {
+                    std::this_thread::sleep_for(retryDelay);
+                }
+                if (!shouldContinue)
+                {
+                    throw std::runtime_error("Control registration was cancelled.");
+                }
+            }
+        }
+    };
+
+    RegistrationResult registration =
+        registerWithRateLimitRetry(authKey, options.InitialFollowupUrl);
+    std::string followedAuthorizationUrl = options.InitialFollowupUrl;
+    bool reauthorizationKeyUsed = false;
+    while (registration.State != RegistrationState::Complete)
+    {
+        if (registration.State == RegistrationState::LoginRequired && authKey.empty() &&
+            !options.ReauthorizationKey.empty() && !reauthorizationKeyUsed)
+        {
+            Log(LogLevel::Info,
+                "control",
+                "saved identity requires reauthorization; using the supplied auth key");
+            reauthorizationKeyUsed = true;
+            followedAuthorizationUrl.clear();
+            registration = registerWithRateLimitRetry(options.ReauthorizationKey, {});
+            continue;
+        }
+        if (options.StateChanged)
+        {
+            options.StateChanged(registration);
+        }
+        if (registration.State == RegistrationState::LoginRequired)
+        {
+            if (registration.AuthorizationUrl == followedAuthorizationUrl)
+            {
+                bool shouldContinue = true;
+                if (options.WaitForRetry)
+                {
+                    shouldContinue = options.WaitForRetry(UnchangedAuthorizationUrlRetryDelay);
+                }
+                else
+                {
+                    std::this_thread::sleep_for(UnchangedAuthorizationUrlRetryDelay);
+                }
+                if (!shouldContinue)
+                {
+                    throw std::runtime_error("Control registration was cancelled.");
+                }
+            }
+            followedAuthorizationUrl = registration.AuthorizationUrl;
+            registration = registerWithRateLimitRetry({}, followedAuthorizationUrl);
+            continue;
+        }
+        if (!registration.Network)
+        {
+            throw std::runtime_error("Machine approval requires a network map.");
+        }
+        SetPreferredDerp(registration.Network->DerpRegion);
+        registration.NetworkMapStreaming = true;
+        while (!registration.Network->SelfMachineAuthorized)
+        {
+            registration.Network = WaitForNetworkMap();
+        }
+        registration.State = RegistrationState::Complete;
+        registration.ApprovalUrl.clear();
+    }
+    return registration;
+}
+
+NetworkConfig ControlClient::RequestNetworkMap()
+{
+    std::vector<std::uint8_t> body;
+    std::chrono::milliseconds retryDelay = InitialMapRetryDelay;
+    for (int attempt = 1; attempt <= MaximumInitialMapAttempts; ++attempt)
+    {
+        const std::uint32_t streamId = Implementation->NextStreamId;
+        Implementation->NextStreamId += 2;
+        try
+        {
+            body = Implementation->Request(
+                streamId,
+                "/machine/map",
+                protocol::BuildReadOnlyMapRequest(
+                    Implementation->NodeKey, Implementation->DiscoKey, Implementation->Host),
+                true);
+            break;
+        }
+        catch (const ControlHttpError& error)
+        {
+            if (attempt == MaximumInitialMapAttempts ||
+                !protocol::IsRetryableInitialMapError(error.Status, error.Body))
+            {
+                throw;
+            }
+            Log(LogLevel::Warning,
+                "control",
+                "new node is not visible to the map service yet; retrying initial map");
+            std::this_thread::sleep_for(retryDelay);
+            retryDelay = std::min(retryDelay * 2, MaximumMapRetryDelay);
+        }
+    }
+
+    NetworkConfig config = ParseMapResponseBody(body);
+    LogMapResponse(config, "network map received");
+    Implementation->CurrentMap = config;
+    return config;
+}
+
+FeatureEnablement ControlClient::QueryFeature(const std::string& feature)
+{
+    const std::vector<std::uint8_t> body = Implementation->Request(
         Implementation->NextStreamId,
-        "/machine/map",
-        protocol::BuildMapRequest(
-            Implementation->NodeKey, Implementation->DiscoKey, Implementation->Host),
+        "/machine/feature/query",
+        protocol::BuildQueryFeatureRequest(Implementation->NodeKey, feature),
         true);
     Implementation->NextStreamId += 2;
 
-    const auto start = std::find(body.begin(), body.end(), static_cast<std::uint8_t>('{'));
-    if (start == body.end())
+    const nlohmann::json json = nlohmann::json::parse(body, nullptr, false);
+    if (json.is_discarded() || !json.is_object())
     {
-        throw std::runtime_error("control map response did not contain JSON");
+        throw std::runtime_error("Control feature query response did not contain JSON.");
     }
-    const std::size_t jsonOffset = static_cast<std::size_t>(start - body.begin());
-    std::size_t jsonLength = body.size() - jsonOffset;
-    if (jsonOffset >= 4)
+    return FeatureEnablement{.Complete = json.value("Complete", false),
+                             .ShouldWait = json.value("ShouldWait", false),
+                             .Text = json.value("Text", ""),
+                             .Url = json.value("URL", "")};
+}
+
+void ControlClient::SetDnsTxt(const std::string& name, const std::string& value)
+{
+    if (name.empty() || value.empty())
     {
-        const std::size_t framedLength = (static_cast<std::size_t>(body[jsonOffset - 4]) << 24U) |
-                                         (static_cast<std::size_t>(body[jsonOffset - 3]) << 16U) |
-                                         (static_cast<std::size_t>(body[jsonOffset - 2]) << 8U) |
-                                         body[jsonOffset - 1];
-        if (framedLength > 0 && jsonOffset + framedLength <= body.size())
-        {
-            jsonLength = framedLength;
-        }
+        throw std::invalid_argument("DNS TXT name and value must not be empty.");
     }
-    NetworkConfig config =
-        ParseNetworkMap(std::string(start, start + static_cast<std::ptrdiff_t>(jsonLength)));
+    (void)Implementation->Request(
+        Implementation->NextStreamId,
+        "/machine/set-dns",
+        protocol::BuildSetDnsRequest(Implementation->NodeKey, name, value),
+        true);
+    Implementation->NextStreamId += 2;
+}
+
+void ControlClient::UpdateHostInfo(int preferredDerp)
+{
+    const std::vector<std::uint8_t> body = protocol::BuildMapRequest(Implementation->NodeKey,
+                                                                     Implementation->DiscoKey,
+                                                                     Implementation->Host,
+                                                                     preferredDerp,
+                                                                     false,
+                                                                     true,
+                                                                     Implementation->Endpoints,
+                                                                     true);
     Log(LogLevel::Info,
         "control",
-        "network map received: address=" + config.SelfAddress +
-            " peers=" + std::to_string(config.Peers.size()) + " derp=" + config.DerpCode +
-            " dns=" + config.DnsResolver);
-    Implementation->CurrentMap = config;
-    return config;
+        std::format("sending hostinfo update: ingress={} peerapi-services={} endpoints={} "
+                    "preferred-derp={}",
+                    Implementation->Host.IngressEnabled ? 1 : 0,
+                    Implementation->Host.Services.size(),
+                    Implementation->Endpoints.size(),
+                    preferredDerp));
+    const std::vector<std::uint8_t> response =
+        Implementation->Request(Implementation->NextStreamId, "/machine/map", body, true);
+    Implementation->NextStreamId += 2;
+    Log(LogLevel::Info,
+        "control",
+        std::format("hostinfo update accepted response-bytes={}", response.size()));
 }
 
 void ControlClient::SetDiscoPrivateKey(const protocol::Bytes32& privateKey)
 {
     Implementation->DiscoPrivate = privateKey;
+    const protocol::Bytes32 publicKey = protocol::X25519PublicFromPrivate(privateKey);
+    Implementation->DiscoKey =
+        "discokey:" + protocol::BytesToHex(publicKey.data(), publicKey.size());
+}
+
+void ControlClient::SetEndpoints(std::vector<protocol::MapEndpoint> endpoints)
+{
+    Implementation->Endpoints = std::move(endpoints);
 }
 
 void ControlClient::SetPreferredDerp(int region)
 {
-    (void)Implementation->Request(
-        Implementation->NextStreamId,
-        "/machine/map",
-        protocol::BuildMapRequest(
-            Implementation->NodeKey, Implementation->DiscoKey, Implementation->Host, region),
-        true);
-    Implementation->NextStreamId += 2;
-    Log(LogLevel::Debug, "control", "preferred DERP set to " + std::to_string(region));
-
-    (void)Implementation->Request(
-        Implementation->NextStreamId,
-        "/machine/map",
-        protocol::BuildMapRequest(
-            Implementation->NodeKey, Implementation->DiscoKey, Implementation->Host, region, true),
-        false);
+    (void)Implementation->Request(Implementation->NextStreamId,
+                                  "/machine/map",
+                                  protocol::BuildMapRequest(Implementation->NodeKey,
+                                                            Implementation->DiscoKey,
+                                                            Implementation->Host,
+                                                            region,
+                                                            true,
+                                                            false,
+                                                            Implementation->Endpoints),
+                                  false);
     Implementation->MapStreamId = Implementation->NextStreamId;
     Implementation->NextStreamId += 2;
-    Log(LogLevel::Info, "control", "streaming network map started");
+    Log(LogLevel::Info,
+        "control",
+        std::format("streaming network map started with preferred DERP {} ingress={} "
+                    "peerapi-services={}",
+                    region,
+                    Implementation->Host.IngressEnabled ? 1 : 0,
+                    Implementation->Host.Services.size()));
 }
 
 std::optional<NetworkConfig> ControlClient::PollNetworkMap()
 {
-    constexpr std::size_t mapLengthSize = 4;
-    constexpr std::size_t maximumMapSize = 16U * 1024U * 1024U;
     Implementation->Transport->Flush();
     while (true)
     {
@@ -301,77 +956,21 @@ std::optional<NetworkConfig> ControlClient::PollNetworkMap()
         Implementation->H2Buffer.insert(
             Implementation->H2Buffer.end(), plaintext->begin(), plaintext->end());
     }
-    for (const protocol::H2Frame& frame : protocol::TakeCompleteH2Frames(Implementation->H2Buffer))
+    return Implementation->TakeNetworkMapUpdate();
+}
+
+NetworkConfig ControlClient::WaitForNetworkMap()
+{
+    Implementation->Transport->Flush();
+    while (true)
     {
-        if (frame.Type == protocol::H2FrameType::Settings && (frame.Flags & H2EndOrAckFlag) == 0)
+        if (std::optional<NetworkConfig> update = Implementation->TakeNetworkMapUpdate())
         {
-            Implementation->Transport->Send(protocol::BuildH2SettingsAck());
+            return std::move(*update);
         }
-        else if (frame.Type == protocol::H2FrameType::Ping && (frame.Flags & H2EndOrAckFlag) == 0)
-        {
-            Implementation->Transport->Send(protocol::BuildH2PingAck(frame.Payload));
-        }
-        else if (frame.Type == protocol::H2FrameType::GoAway)
-        {
-            throw std::runtime_error("control server closed the HTTP/2 connection");
-        }
-        else if (frame.Type == protocol::H2FrameType::Data &&
-                 frame.StreamId == Implementation->MapStreamId)
-        {
-            Implementation->MapBody.insert(
-                Implementation->MapBody.end(), frame.Payload.begin(), frame.Payload.end());
-            if (!frame.Payload.empty())
-            {
-                Implementation->Transport->Send(protocol::BuildH2WindowUpdate(
-                    0, static_cast<std::uint32_t>(frame.Payload.size())));
-                Implementation->Transport->Send(protocol::BuildH2WindowUpdate(
-                    frame.StreamId, static_cast<std::uint32_t>(frame.Payload.size())));
-            }
-        }
-    }
-    if (Implementation->MapBody.size() < mapLengthSize)
-    {
-        return std::nullopt;
-    }
-    const std::size_t mapSize = Implementation->MapBody[0] |
-                                (static_cast<std::size_t>(Implementation->MapBody[1]) << 8U) |
-                                (static_cast<std::size_t>(Implementation->MapBody[2]) << 16U) |
-                                (static_cast<std::size_t>(Implementation->MapBody[3]) << 24U);
-    if (mapSize > maximumMapSize)
-    {
-        throw std::runtime_error("streaming network map exceeds the protocol limit");
-    }
-    if (Implementation->MapBody.size() < mapLengthSize + mapSize)
-    {
-        return std::nullopt;
-    }
-    const std::string json(
-        Implementation->MapBody.begin() + static_cast<std::ptrdiff_t>(mapLengthSize),
-        Implementation->MapBody.begin() + static_cast<std::ptrdiff_t>(mapLengthSize + mapSize));
-    Implementation->MapBody.erase(Implementation->MapBody.begin(),
-                                  Implementation->MapBody.begin() +
-                                      static_cast<std::ptrdiff_t>(mapLengthSize + mapSize));
-    if (std::optional<std::string> incremental = DescribeIncrementalNetworkMap(json))
-    {
-        Log(LogLevel::Debug, "control", *incremental);
-        if (Implementation->CurrentMap && ApplyNetworkMapUpdate(*Implementation->CurrentMap, json))
-        {
-            return Implementation->CurrentMap;
-        }
-        return std::nullopt;
-    }
-    try
-    {
-        NetworkConfig config = ParseNetworkMap(json);
-        Implementation->CurrentMap = config;
-        return config;
-    }
-    catch (const std::exception& error)
-    {
-        Log(LogLevel::Debug,
-            "control",
-            "consumed incremental network-map update: " + std::string(error.what()));
-        return std::nullopt;
+        std::vector<std::uint8_t> plaintext = Implementation->Transport->Receive();
+        Implementation->H2Buffer.insert(
+            Implementation->H2Buffer.end(), plaintext.begin(), plaintext.end());
     }
 }
 

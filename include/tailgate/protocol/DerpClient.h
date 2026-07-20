@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@ class DerpClient
 {
 public:
     using Key = std::array<std::uint8_t, 32>;
+    using Authenticator = std::function<std::vector<std::uint8_t>(const Key& serverKey)>;
 
     struct Packet
     {
@@ -23,6 +25,9 @@ public:
     };
 
     DerpClient(IByteStream& stream, Key privateKey, Key publicKey);
+    DerpClient(IByteStream& stream, Authenticator authenticator);
+    [[nodiscard]] static std::vector<std::uint8_t>
+    BuildClientInfo(const Key& privateKey, const Key& publicKey, const Key& serverKey);
     void Connect(const std::string& hostname);
     void Send(const Key& destination, const std::vector<std::uint8_t>& packet);
     [[nodiscard]] Packet Receive();
@@ -47,6 +52,7 @@ private:
     Key PrivateKey;
     Key PublicKey;
     Key ServerKey{};
+    Authenticator Authenticate;
     std::vector<std::uint8_t> ReceiveBuffer;
     std::vector<std::uint8_t> SendBuffer;
     std::size_t SendOffset = 0;

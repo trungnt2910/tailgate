@@ -1,0 +1,29 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.Background.Manager
+    STATIC
+    ControlPlaneManager.h
+    DataPlaneManager.h
+    SessionManager.h
+    TransportManager.h
+    impl/ControlPlaneManagerImpl.cpp
+    impl/ControlPlaneManagerImpl.h
+    impl/DataPlaneManagerImpl.cpp
+    impl/DataPlaneManagerImpl.h
+    impl/Rs2TransportManagerImpl.cpp
+    impl/Rs2TransportManagerImpl.h
+    impl/SessionManagerImpl.cpp
+    impl/SessionManagerImpl.h
+)
+target_include_directories(
+    Tailgate.Uwp.Background.Manager
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(
+    Tailgate.Uwp.Background.Manager
+    PUBLIC
+        tailgate_core
+    PRIVATE
+        Tailgate.Uwp.Common
+        nlohmann_json::nlohmann_json
+)

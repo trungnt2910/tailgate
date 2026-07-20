@@ -1,11 +1,11 @@
 #pragma once
 
-#include "tailgate/ByteStream.h"
-#include "tailgate/protocol/Noise.h"
-
 #include <cstdint>
 #include <optional>
 #include <vector>
+
+#include <tailgate/ByteStream.h>
+#include <tailgate/protocol/ControlHandshake.h>
 
 namespace tailgate::protocol
 {
@@ -14,6 +14,7 @@ class NoiseTransport
 {
 public:
     NoiseTransport(IByteStream& stream, NoiseKeys keys);
+    NoiseTransport(IByteStream& stream, ControlHandshakeResult handshake);
 
     void Send(const std::vector<std::uint8_t>& plaintext);
     void Flush();
@@ -22,6 +23,8 @@ public:
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> TryReceive();
 
 private:
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>> TryTakeBufferedFrame();
+
     IByteStream& m_stream;
     NoiseKeys m_keys;
     std::uint64_t m_txNonce = 0;

@@ -1,8 +1,9 @@
 #include "tailgate/protocol/NoiseTransport.h"
 
-#include "tailgate/protocol/Crypto.h"
-
 #include <stdexcept>
+#include <utility>
+
+#include <tailgate/protocol/Crypto.h>
 
 namespace tailgate::protocol
 {
@@ -19,6 +20,13 @@ NoiseTransport::NoiseTransport(IByteStream& stream, NoiseKeys keys) : m_stream(s
 {
 }
 
+NoiseTransport::NoiseTransport(IByteStream& stream, ControlHandshakeResult handshake)
+    : m_stream(stream),
+      m_keys(std::move(handshake.Keys)),
+      m_receiveBuffer(std::move(handshake.ProactiveFrames))
+{
+}
+
 void NoiseTransport::Send(const std::vector<std::uint8_t>& plaintext)
 {
     std::vector<std::uint8_t> ciphertext =
@@ -27,7 +35,7 @@ void NoiseTransport::Send(const std::vector<std::uint8_t>& plaintext)
 
     if (ciphertext.size() > MaximumCiphertextSize)
     {
-        throw std::runtime_error("Noise transport frame is too large");
+        throw std::runtime_error("Noise transport frame is too large.");
     }
 
     std::vector<std::uint8_t> frame;
@@ -52,7 +60,7 @@ void NoiseTransport::Flush()
         }
         if (*written == 0)
         {
-            throw std::runtime_error("Noise transport stream closed during write");
+            throw std::runtime_error("Noise transport stream closed during write.");
         }
         m_sendOffset += *written;
     }
@@ -67,14 +75,46 @@ bool NoiseTransport::HasPendingOutput() const
 
 std::vector<std::uint8_t> NoiseTransport::Receive()
 {
-    std::vector<std::uint8_t> header = m_stream.ReadExact(TransportHeaderSize);
-    if (header[0] != TransportFrameType)
+    while (true)
     {
-        throw std::runtime_error("unexpected Noise transport frame type");
+        if (std::optional<std::vector<std::uint8_t>> plaintext = TryTakeBufferedFrame())
+        {
+            return std::move(*plaintext);
+        }
+        const std::size_t availableCapacity =
+            MaximumCiphertextSize + TransportHeaderSize - m_receiveBuffer.size();
+        std::vector<std::uint8_t> available = m_stream.ReadSome(availableCapacity);
+        if (available.empty())
+        {
+            throw std::runtime_error("Noise transport stream closed.");
+        }
+        m_receiveBuffer.insert(m_receiveBuffer.end(), available.begin(), available.end());
+    }
+}
+
+std::optional<std::vector<std::uint8_t>> NoiseTransport::TryTakeBufferedFrame()
+{
+    if (m_receiveBuffer.size() < TransportHeaderSize)
+    {
+        return std::nullopt;
+    }
+    if (m_receiveBuffer[0] != TransportFrameType)
+    {
+        throw std::runtime_error("Unexpected Noise transport frame type.");
+    }
+    const std::size_t ciphertextLength =
+        (static_cast<std::size_t>(m_receiveBuffer[1]) << 8) | m_receiveBuffer[2];
+    const std::size_t frameSize = TransportHeaderSize + ciphertextLength;
+    if (m_receiveBuffer.size() < frameSize)
+    {
+        return std::nullopt;
     }
 
-    std::size_t ciphertextLength = (static_cast<std::size_t>(header[1]) << 8) | header[2];
-    std::vector<std::uint8_t> ciphertext = m_stream.ReadExact(ciphertextLength);
+    std::vector<std::uint8_t> ciphertext(
+        m_receiveBuffer.begin() + static_cast<std::ptrdiff_t>(TransportHeaderSize),
+        m_receiveBuffer.begin() + static_cast<std::ptrdiff_t>(frameSize));
+    m_receiveBuffer.erase(m_receiveBuffer.begin(),
+                          m_receiveBuffer.begin() + static_cast<std::ptrdiff_t>(frameSize));
     std::vector<std::uint8_t> plaintext =
         ChaCha20Poly1305DecryptBigNonce(m_keys.RxKey, m_rxNonce, {}, ciphertext);
     ++m_rxNonce;
@@ -83,53 +123,23 @@ std::vector<std::uint8_t> NoiseTransport::Receive()
 
 std::optional<std::vector<std::uint8_t>> NoiseTransport::TryReceive()
 {
-    auto completeFrameSize = [&]() -> std::optional<std::size_t>
+    if (std::optional<std::vector<std::uint8_t>> plaintext = TryTakeBufferedFrame())
     {
-        if (m_receiveBuffer.size() < TransportHeaderSize)
-        {
-            return std::nullopt;
-        }
-        if (m_receiveBuffer[0] != TransportFrameType)
-        {
-            throw std::runtime_error("unexpected Noise transport frame type");
-        }
-        const std::size_t ciphertextLength =
-            (static_cast<std::size_t>(m_receiveBuffer[1]) << 8) | m_receiveBuffer[2];
-        return TransportHeaderSize + ciphertextLength;
-    };
-
-    std::optional<std::size_t> frameSize = completeFrameSize();
-    if (!frameSize || m_receiveBuffer.size() < *frameSize)
-    {
-        const std::size_t availableCapacity =
-            MaximumCiphertextSize + TransportHeaderSize - m_receiveBuffer.size();
-        std::optional<std::vector<std::uint8_t>> available =
-            m_stream.TryReadSome(availableCapacity);
-        if (!available)
-        {
-            return std::nullopt;
-        }
-        if (available->empty())
-        {
-            throw std::runtime_error("Noise transport stream closed");
-        }
-        m_receiveBuffer.insert(m_receiveBuffer.end(), available->begin(), available->end());
-        frameSize = completeFrameSize();
+        return plaintext;
     }
-    if (!frameSize || m_receiveBuffer.size() < *frameSize)
+    const std::size_t availableCapacity =
+        MaximumCiphertextSize + TransportHeaderSize - m_receiveBuffer.size();
+    std::optional<std::vector<std::uint8_t>> available = m_stream.TryReadSome(availableCapacity);
+    if (!available)
     {
         return std::nullopt;
     }
-
-    std::vector<std::uint8_t> ciphertext(
-        m_receiveBuffer.begin() + static_cast<std::ptrdiff_t>(TransportHeaderSize),
-        m_receiveBuffer.begin() + static_cast<std::ptrdiff_t>(*frameSize));
-    m_receiveBuffer.erase(m_receiveBuffer.begin(),
-                          m_receiveBuffer.begin() + static_cast<std::ptrdiff_t>(*frameSize));
-    std::vector<std::uint8_t> plaintext =
-        ChaCha20Poly1305DecryptBigNonce(m_keys.RxKey, m_rxNonce, {}, ciphertext);
-    ++m_rxNonce;
-    return plaintext;
+    if (available->empty())
+    {
+        throw std::runtime_error("Noise transport stream closed.");
+    }
+    m_receiveBuffer.insert(m_receiveBuffer.end(), available->begin(), available->end());
+    return TryTakeBufferedFrame();
 }
 
 } // namespace tailgate::protocol

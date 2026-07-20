@@ -1,0 +1,55 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.App.Controller.Impl
+    STATIC
+    AuthorizationControllerImpl.cpp
+    AuthorizationControllerImpl.h
+    ClipboardControllerImpl.cpp
+    ClipboardControllerImpl.h
+    ControlPlaneControllerImpl.cpp
+    ControlPlaneControllerImpl.h
+    ContentDialogControllerImpl.cpp
+    ContentDialogControllerImpl.h
+    DevicePageControllerImpl.cpp
+    DevicePageControllerImpl.h
+    ExitNodeControllerImpl.cpp
+    ExitNodeControllerImpl.h
+    HomePageControllerImpl.cpp
+    HomePageControllerImpl.h
+    InteractiveAuthorizationControllerImpl.cpp
+    InteractiveAuthorizationControllerImpl.h
+    MainWindowControllerImpl.cpp
+    MainWindowControllerImpl.h
+    NavigationControllerImpl.cpp
+    NavigationControllerImpl.h
+    NodeAuthorizationDialogControllerImpl.cpp
+    NodeAuthorizationDialogControllerImpl.h
+    PackageControllerImpl.cpp
+    PackageControllerImpl.h
+    PingControllerImpl.cpp
+    PingControllerImpl.h
+    PingDialogControllerImpl.cpp
+    PingDialogControllerImpl.h
+    ProfilePictureControllerImpl.cpp
+    ProfilePictureControllerImpl.h
+    SessionControllerImpl.cpp
+    SessionControllerImpl.h
+    SetOptionsControllerImpl.cpp
+    SetOptionsControllerImpl.h
+    SettingsControllerImpl.cpp
+    SettingsControllerImpl.h
+    SignInDialogControllerImpl.cpp
+    SignInDialogControllerImpl.h
+    TailgateRelayControllerImpl.cpp
+    TailgateRelayControllerImpl.h
+    VpnProfileControllerImpl.cpp
+    VpnProfileControllerImpl.h
+)
+target_link_libraries(
+    Tailgate.Uwp.App.Controller.Impl
+    PRIVATE
+        Boost.DI
+        Tailgate.Uwp.App.Model
+        Tailgate.Uwp.App.Ui
+        Tailgate.Uwp.Common
+        tailgate_cli
+)

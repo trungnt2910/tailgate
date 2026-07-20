@@ -1,0 +1,16 @@
+#pragma once
+
+#include "common/ResourceKey.h"
+
+namespace tailgate::uwp
+{
+
+class Resources final
+{
+public:
+    Resources() = delete;
+
+    @TAILGATE_RESOURCE_CPP_ENTRIES@
+};
+
+} // namespace tailgate::uwp

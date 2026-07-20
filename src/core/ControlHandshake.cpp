@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <stdexcept>
 
 namespace tailgate::protocol
@@ -27,19 +28,15 @@ std::vector<std::uint8_t>
 ControlHandshake::BuildUpgradeRequest(const std::string& host,
                                       const std::vector<std::uint8_t>& message1)
 {
-    std::string encoded = Base64Encode(message1);
-    std::string request = "POST /ts2021 HTTP/1.1\r\n"
-                          "Host: " +
-                          host +
-                          "\r\n"
-                          "Upgrade: tailscale-control-protocol\r\n"
-                          "Connection: Upgrade\r\n"
-                          "User-Agent: Tailgate\r\n"
-                          "X-Tailscale-Handshake: " +
-                          encoded +
-                          "\r\n"
-                          "Content-Length: 0\r\n"
-                          "\r\n";
+    const std::string encoded = Base64Encode(message1);
+    const std::string request = std::format("POST /ts2021 HTTP/1.1\r\nHost: {}\r\n"
+                                            "Upgrade: tailscale-control-protocol\r\n"
+                                            "Connection: Upgrade\r\n"
+                                            "User-Agent: Tailgate\r\n"
+                                            "X-Tailscale-Handshake: {}\r\n"
+                                            "Content-Length: 0\r\n\r\n",
+                                            host,
+                                            encoded);
     return std::vector<std::uint8_t>(request.begin(), request.end());
 }
 
@@ -66,7 +63,7 @@ ControlHandshakeResult ControlHandshake::Run(IByteStream& stream, const std::str
         std::vector<std::uint8_t> chunk = stream.ReadSome(ReadChunkSize);
         if (chunk.empty())
         {
-            throw std::runtime_error("control server closed during HTTP upgrade");
+            throw std::runtime_error("Control server closed during HTTP upgrade.");
         }
         response.insert(response.end(), chunk.begin(), chunk.end());
         headerEnd = FindHeaderEnd(response);
@@ -76,8 +73,8 @@ ControlHandshakeResult ControlHandshake::Run(IByteStream& stream, const std::str
                         response.begin() + static_cast<std::ptrdiff_t>(headerEnd));
     if (headers.find("101") == std::string::npos)
     {
-        throw std::runtime_error("control server did not switch protocols: " +
-                                 headers.substr(0, MaximumDiagnosticHeaderLength));
+        throw std::runtime_error(std::format("Control server did not switch protocols: {}.",
+                                             headers.substr(0, MaximumDiagnosticHeaderLength)));
     }
 
     std::vector<std::uint8_t> body(response.begin() + static_cast<std::ptrdiff_t>(headerEnd),
@@ -90,7 +87,7 @@ ControlHandshakeResult ControlHandshake::Run(IByteStream& stream, const std::str
 
     if (body[0] != NoiseMessageTwoType)
     {
-        throw std::runtime_error("unexpected Noise message type from control server");
+        throw std::runtime_error("Unexpected Noise message type from control server.");
     }
     std::size_t payloadLength = (static_cast<std::size_t>(body[1]) << 8) | body[2];
     while (body.size() < NoiseFrameHeaderSize + payloadLength)
@@ -107,7 +104,7 @@ ControlHandshakeResult ControlHandshake::Run(IByteStream& stream, const std::str
         body.begin() + static_cast<std::ptrdiff_t>(NoiseFrameHeaderSize + payloadLength),
         body.end());
     NoiseKeys keys = m_noise.ReadMessage2(message2);
-    return ControlHandshakeResult{keys, extra};
+    return ControlHandshakeResult{.Keys = keys, .ProactiveFrames = extra};
 }
 
 } // namespace tailgate::protocol

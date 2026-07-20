@@ -1,0 +1,21 @@
+add_subdirectory(ui)
+add_subdirectory(model)
+add_subdirectory(controller)
+add_subdirectory(view)
+
+tailgate_uwp_add_library(
+    Tailgate.Uwp.App
+    STATIC
+    DI.cpp
+    DI.h
+)
+target_link_libraries(
+    Tailgate.Uwp.App
+    PUBLIC
+        Boost.DI
+        Tailgate.Uwp.Common
+    PRIVATE
+        Tailgate.Uwp.App.Controller.Impl
+        Tailgate.Uwp.App.Ui
+        Tailgate.Uwp.App.View.Impl
+)

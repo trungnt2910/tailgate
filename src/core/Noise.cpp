@@ -25,7 +25,7 @@ std::vector<std::uint8_t> ToVector(const Bytes32& bytes)
 NoiseInitiator::NoiseInitiator(Bytes32 machinePrivateKey) : m_machinePrivateKey(machinePrivateKey)
 {
     // Callers that need deterministic handshakes should use the overload that supplies this key.
-    throw std::runtime_error("random ephemeral key generation is not wired yet");
+    throw std::runtime_error("Random ephemeral key generation is not wired yet.");
 }
 
 NoiseInitiator::NoiseInitiator(Bytes32 machinePrivateKey, Bytes32 ephemeralPrivateKey)
@@ -100,7 +100,7 @@ std::vector<std::uint8_t> NoiseInitiator::WriteMessage1()
 {
     if (!m_initialized)
     {
-        throw std::runtime_error("Noise initiator is not initialized");
+        throw std::runtime_error("Noise initiator is not initialized.");
     }
 
     std::vector<std::uint8_t> out;
@@ -133,7 +133,7 @@ NoiseKeys NoiseInitiator::ReadMessage2(const std::vector<std::uint8_t>& message)
 {
     if (message.size() < 48)
     {
-        throw std::runtime_error("Noise message 2 is too short");
+        throw std::runtime_error("Noise message 2 is too short.");
     }
 
     Bytes32 remoteEphemeral{};
@@ -148,7 +148,7 @@ NoiseKeys NoiseInitiator::ReadMessage2(const std::vector<std::uint8_t>& message)
     MixHash(ciphertext.data(), ciphertext.size());
 
     std::array<Bytes32, 3> split = Hkdf(m_chainingKey, nullptr, 0);
-    return NoiseKeys{split[0], split[1]};
+    return NoiseKeys{.TxKey = split[0], .RxKey = split[1]};
 }
 
 } // namespace tailgate::protocol

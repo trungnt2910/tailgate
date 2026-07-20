@@ -160,15 +160,15 @@ std::optional<Disco::Message> Disco::Parse(const std::vector<std::uint8_t>& pack
                 plaintext[offset + EndpointPortOffset + 1];
             if (ipv4Mapped && port != 0)
             {
-                result.Endpoints.push_back({
-                    (static_cast<std::uint32_t>(plaintext[offset + Ipv4AddressOffset]) << 24U) |
+                result.Endpoints.push_back(Endpoint{
+                    .Address =
+                        (static_cast<std::uint32_t>(plaintext[offset + Ipv4AddressOffset]) << 24U) |
                         (static_cast<std::uint32_t>(plaintext[offset + Ipv4AddressOffset + 1])
                          << 16U) |
                         (static_cast<std::uint32_t>(plaintext[offset + Ipv4AddressOffset + 2])
                          << 8U) |
                         plaintext[offset + Ipv4AddressOffset + 3],
-                    port,
-                });
+                    .Port = port});
             }
         }
     }

@@ -2,11 +2,10 @@
 
 #include <algorithm>
 #include <cstring>
-#include <iomanip>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 
+#include <boost/algorithm/hex.hpp>
 #include <sodium.h>
 
 extern "C"
@@ -32,23 +31,6 @@ std::uint64_t ByteSwap64(std::uint64_t value)
            ((value & 0x0000000000ff0000ULL) << 24) | ((value & 0x00000000ff000000ULL) << 8) |
            ((value & 0x000000ff00000000ULL) >> 8) | ((value & 0x0000ff0000000000ULL) >> 24) |
            ((value & 0x00ff000000000000ULL) >> 40) | ((value & 0xff00000000000000ULL) >> 56);
-}
-
-std::uint8_t HexNibble(char ch)
-{
-    if (ch >= '0' && ch <= '9')
-    {
-        return static_cast<std::uint8_t>(ch - '0');
-    }
-    if (ch >= 'a' && ch <= 'f')
-    {
-        return static_cast<std::uint8_t>(10 + ch - 'a');
-    }
-    if (ch >= 'A' && ch <= 'F')
-    {
-        return static_cast<std::uint8_t>(10 + ch - 'A');
-    }
-    throw std::runtime_error("invalid hex character");
 }
 
 } // namespace
@@ -158,7 +140,7 @@ ChaCha20Poly1305DecryptBigNonce(const Bytes32& key,
 {
     if (ciphertext.size() < ChaCha20Poly1305TagSize)
     {
-        throw std::runtime_error("ciphertext too short");
+        throw std::runtime_error("Ciphertext is too short.");
     }
 
     std::vector<std::uint8_t> plaintext(ciphertext.size() - ChaCha20Poly1305TagSize);
@@ -171,36 +153,32 @@ ChaCha20Poly1305DecryptBigNonce(const Bytes32& key,
                                        key.data());
     if (!ok)
     {
-        throw std::runtime_error("chacha20-poly1305 authentication failed");
+        throw std::runtime_error("ChaCha20-Poly1305 authentication failed.");
     }
     return plaintext;
 }
 
 std::vector<std::uint8_t> HexToBytes(const std::string& text)
 {
-    if (text.size() % 2 != 0)
+    try
     {
-        throw std::runtime_error("hex string must contain an even number of characters");
+        std::vector<std::uint8_t> result;
+        result.reserve(text.size() / 2);
+        boost::algorithm::unhex(text, std::back_inserter(result));
+        return result;
     }
-
-    std::vector<std::uint8_t> result(text.size() / 2);
-    for (std::size_t index = 0; index < result.size(); ++index)
+    catch (const boost::algorithm::hex_decode_error&)
     {
-        result[index] = static_cast<std::uint8_t>((HexNibble(text[index * 2]) << 4) |
-                                                  HexNibble(text[index * 2 + 1]));
+        throw std::runtime_error("Invalid hexadecimal string.");
     }
-    return result;
 }
 
 std::string BytesToHex(const std::uint8_t* data, std::size_t length)
 {
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0');
-    for (std::size_t index = 0; index < length; ++index)
-    {
-        stream << std::setw(2) << static_cast<int>(data[index]);
-    }
-    return stream.str();
+    std::string result;
+    result.reserve(length * 2);
+    boost::algorithm::hex_lower(data, data + length, std::back_inserter(result));
+    return result;
 }
 
 } // namespace tailgate::protocol

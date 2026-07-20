@@ -1,0 +1,32 @@
+#include "ServiceBase.h"
+
+#include <utility>
+
+namespace tailgate::uwp::bg::service
+{
+
+void ServiceBase::AppendRelayFrame(std::vector<std::uint8_t>& output, const relay::Frame& frame)
+{
+    std::vector<std::uint8_t> encoded = relay::Encode(frame);
+    output.insert(output.end(), encoded.begin(), encoded.end());
+}
+
+void ServiceBase::AppendTransportFrames(
+    std::vector<std::uint8_t>& output,
+    std::vector<protocol::WireGuardRouter::TransportPacket> packets)
+{
+    for (auto& packet : packets)
+    {
+        AppendRelayFrame(output,
+                         relay::Frame{
+                             .Type = relay::MessageType::ClientPacket,
+                             .Payload = relay::EncodePeerPacket(relay::PeerPacket{
+                                 .Peer = packet.Peer,
+                                 .Payload = std::move(packet.Payload),
+                                 .Control = packet.Control,
+                             }),
+                         });
+    }
+}
+
+} // namespace tailgate::uwp::bg::service

@@ -16,6 +16,11 @@ function(tailgate_add_library target type)
     _tailgate_configure_target(${target})
 endfunction()
 
+function(tailgate_uwp_add_library target type)
+    tailgate_add_library(${target} ${type} ${ARGN})
+    uwp_configure_target(${target})
+endfunction()
+
 function(tailgate_add_third_party_library target type)
     add_library(${target} ${type} ${ARGN})
     target_include_directories(${target} PUBLIC ${PROJECT_SOURCE_DIR}/include)

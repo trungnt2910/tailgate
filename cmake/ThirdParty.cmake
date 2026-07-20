@@ -1,4 +1,4 @@
-include(FetchContent)
+include("${CMAKE_CURRENT_LIST_DIR}/GetCPM.cmake")
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build dependencies as static libraries" FORCE)
 set(TAILGATE_ORIGINAL_C_FLAGS "${CMAKE_C_FLAGS}")
@@ -6,79 +6,123 @@ set(TAILGATE_ORIGINAL_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 string(APPEND CMAKE_C_FLAGS " ${TAILGATE_THIRD_PARTY_COMPILE_FLAGS}")
 string(APPEND CMAKE_CXX_FLAGS " ${TAILGATE_THIRD_PARTY_COMPILE_FLAGS}")
 
-FetchContent_Declare(
-    Sodium
+CPMAddPackage(
+    NAME Sodium
     GIT_REPOSITORY https://github.com/robinlinden/libsodium-cmake.git
     GIT_TAG e5b985ad0dd235d8c4307ea3a385b45e76c74c6a
+    OPTIONS "SODIUM_DISABLE_TESTS ON"
 )
-set(SODIUM_DISABLE_TESTS ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(Sodium)
 
-set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
-set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    MbedTLS
+CPMAddPackage(
+    NAME MbedTLS
+    VERSION 4.1.0
     GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
     GIT_TAG mbedtls-4.1.0
+    OPTIONS "ENABLE_PROGRAMS OFF" "ENABLE_TESTING OFF"
 )
-FetchContent_MakeAvailable(MbedTLS)
 
-set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    NlohmannJson
+CPMAddPackage(
+    NAME NlohmannJson
+    VERSION 3.12.0
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG v3.12.0
+    OPTIONS "JSON_BuildTests OFF"
 )
-FetchContent_MakeAvailable(NlohmannJson)
 
-if(TAILGATE_BUILD_FRONTEND OR TAILGATE_BUILD_TESTS)
-    set(CLI11_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(CLI11_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-        CLI11
-        GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-        GIT_TAG v2.6.2
+CPMAddPackage(
+    NAME Zint
+    VERSION 2.16.0
+    GIT_REPOSITORY https://github.com/zint/zint.git
+    GIT_TAG 2.16.0
+    GIT_SHALLOW TRUE
+    OPTIONS
+        "ZINT_SHARED OFF"
+        "ZINT_STATIC ON"
+        "ZINT_FRONTEND OFF"
+        "ZINT_USE_GS1SE OFF"
+        "ZINT_USE_PNG OFF"
+        "ZINT_USE_QT OFF"
+        "ZINT_TEST OFF"
+        "ZINT_UNINSTALL OFF"
+)
+# LLVM 22 miscompiles Zint's dynamic stack allocations for 32-bit Windows ARM at optimized
+# levels by using condition flags clobbered by __chkstk. Keep Zint unoptimized until the
+# toolchain issue is fixed.
+# See: https://github.com/llvm/llvm-project/issues/210939
+target_compile_options(zint-static PRIVATE -O0)
+
+CPMAddPackage(
+    NAME CLI11
+    VERSION 2.6.2
+    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+    GIT_TAG v2.6.2
+    OPTIONS "CLI11_BUILD_TESTS OFF" "CLI11_BUILD_EXAMPLES OFF"
+)
+
+string(
+    CONCAT
+    TAILGATE_BOOST_URL
+    "https://github.com/boostorg/boost/releases/download/boost-1.91.0-1/"
+    "boost-1.91.0-1-cmake.tar.xz"
+)
+CPMAddPackage(
+    NAME Boost
+    VERSION 1.91.0
+    URL "${TAILGATE_BOOST_URL}"
+    URL_HASH SHA256=cc5dc5006ecbdf0051f90979be31b4eee5987d9ae14ae9fb9c03cfa43fa3cdad
+    DOWNLOAD_EXTRACT_TIMESTAMP ON
+    EXCLUDE_FROM_ALL
+    OPTIONS "BOOST_INCLUDE_LIBRARIES algorithm"
+)
+unset(TAILGATE_BOOST_URL)
+
+if(TAILGATE_BUILD_UWP)
+    CPMAddPackage(
+        NAME BoostExtDi
+        VERSION 1.3.2
+        GIT_REPOSITORY https://github.com/boost-ext/di.git
+        GIT_TAG v1.3.2
+        GIT_SHALLOW TRUE
+        OPTIONS "BOOST_DI_OPT_BUILD_TESTS OFF" "BOOST_DI_OPT_BUILD_EXAMPLES OFF"
     )
-    FetchContent_MakeAvailable(CLI11)
 endif()
 
 if(TAILGATE_BUILD_TESTS)
-    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-        GoogleTest
+    CPMAddPackage(
+        NAME GoogleTest
+        VERSION 1.17.0
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.17.0
+        OPTIONS "INSTALL_GTEST OFF"
     )
-    FetchContent_MakeAvailable(GoogleTest)
 endif()
 
-FetchContent_Declare(
-    WireGuardLwip
+CPMAddPackage(
+    NAME WireGuardLwip
     GIT_REPOSITORY https://github.com/smartalock/wireguard-lwip.git
     GIT_TAG f0d0ca5153b798354087610ffac5b5efd2312d27
     GIT_SHALLOW TRUE
     SOURCE_SUBDIR src
 )
-FetchContent_MakeAvailable(WireGuardLwip)
 
 # wireguard-lwip intentionally exposes source-level integration rather than a CMake target.
 # Keep that upstream file-list dependency isolated here instead of leaking it into Core.
 tailgate_add_third_party_library(
     tailgate_wireguard_crypto
     STATIC
-    ${wireguardlwip_SOURCE_DIR}/src/crypto.c
-    ${wireguardlwip_SOURCE_DIR}/src/crypto/refc/blake2s.c
-    ${wireguardlwip_SOURCE_DIR}/src/crypto/refc/chacha20.c
-    ${wireguardlwip_SOURCE_DIR}/src/crypto/refc/chacha20poly1305.c
-    ${wireguardlwip_SOURCE_DIR}/src/crypto/refc/poly1305-donna.c
-    ${wireguardlwip_SOURCE_DIR}/src/crypto/refc/x25519.c
-    ${wireguardlwip_SOURCE_DIR}/src/wireguard.c
+    ${WireGuardLwip_SOURCE_DIR}/src/crypto.c
+    ${WireGuardLwip_SOURCE_DIR}/src/crypto/refc/blake2s.c
+    ${WireGuardLwip_SOURCE_DIR}/src/crypto/refc/chacha20.c
+    ${WireGuardLwip_SOURCE_DIR}/src/crypto/refc/chacha20poly1305.c
+    ${WireGuardLwip_SOURCE_DIR}/src/crypto/refc/poly1305-donna.c
+    ${WireGuardLwip_SOURCE_DIR}/src/crypto/refc/x25519.c
+    ${WireGuardLwip_SOURCE_DIR}/src/wireguard.c
     ${PROJECT_SOURCE_DIR}/src/core/WireguardPlatform.cpp
 )
 target_include_directories(
     tailgate_wireguard_crypto
     PUBLIC
-    ${wireguardlwip_SOURCE_DIR}/src
+    ${WireGuardLwip_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/src/core/wireguard_compat
 )
 target_link_libraries(tailgate_wireguard_crypto PRIVATE sodium)

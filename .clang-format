@@ -2,10 +2,14 @@ BasedOnStyle: LLVM
 IndentWidth: 4
 AccessModifierOffset: -4
 PointerAlignment: Left
+QualifierAlignment: Left
 TabWidth: 4
 UseTab: Never
 ColumnLimit: 100
 BreakBeforeBraces: Allman
+InsertBraces: true
+SeparateDefinitionBlocks: Always
+WrapNamespaceBodyWithEmptyLines: Always
 AllowShortBlocksOnASingleLine: false
 AllowShortFunctionsOnASingleLine: None
 AllowShortLambdasOnASingleLine: None

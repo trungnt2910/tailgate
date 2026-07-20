@@ -45,6 +45,8 @@ public:
     [[nodiscard]] std::vector<std::uint8_t> CreateHandshake(PeerId peer);
     [[nodiscard]] std::optional<ReceivedPacket>
     ProcessPacket(PeerId peer, const std::vector<std::uint8_t>& packet);
+    [[nodiscard]] std::optional<ReceivedPacket>
+    ProcessPacket(const std::vector<std::uint8_t>& packet);
     [[nodiscard]] std::vector<std::uint8_t> Encrypt(PeerId peer,
                                                     const std::vector<std::uint8_t>& plaintext);
     [[nodiscard]] TimerAction UpdateTimers(PeerId peer);

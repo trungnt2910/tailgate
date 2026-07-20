@@ -1,0 +1,36 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.App.View.Impl
+    STATIC
+    AccountsPageViewImpl.cpp
+    AccountsPageViewImpl.h
+    ContentDialogViewImpl.cpp
+    ContentDialogViewImpl.h
+    DevicePageViewImpl.cpp
+    DevicePageViewImpl.h
+    ExitNodeControlViewImpl.cpp
+    ExitNodeControlViewImpl.h
+    HomePageViewImpl.cpp
+    HomePageViewImpl.h
+    MainWindowViewImpl.cpp
+    MainWindowViewImpl.h
+    NavigationPageViewImpl.cpp
+    NavigationPageViewImpl.h
+    NodeAuthorizationDialogViewImpl.cpp
+    NodeAuthorizationDialogViewImpl.h
+    PingDialogViewImpl.cpp
+    PingDialogViewImpl.h
+    SettingsPageViewImpl.cpp
+    SettingsPageViewImpl.h
+    SignInDialogViewImpl.cpp
+    SignInDialogViewImpl.h
+)
+target_link_libraries(
+    Tailgate.Uwp.App.View.Impl
+    PRIVATE
+        Boost::algorithm
+        Boost.DI
+        Tailgate.Uwp.App.Model
+        Tailgate.Uwp.App.Ui
+        Tailgate.Uwp.App.View
+        Tailgate.Uwp.Common
+)

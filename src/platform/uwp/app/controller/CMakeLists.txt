@@ -1,0 +1,27 @@
+add_subdirectory(impl)
+
+target_sources(
+    Tailgate.Uwp.App.Controller.Impl
+    PRIVATE
+        AuthorizationController.h
+        ClipboardController.h
+        ControlPlaneController.h
+        ContentDialogController.h
+        DevicePageController.h
+        ExitNodeController.h
+        HomePageController.h
+        InteractiveAuthorizationController.h
+        MainWindowController.h
+        NavigationController.h
+        NodeAuthorizationDialogController.h
+        PackageController.h
+        PingController.h
+        PingDialogController.h
+        ProfilePictureController.h
+        SessionController.h
+        SetOptionsController.h
+        SettingsController.h
+        SignInDialogController.h
+        TailgateRelayController.h
+        VpnProfileController.h
+)

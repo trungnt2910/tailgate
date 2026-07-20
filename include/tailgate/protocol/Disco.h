@@ -15,6 +15,11 @@ class Disco
 public:
     using TransactionId = std::array<std::uint8_t, 12>;
 
+    // Tailscale reports DERP-received disco pings with this synthetic pong source address
+    // (127.3.3.40) and the DERP region as the port; a zero source is discarded by peers.
+    static constexpr std::uint32_t DerpMagicIpv4Address =
+        (127U << 24U) | (3U << 16U) | (3U << 8U) | 40U;
+
     enum class MessageType
     {
         Ping,

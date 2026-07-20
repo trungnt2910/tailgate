@@ -1,0 +1,740 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Default">
+            <StaticResource x:Key="TailgateAccentColor" ResourceKey="SystemAccentColor" />
+            <StaticResource x:Key="TailgateOnAccentColor" ResourceKey="SystemAltHighColor" />
+            <StaticResource
+                x:Key="TailgatePageBackgroundColor"
+                ResourceKey="SystemChromeMediumLowColor" />
+            <StaticResource x:Key="TailgateSurfaceColor" ResourceKey="SystemAltHighColor" />
+            <StaticResource x:Key="TailgatePrimaryTextColor" ResourceKey="SystemBaseHighColor" />
+            <StaticResource
+                x:Key="TailgateSecondaryTextColor"
+                ResourceKey="SystemBaseMediumColor" />
+            <StaticResource
+                x:Key="TailgateSubtleTextColor"
+                ResourceKey="SystemBaseMediumLowColor" />
+            <StaticResource
+                x:Key="TailgateDisabledOnEmphasisColor"
+                ResourceKey="SystemAltMediumHighColor" />
+            <StaticResource x:Key="TailgateDividerColor" ResourceKey="SystemBaseLowColor" />
+            <StaticResource x:Key="TailgateHoverColor" ResourceKey="SystemListLowColor" />
+            <Color x:Key="TailgateErrorColor">#FFFFF000</Color>
+            <StaticResource x:Key="TailgateOnErrorColor" ResourceKey="SystemAltHighColor" />
+            <StaticResource
+                x:Key="TailgateQrBackgroundColor"
+                ResourceKey="SystemChromeWhiteColor" />
+            <StaticResource
+                x:Key="TailgateQrForegroundColor"
+                ResourceKey="SystemChromeBlackHighColor" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+            <StaticResource x:Key="TailgateAccentColor" ResourceKey="SystemAccentColor" />
+            <StaticResource x:Key="TailgateOnAccentColor" ResourceKey="SystemAltHighColor" />
+            <StaticResource
+                x:Key="TailgatePageBackgroundColor"
+                ResourceKey="SystemChromeMediumLowColor" />
+            <StaticResource x:Key="TailgateSurfaceColor" ResourceKey="SystemAltHighColor" />
+            <StaticResource x:Key="TailgatePrimaryTextColor" ResourceKey="SystemBaseHighColor" />
+            <StaticResource
+                x:Key="TailgateSecondaryTextColor"
+                ResourceKey="SystemBaseMediumColor" />
+            <StaticResource
+                x:Key="TailgateSubtleTextColor"
+                ResourceKey="SystemBaseMediumLowColor" />
+            <StaticResource
+                x:Key="TailgateDisabledOnEmphasisColor"
+                ResourceKey="SystemAltMediumHighColor" />
+            <StaticResource x:Key="TailgateDividerColor" ResourceKey="SystemBaseLowColor" />
+            <StaticResource x:Key="TailgateHoverColor" ResourceKey="SystemListLowColor" />
+            <Color x:Key="TailgateErrorColor">#FFC50500</Color>
+            <StaticResource x:Key="TailgateOnErrorColor" ResourceKey="SystemAltHighColor" />
+            <StaticResource
+                x:Key="TailgateQrBackgroundColor"
+                ResourceKey="SystemChromeWhiteColor" />
+            <StaticResource
+                x:Key="TailgateQrForegroundColor"
+                ResourceKey="SystemChromeBlackHighColor" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <StaticResource
+                x:Key="TailgateAccentColor"
+                ResourceKey="SystemColorHighlightColor" />
+            <StaticResource
+                x:Key="TailgateOnAccentColor"
+                ResourceKey="SystemColorHighlightTextColor" />
+            <StaticResource
+                x:Key="TailgatePageBackgroundColor"
+                ResourceKey="SystemColorWindowColor" />
+            <StaticResource
+                x:Key="TailgateSurfaceColor"
+                ResourceKey="SystemColorButtonFaceColor" />
+            <StaticResource
+                x:Key="TailgatePrimaryTextColor"
+                ResourceKey="SystemColorWindowTextColor" />
+            <StaticResource
+                x:Key="TailgateSecondaryTextColor"
+                ResourceKey="SystemColorGrayTextColor" />
+            <StaticResource
+                x:Key="TailgateSubtleTextColor"
+                ResourceKey="SystemColorGrayTextColor" />
+            <StaticResource
+                x:Key="TailgateDisabledOnEmphasisColor"
+                ResourceKey="SystemColorGrayTextColor" />
+            <StaticResource
+                x:Key="TailgateDividerColor"
+                ResourceKey="SystemColorWindowTextColor" />
+            <StaticResource
+                x:Key="TailgateHoverColor"
+                ResourceKey="SystemColorHighlightColor" />
+            <StaticResource
+                x:Key="TailgateErrorColor"
+                ResourceKey="SystemColorHighlightColor" />
+            <StaticResource
+                x:Key="TailgateOnErrorColor"
+                ResourceKey="SystemColorHighlightTextColor" />
+            <StaticResource
+                x:Key="TailgateQrBackgroundColor"
+                ResourceKey="SystemChromeWhiteColor" />
+            <StaticResource
+                x:Key="TailgateQrForegroundColor"
+                ResourceKey="SystemChromeBlackHighColor" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
+    <!-- Stable brush objects keep their ThemeResource color expressions when assigned from C++. -->
+    <SolidColorBrush
+        x:Key="TailgatePageBackgroundBrush"
+        Color="{ThemeResource TailgatePageBackgroundColor}"
+        Opacity="0.5" />
+    <SolidColorBrush
+        x:Key="TailgateSurfaceBrush"
+        Color="{ThemeResource TailgateSurfaceColor}" />
+    <SolidColorBrush
+        x:Key="TailgatePrimaryTextBrush"
+        Color="{ThemeResource TailgatePrimaryTextColor}" />
+    <SolidColorBrush
+        x:Key="TailgateSecondaryTextBrush"
+        Color="{ThemeResource TailgateSecondaryTextColor}" />
+    <SolidColorBrush
+        x:Key="TailgateSubtleTextBrush"
+        Color="{ThemeResource TailgateSubtleTextColor}" />
+    <SolidColorBrush
+        x:Key="TailgateDisabledOnEmphasisBrush"
+        Color="{ThemeResource TailgateDisabledOnEmphasisColor}" />
+    <SolidColorBrush
+        x:Key="TailgateDividerBrush"
+        Color="{ThemeResource TailgateDividerColor}" />
+    <SolidColorBrush
+        x:Key="TailgateHoverBrush"
+        Color="{ThemeResource TailgateHoverColor}" />
+    <SolidColorBrush
+        x:Key="TailgateAccentBrush"
+        Color="{ThemeResource TailgateAccentColor}" />
+    <SolidColorBrush
+        x:Key="TailgateOnAccentBrush"
+        Color="{ThemeResource TailgateOnAccentColor}" />
+    <SolidColorBrush
+        x:Key="TailgateErrorBrush"
+        Color="{ThemeResource TailgateErrorColor}" />
+    <SolidColorBrush
+        x:Key="TailgateOnErrorBrush"
+        Color="{ThemeResource TailgateOnErrorColor}" />
+    <SolidColorBrush
+        x:Key="TailgateQrBackgroundBrush"
+        Color="{ThemeResource TailgateQrBackgroundColor}" />
+    <SolidColorBrush
+        x:Key="TailgateQrForegroundBrush"
+        Color="{ThemeResource TailgateQrForegroundColor}" />
+    <SolidColorBrush
+        x:Key="TailgateTransparentBrush"
+        Color="Transparent" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedButtonBackgroundBrush"
+        Color="{ThemeResource TailgateOnAccentColor}"
+        Opacity="0.18" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedButtonBorderBrush"
+        Color="{ThemeResource TailgateOnAccentColor}"
+        Opacity="0.45" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedButtonPointerOverBrush"
+        Color="{ThemeResource TailgateOnAccentColor}"
+        Opacity="0.26" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedButtonPressedBrush"
+        Color="{ThemeResource TailgateOnAccentColor}"
+        Opacity="0.34" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedErrorButtonBackgroundBrush"
+        Color="{ThemeResource TailgateOnErrorColor}"
+        Opacity="0.18" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedErrorButtonBorderBrush"
+        Color="{ThemeResource TailgateOnErrorColor}"
+        Opacity="0.45" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedErrorButtonPointerOverBrush"
+        Color="{ThemeResource TailgateOnErrorColor}"
+        Opacity="0.26" />
+    <SolidColorBrush
+        x:Key="TailgateEmphasizedErrorButtonPressedBrush"
+        Color="{ThemeResource TailgateOnErrorColor}"
+        Opacity="0.34" />
+    <LinearGradientBrush
+        x:Key="TailgateChartFillBrush"
+        StartPoint="0,0"
+        EndPoint="0,1"
+        Opacity="0.4">
+        <GradientStop Color="{ThemeResource TailgateAccentColor}" Offset="0" />
+        <GradientStop Color="Transparent" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Typography values without an RS3 system equivalent remain Tailgate-specific. -->
+    <FontFamily x:Key="TailgateMonospaceFontFamily">Consolas</FontFamily>
+    <FontWeight x:Key="TailgateStrongFontWeight">Bold</FontWeight>
+
+    <x:Double x:Key="TailgateSmallFontSize">13</x:Double>
+    <x:Double x:Key="TailgateStatusFontSize">14</x:Double>
+    <x:Double x:Key="TailgateSubtitleFontSize">16</x:Double>
+    <x:Double x:Key="TailgateCodeFontSize">18</x:Double>
+    <x:Double x:Key="TailgateTitleFontSize">22</x:Double>
+    <x:Double x:Key="TailgateNetworkGlyphFontSize">32</x:Double>
+    <x:Double x:Key="TailgateErrorGlyphFontSize">48</x:Double>
+    <x:Double x:Key="TailgateChevronFontSize">10</x:Double>
+    <x:Double x:Key="TailgateConnectionIconFontSize">14</x:Double>
+
+    <StaticResource
+        x:Key="TailgateTouchTargetSize"
+        ResourceKey="GridViewItemMinHeight" />
+    <x:Double x:Key="TailgateCircleIconContentSize">32</x:Double>
+    <x:Double x:Key="TailgateProfilePictureSize">40</x:Double>
+    <x:Double x:Key="TailgateSmallProfilePictureSize">32</x:Double>
+    <x:Double x:Key="TailgateToggleWidth">52</x:Double>
+    <x:Double x:Key="TailgateListItemMinHeight">56</x:Double>
+    <x:Double x:Key="TailgateSectionSpacingHeight">24</x:Double>
+    <x:Double x:Key="TailgateStatusDotSize">10</x:Double>
+    <x:Double x:Key="TailgateListScrollbarGutter">12</x:Double>
+    <x:Double x:Key="TailgateHomeProgressRingSize">48</x:Double>
+    <x:Double x:Key="TailgatePingProgressRingSize">64</x:Double>
+    <x:Double x:Key="TailgateDevicePingIconSize">22</x:Double>
+    <x:Double x:Key="TailgateQrModuleSize">5</x:Double>
+
+    <x:Double x:Key="TailgatePingBodyHeight">240</x:Double>
+    <x:Double x:Key="TailgateChartWidth">440</x:Double>
+    <x:Double x:Key="TailgateChartHeight">236</x:Double>
+    <x:Double x:Key="TailgateChartPlotLeft">56</x:Double>
+    <x:Double x:Key="TailgateChartPadTop">10</x:Double>
+    <x:Double x:Key="TailgateChartPadRight">10</x:Double>
+    <x:Double x:Key="TailgateChartPadBottom">28</x:Double>
+    <x:Double x:Key="TailgateChartPointDiameter">10</x:Double>
+    <x:Double x:Key="TailgateChartTickLength">4</x:Double>
+    <x:Double x:Key="TailgateChartStrokeThickness">2</x:Double>
+    <x:Double x:Key="TailgateChartGridStrokeThickness">1</x:Double>
+    <x:Double x:Key="TailgateChartDashLength">4</x:Double>
+    <x:Double x:Key="TailgateChartAxisLabelGap">4</x:Double>
+    <x:Double x:Key="TailgateChartAxisLabelTopOffset">9</x:Double>
+    <x:Double x:Key="TailgateChartXLabelWidth">40</x:Double>
+    <x:Double x:Key="TailgateChartXLabelTopGap">2</x:Double>
+    <x:Int32 x:Key="TailgateChartGridLineCount">5</x:Int32>
+
+    <!--
+        Layout values below are app semantics. RS3 has no matching page, card, profile,
+        chart, or Android-style 56-DIP row spacing resources; aliases to unrelated control
+        template values would couple Tailgate to implementation details.
+    -->
+    <Thickness x:Key="TailgateZeroThickness">0</Thickness>
+    <Thickness x:Key="TailgatePagePadding">28,24,28,24</Thickness>
+    <Thickness x:Key="TailgatePageTitleMargin">0,0,0,16</Thickness>
+    <Thickness x:Key="TailgateListHeaderPadding">0,16,0,4</Thickness>
+    <Thickness x:Key="TailgateGroupHeaderPadding">0,12,0,4</Thickness>
+    <Thickness x:Key="TailgateListItemPadding">16,8,16,8</Thickness>
+    <Thickness x:Key="TailgateListItemBorderThickness">0,0,0,1</Thickness>
+    <Thickness x:Key="TailgateAccountTextMargin">12,0,0,0</Thickness>
+    <Thickness x:Key="TailgateStatusDotMargin">0,0,10,0</Thickness>
+    <Thickness x:Key="TailgateStatusRowMargin">0,2,0,0</Thickness>
+    <Thickness x:Key="TailgateStatusTextMargin">8,0,0,0</Thickness>
+    <Thickness x:Key="TailgateTextButtonPadding">16,8,16,8</Thickness>
+    <Thickness x:Key="TailgateCircleButtonPadding">6</Thickness>
+    <Thickness x:Key="TailgateHeaderToggleMargin">0,0,8,0</Thickness>
+    <Thickness x:Key="TailgateDisconnectedIconMargin">0,32,0,12</Thickness>
+    <Thickness x:Key="TailgateDisconnectedDetailMargin">0,8,0,24</Thickness>
+    <Thickness x:Key="TailgateConnectedBodyMargin">0,28,0,0</Thickness>
+    <Thickness x:Key="TailgateSearchMargin">0,4,0,16</Thickness>
+    <Thickness x:Key="TailgateCardMargin">0,0,0,16</Thickness>
+    <Thickness x:Key="TailgateCardLabelMargin">0,0,0,5</Thickness>
+    <Thickness x:Key="TailgateCardChevronMargin">6,0,0,0</Thickness>
+    <Thickness x:Key="TailgateCardPickerMargin">16,12,16,12</Thickness>
+    <Thickness x:Key="TailgateCardPickerWithActionMargin">16,12,0,12</Thickness>
+    <Thickness x:Key="TailgateCardActionMargin">0,12,16,12</Thickness>
+    <Thickness x:Key="TailgateDeviceLabelsMargin">10,0,0,0</Thickness>
+    <Thickness x:Key="TailgateFieldSpacingMargin">0,8,0,0</Thickness>
+    <Thickness x:Key="TailgateDialogSectionMargin">0,12,0,0</Thickness>
+    <Thickness x:Key="TailgateAdvancedButtonPadding">8,6,8,6</Thickness>
+    <Thickness x:Key="TailgateAdvancedChevronMargin">0,0,8,0</Thickness>
+    <Thickness x:Key="TailgateDialogInstructionsMargin">0,0,0,12</Thickness>
+    <Thickness x:Key="TailgateDialogCodeInstructionsMargin">0,12,0,4</Thickness>
+    <Thickness x:Key="TailgatePingBodyMargin">0,16,0,0</Thickness>
+    <Thickness x:Key="TailgateConnectionRowMargin">0,4,0,0</Thickness>
+    <Thickness x:Key="TailgateConnectionTextMargin">4,0,0,0</Thickness>
+    <Thickness x:Key="TailgatePingErrorTextMargin">0,6,0,0</Thickness>
+
+    <!-- Page -->
+    <Style x:Key="TailgatePageStyle" TargetType="Grid">
+        <Setter Property="Background" Value="{ThemeResource TailgatePageBackgroundBrush}" />
+        <Setter Property="Padding" Value="{StaticResource TailgatePagePadding}" />
+    </Style>
+
+    <!-- Typography -->
+    <Style
+        x:Key="TailgateTextCaptionStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextCaptionStrongStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextCaptionStyle}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style
+        x:Key="TailgateTextSmallStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource BaseTextBlockStyle}">
+        <Setter Property="FontSize" Value="{StaticResource TailgateSmallFontSize}" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextBodyStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource BodyTextBlockStyle}">
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextBodyStrongStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextBodyStyle}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style
+        x:Key="TailgateTextStatusStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource BaseTextBlockStyle}">
+        <Setter Property="FontSize" Value="{StaticResource TailgateStatusFontSize}" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextSubtitleStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource BodyTextBlockStyle}">
+        <Setter Property="FontSize" Value="{StaticResource TailgateSubtitleFontSize}" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextSubtitleStrongStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextSubtitleStyle}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style
+        x:Key="TailgateTextCodeStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource BaseTextBlockStyle}">
+        <Setter Property="FontSize" Value="{StaticResource TailgateCodeFontSize}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextTitleStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TitleTextBlockStyle}">
+        <Setter Property="FontSize" Value="{StaticResource TailgateTitleFontSize}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextPageTitleStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TitleTextBlockStyle}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextDialogTitleStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource SubtitleTextBlockStyle}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="WrapWholeWords" />
+    </Style>
+    <Style
+        x:Key="TailgateTextSecondaryCaptionStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextCaptionStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateSecondaryTextBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextAccentCaptionStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextCaptionStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateAccentBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextSecondaryCaptionStrongStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextSecondaryCaptionStyle}">
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style
+        x:Key="TailgateTextSecondarySmallStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextSmallStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateSecondaryTextBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextSecondaryBodyStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextBodyStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateSecondaryTextBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextErrorSmallStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextSmallStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateErrorBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextErrorCaptionStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextCaptionStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateErrorBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextErrorStatusStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextStatusStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateErrorBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextErrorBodyStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextBodyStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateErrorBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextErrorSubtitleStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextSubtitleStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateErrorBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style
+        x:Key="TailgateTextOnlineStatusStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextStatusStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateAccentBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextOfflineStatusStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextStatusStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateSecondaryTextBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextOnEmphasisCaptionStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextCaptionStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateOnAccentBrush}" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style
+        x:Key="TailgateTextOnErrorCaptionStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextCaptionStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateOnErrorBrush}" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style
+        x:Key="TailgateTextOnEmphasisSubtitleStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextSubtitleStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateOnAccentBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateTextOnErrorSubtitleStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource TailgateTextSubtitleStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource TailgateOnErrorBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgateChartLabelStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <Setter Property="FontFamily" Value="{StaticResource TailgateMonospaceFontFamily}" />
+        <Setter Property="Foreground" Value="{ThemeResource TailgateSecondaryTextBrush}" />
+    </Style>
+    <Style
+        x:Key="TailgatePingLatencyStyle"
+        TargetType="TextBlock"
+        BasedOn="{StaticResource BaseTextBlockStyle}">
+        <Setter Property="FontFamily" Value="{StaticResource TailgateMonospaceFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource TailgateTitleFontSize}" />
+        <Setter Property="FontWeight" Value="Normal" />
+    </Style>
+    <Style x:Key="TailgateIconStyle" TargetType="FontIcon">
+        <Setter Property="FontFamily" Value="{ThemeResource SymbolThemeFontFamily}" />
+    </Style>
+    <Style x:Key="TailgateNetworkGlyphStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{ThemeResource SymbolThemeFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource TailgateNetworkGlyphFontSize}" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+
+    <!-- Lists -->
+    <Style x:Key="TailgateListItemStyle" TargetType="ListViewItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Padding" Value="{StaticResource TailgateListItemPadding}" />
+        <Setter Property="MinHeight" Value="{StaticResource TailgateListItemMinHeight}" />
+        <Setter Property="Background" Value="{ThemeResource TailgateSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource TailgateDividerBrush}" />
+        <Setter
+            Property="BorderThickness"
+            Value="{StaticResource TailgateListItemBorderThickness}" />
+    </Style>
+    <Style x:Key="TailgateListHeaderStyle" TargetType="ListViewHeaderItem">
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="Padding" Value="{StaticResource TailgateListHeaderPadding}" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Background" Value="{ThemeResource TailgateTransparentBrush}" />
+        <Setter Property="IsTabStop" Value="False" />
+    </Style>
+    <Style x:Key="TailgateListHeaderContainerStyle" TargetType="ListViewItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="{StaticResource TailgateZeroThickness}" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="IsEnabled" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+        <Setter Property="Background" Value="{ThemeResource TailgateTransparentBrush}" />
+    </Style>
+    <Style x:Key="TailgateDeviceGroupHeaderStyle" TargetType="ListViewHeaderItem">
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Padding" Value="{StaticResource TailgateGroupHeaderPadding}" />
+        <Setter Property="IsTabStop" Value="False" />
+    </Style>
+    <Style x:Key="TailgateSectionSpacingStyle" TargetType="ListViewItem">
+        <Setter Property="IsEnabled" Value="False" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+        <Setter Property="MinHeight" Value="{StaticResource TailgateSectionSpacingHeight}" />
+        <Setter Property="Padding" Value="{StaticResource TailgateZeroThickness}" />
+    </Style>
+
+    <!-- Buttons -->
+    <Style x:Key="TailgateTextButtonStyle" TargetType="Button">
+        <Setter Property="Padding" Value="{StaticResource TailgateTextButtonPadding}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style
+        x:Key="TailgatePrimaryButtonStyle"
+        TargetType="Button"
+        BasedOn="{StaticResource TailgateTextButtonStyle}">
+        <Setter Property="Background" Value="{ThemeResource TailgateAccentBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TailgateOnAccentBrush}" />
+    </Style>
+    <ResourceDictionary x:Key="TailgatePrimaryButtonResources">
+        <StaticResource
+            x:Key="ButtonBackgroundPointerOver"
+            ResourceKey="SystemControlHighlightAccentBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundPointerOver"
+            ResourceKey="TailgateOnAccentBrush" />
+        <StaticResource
+            x:Key="ButtonBackgroundPressed"
+            ResourceKey="SystemControlHighlightAccentBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundPressed"
+            ResourceKey="TailgateOnAccentBrush" />
+    </ResourceDictionary>
+    <Style x:Key="TailgateCircleButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="{StaticResource TailgateTouchTargetSize}" />
+        <Setter Property="Height" Value="{StaticResource TailgateTouchTargetSize}" />
+        <Setter Property="MinWidth" Value="{StaticResource TailgateTouchTargetSize}" />
+        <Setter Property="Padding" Value="{StaticResource TailgateCircleButtonPadding}" />
+        <Setter Property="BorderThickness" Value="{StaticResource TailgateZeroThickness}" />
+        <Setter Property="Background" Value="{ThemeResource TailgateTransparentBrush}" />
+    </Style>
+    <Style x:Key="TailgateIconButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="{StaticResource TailgateTouchTargetSize}" />
+        <Setter Property="Height" Value="{StaticResource TailgateTouchTargetSize}" />
+    </Style>
+    <Style x:Key="TailgateTransparentButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource TailgateTransparentBrush}" />
+        <Setter Property="BorderThickness" Value="{StaticResource TailgateZeroThickness}" />
+        <Setter Property="Padding" Value="{StaticResource TailgateZeroThickness}" />
+    </Style>
+    <ResourceDictionary x:Key="TailgateTransparentButtonResources">
+        <StaticResource
+            x:Key="ButtonBackgroundPointerOver"
+            ResourceKey="TailgateTransparentBrush" />
+        <StaticResource
+            x:Key="ButtonBackgroundPressed"
+            ResourceKey="TailgateTransparentBrush" />
+    </ResourceDictionary>
+    <Style
+        x:Key="TailgateEmphasizedButtonStyle"
+        TargetType="Button"
+        BasedOn="{StaticResource TailgateTextButtonStyle}">
+        <Setter
+            Property="Background"
+            Value="{ThemeResource TailgateEmphasizedButtonBackgroundBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TailgateOnAccentBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource TailgateTransparentBrush}" />
+    </Style>
+    <ResourceDictionary x:Key="TailgateEmphasizedButtonResources">
+        <StaticResource
+            x:Key="ButtonBackgroundPointerOver"
+            ResourceKey="TailgateEmphasizedButtonPointerOverBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundPointerOver"
+            ResourceKey="TailgateOnAccentBrush" />
+        <StaticResource
+            x:Key="ButtonBorderBrushPointerOver"
+            ResourceKey="TailgateEmphasizedButtonBorderBrush" />
+        <StaticResource
+            x:Key="ButtonBackgroundPressed"
+            ResourceKey="TailgateEmphasizedButtonPressedBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundPressed"
+            ResourceKey="TailgateOnAccentBrush" />
+        <StaticResource
+            x:Key="ButtonBorderBrushPressed"
+            ResourceKey="TailgateEmphasizedButtonBorderBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundDisabled"
+            ResourceKey="TailgateDisabledOnEmphasisBrush" />
+        <StaticResource
+            x:Key="ButtonBackgroundDisabled"
+            ResourceKey="SystemControlBackgroundAltMediumLowBrush" />
+        <StaticResource
+            x:Key="ButtonBorderBrushDisabled"
+            ResourceKey="SystemControlDisabledTransparentBrush" />
+    </ResourceDictionary>
+    <Style
+        x:Key="TailgateEmphasizedErrorButtonStyle"
+        TargetType="Button"
+        BasedOn="{StaticResource TailgateTextButtonStyle}">
+        <Setter
+            Property="Background"
+            Value="{ThemeResource TailgateEmphasizedErrorButtonBackgroundBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TailgateOnErrorBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource TailgateTransparentBrush}" />
+    </Style>
+    <ResourceDictionary x:Key="TailgateEmphasizedErrorButtonResources">
+        <StaticResource
+            x:Key="ButtonBackgroundPointerOver"
+            ResourceKey="TailgateEmphasizedErrorButtonPointerOverBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundPointerOver"
+            ResourceKey="TailgateOnErrorBrush" />
+        <StaticResource
+            x:Key="ButtonBorderBrushPointerOver"
+            ResourceKey="TailgateEmphasizedErrorButtonBorderBrush" />
+        <StaticResource
+            x:Key="ButtonBackgroundPressed"
+            ResourceKey="TailgateEmphasizedErrorButtonPressedBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundPressed"
+            ResourceKey="TailgateOnErrorBrush" />
+        <StaticResource
+            x:Key="ButtonBorderBrushPressed"
+            ResourceKey="TailgateEmphasizedErrorButtonBorderBrush" />
+        <StaticResource
+            x:Key="ButtonForegroundDisabled"
+            ResourceKey="TailgateDisabledOnEmphasisBrush" />
+        <StaticResource
+            x:Key="ButtonBackgroundDisabled"
+            ResourceKey="SystemControlBackgroundAltMediumLowBrush" />
+        <StaticResource
+            x:Key="ButtonBorderBrushDisabled"
+            ResourceKey="SystemControlDisabledTransparentBrush" />
+    </ResourceDictionary>
+
+    <!-- Cards -->
+    <Style x:Key="TailgateNeutralCardStyle" TargetType="Grid">
+        <Setter Property="Background" Value="{ThemeResource TailgateSurfaceBrush}" />
+        <Setter Property="Margin" Value="{StaticResource TailgateCardMargin}" />
+    </Style>
+    <Style x:Key="TailgateAccentCardStyle" TargetType="Grid">
+        <Setter Property="Background" Value="{ThemeResource TailgateAccentBrush}" />
+        <Setter Property="Margin" Value="{StaticResource TailgateCardMargin}" />
+    </Style>
+    <Style x:Key="TailgateErrorCardStyle" TargetType="Grid">
+        <Setter Property="Background" Value="{ThemeResource TailgateErrorBrush}" />
+        <Setter Property="Margin" Value="{StaticResource TailgateCardMargin}" />
+    </Style>
+
+    <!-- Status -->
+    <Style x:Key="TailgateOnlineStatusDotStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="{StaticResource TailgateStatusDotSize}" />
+        <Setter Property="Height" Value="{StaticResource TailgateStatusDotSize}" />
+        <Setter Property="Fill" Value="{ThemeResource TailgateAccentBrush}" />
+        <Setter Property="Margin" Value="{StaticResource TailgateStatusDotMargin}" />
+    </Style>
+    <Style x:Key="TailgateOfflineStatusDotStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="{StaticResource TailgateStatusDotSize}" />
+        <Setter Property="Height" Value="{StaticResource TailgateStatusDotSize}" />
+        <Setter Property="Fill" Value="{ThemeResource TailgateSecondaryTextBrush}" />
+        <Setter Property="Margin" Value="{StaticResource TailgateStatusDotMargin}" />
+    </Style>
+
+    <!-- Ping chart -->
+    <Style x:Key="TailgateChartAxisStyle" TargetType="Line">
+        <Setter Property="Stroke" Value="{ThemeResource TailgateSubtleTextBrush}" />
+        <Setter
+            Property="StrokeThickness"
+            Value="{StaticResource TailgateChartGridStrokeThickness}" />
+    </Style>
+    <Style x:Key="TailgateChartGuidelineStyle" TargetType="Line">
+        <Setter Property="Stroke" Value="{ThemeResource TailgateDividerBrush}" />
+        <Setter
+            Property="StrokeThickness"
+            Value="{StaticResource TailgateChartGridStrokeThickness}" />
+    </Style>
+    <Style x:Key="TailgateChartLineStyle" TargetType="Polyline">
+        <Setter Property="Stroke" Value="{ThemeResource TailgateAccentBrush}" />
+        <Setter
+            Property="StrokeThickness"
+            Value="{StaticResource TailgateChartStrokeThickness}" />
+    </Style>
+    <Style x:Key="TailgateChartFillStyle" TargetType="Polygon">
+        <Setter Property="Fill" Value="{ThemeResource TailgateChartFillBrush}" />
+    </Style>
+    <Style x:Key="TailgateChartPointStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="{StaticResource TailgateChartPointDiameter}" />
+        <Setter Property="Height" Value="{StaticResource TailgateChartPointDiameter}" />
+        <Setter Property="Fill" Value="{ThemeResource ContentDialogBackground}" />
+        <Setter Property="Stroke" Value="{ThemeResource TailgateAccentBrush}" />
+        <Setter
+            Property="StrokeThickness"
+            Value="{StaticResource TailgateChartStrokeThickness}" />
+    </Style>
+
+    <!-- Templates -->
+    <DataTemplate x:Key="TailgateDeviceGroupHeaderTemplate">
+        <TextBlock
+            Text="{Binding Name}"
+            Style="{StaticResource TailgateTextCaptionStrongStyle}" />
+    </DataTemplate>
+    <ItemsPanelTemplate x:Key="TailgateStickyDeviceItemsPanel">
+        <ItemsStackPanel AreStickyGroupHeadersEnabled="True" />
+    </ItemsPanelTemplate>
+</ResourceDictionary>

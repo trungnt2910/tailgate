@@ -1,0 +1,79 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+         xmlns:rescap=
+"http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap mp rescap">
+  <Identity Name="@TAILGATE_UWP_APPX_NAME@"
+            Publisher="@TAILGATE_UWP_APPX_PUBLISHER@"
+            Version="@PROJECT_VERSION@.0"
+            ProcessorArchitecture="@UWP_APPX_ARCH@" />
+  <mp:PhoneIdentity PhoneProductId="a8e17b75-3197-4d27-ae1d-16ab9b91af75"
+                    PhonePublisherId="ae73d589-8d9b-478e-b457-077711d3e593" />
+  <Properties>
+    <DisplayName>Tailgate</DisplayName>
+    <PublisherDisplayName>Tailgate</PublisherDisplayName>
+    <Logo>Images\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal"
+                        MinVersion="10.0.15035.0"
+                        MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+  <Applications>
+    <Application Id="App" Executable="Tailgate.exe" EntryPoint="Tailgate.App">
+      <uap:VisualElements DisplayName="Tailgate"
+                          Description="Tailgate - Tailscale client for UWP"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Images\Square150x150Logo.png"
+                          Square44x44Logo="Images\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Images\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Images\SplashScreen.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="tailgate" />
+        </uap:Extension>
+      </Extensions>
+    </Application>
+    <Application Id="Plugin">
+      <uap:VisualElements DisplayName="Tailgate"
+                          Description="Tailgate - Tailscale client for UWP"
+                          BackgroundColor="transparent"
+                          AppListEntry="none"
+                          Square150x150Logo="Images\Square150x150Logo.png"
+                          Square44x44Logo="Images\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Images\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Images\SplashScreen.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <Extension Category="windows.backgroundTasks"
+                   Executable="Tailgate.exe"
+                   EntryPoint="Tailgate.Background.TailgateVpnTask">
+          <BackgroundTasks>
+            <uap:Task Type="vpnClient" />
+          </BackgroundTasks>
+        </Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <Capability Name="internetClientServer" />
+    <Capability Name="privateNetworkClientServer" />
+    <uap:Capability Name="sharedUserCertificates" />
+    <rescap:Capability Name="networkingVpnProvider" />
+  </Capabilities>
+  <Extensions>
+    <Extension Category="windows.activatableClass.inProcessServer">
+      <InProcessServer>
+        <Path>Tailgate.Background.dll</Path>
+        <ActivatableClass ActivatableClassId="Tailgate.Background.TailgateVpnTask"
+                          ThreadingModel="both" />
+      </InProcessServer>
+    </Extension>
+  </Extensions>
+</Package>

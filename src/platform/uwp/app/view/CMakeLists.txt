@@ -1,0 +1,28 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.App.View
+    STATIC
+    AccountsPageView.h
+    ContentDialogView.h
+    DevicePageView.h
+    DialogView.cpp
+    DialogView.h
+    ExitNodeControlView.h
+    HomePageView.h
+    MainWindowView.h
+    NavigationPageView.h
+    NodeAuthorizationDialogView.h
+    PageView.h
+    PingDialogView.h
+    SettingsPageView.h
+    SignInDialogView.h
+    View.cpp
+    View.h
+)
+target_link_libraries(
+    Tailgate.Uwp.App.View
+    PUBLIC
+        Tailgate.Uwp.App.Model
+        Tailgate.Uwp.Common
+)
+
+add_subdirectory(impl)

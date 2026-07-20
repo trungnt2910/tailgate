@@ -1,17 +1,17 @@
 #include "tailgate/Application.h"
 
-#include <nlohmann/json.hpp>
-
-#include "tailgate/cli/Arguments.h"
-
 #include <algorithm>
 #include <chrono>
-#include <iomanip>
+#include <format>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <nlohmann/json.hpp>
+
+#include "tailgate/cli/Arguments.h"
 
 namespace tailgate
 {
@@ -24,7 +24,7 @@ std::string PeerDetail(const PeerStatus& peer)
     {
         if (peer.ExitNodeOption)
         {
-            return "idle; offers exit node" + std::string(peer.Online ? "" : "; offline");
+            return std::format("idle; offers exit node{}", peer.Online ? "" : "; offline");
         }
         return peer.Online ? (peer.TxBytes || peer.RxBytes ? "idle" : "-") : "offline";
     }
@@ -34,10 +34,11 @@ std::string PeerDetail(const PeerStatus& peer)
     {
         result += "offers exit node; ";
     }
-    result += peer.Direct ? "direct " + peer.Endpoint : "relay \"" + peer.Relay + "\"";
+    result += peer.Direct ? std::format("direct {}", peer.Endpoint)
+                          : std::format("relay \"{}\"", peer.Relay);
     if (peer.TxBytes != 0 || peer.RxBytes != 0)
     {
-        result += ", tx " + std::to_string(peer.TxBytes) + " rx " + std::to_string(peer.RxBytes);
+        result += std::format(", tx {} rx {}", peer.TxBytes, peer.RxBytes);
     }
     return result;
 }
@@ -72,10 +73,12 @@ void PrintStatusJson(const Status& status, bool activeOnly)
                          {"TailscaleIPs",
                           status.Address.empty() ? nlohmann::json::array()
                                                  : nlohmann::json::array({status.Address})},
+                         {"Domain", status.Domain},
                          {"Self",
                           {{"HostName", status.Hostname},
                            {"OS", status.OperatingSystem},
                            {"OSVersion", status.OperatingSystemVersion}}},
+                         {"AuthURL", status.AuthorizationUrl},
                          {"Peer", std::move(peers)},
                          {"Error", status.Error},
                      })
@@ -92,11 +95,18 @@ void PrintStatus(const Status& status, const cli::StatusOptions& options)
     }
     if (!status.Online)
     {
-        std::cout << "Tailgate is " << (status.BackendState == "Stopped" ? "stopped" : "starting")
-                  << ".\n";
+        std::cout << std::format("Tailgate is {}.\n",
+                                 status.BackendState == "Stopped" ? "stopped" : "starting");
+        if (!status.AuthorizationUrl.empty())
+        {
+            std::cout << std::format("{}{}\n",
+                                     status.BackendState == "NeedsMachineAuth" ? "\nApprove at: "
+                                                                               : "\nLog in at: ",
+                                     status.AuthorizationUrl);
+        }
         if (!status.Error.empty())
         {
-            std::cout << "# Health check:\n#     - " << status.Error << "\n";
+            std::cout << std::format("# Health check:\n#     - {}\n", status.Error);
         }
         return;
     }
@@ -115,9 +125,15 @@ void PrintStatus(const Status& status, const cli::StatusOptions& options)
                          const std::string& os,
                          const std::string& detail)
     {
-        std::cout << std::left << std::setw(static_cast<int>(addressWidth + 2)) << address
-                  << std::setw(static_cast<int>(hostWidth + 2)) << host << std::setw(3) << "-"
-                  << std::setw(static_cast<int>(osWidth + 2)) << os << detail << "\n";
+        std::cout << std::format("{:<{}}{:<{}}{:<3}{:<{}}{}\n",
+                                 address,
+                                 addressWidth + 2,
+                                 host,
+                                 hostWidth + 2,
+                                 "-",
+                                 os,
+                                 osWidth + 2,
+                                 detail);
     };
     row(status.Address, status.Hostname, status.OperatingSystem, "-");
     for (const PeerStatus& peer : status.Peers)
@@ -134,23 +150,38 @@ int RunPing(platform::IPlatformFrontend& frontend, const cli::PingOptions& optio
     bool receivedAny = false;
     for (int attempt = 1; options.Count == 0 || attempt <= options.Count; ++attempt)
     {
-        const platform::PingResult result = frontend.PingOnce(
-            options.Target, options.TimeoutSeconds, static_cast<std::uint16_t>(attempt));
+        const platform::PingResult result = frontend.PingOnce(options.Target,
+                                                              options.TimeoutSeconds,
+                                                              static_cast<std::uint16_t>(attempt),
+                                                              options.Tsmp);
+        if (result.Local)
+        {
+            std::cout << std::format("{} is local Tailscale IP\n", result.NodeAddress);
+            return 0;
+        }
         if (result.Responded)
         {
             receivedAny = true;
             const std::string via =
-                result.Endpoint.empty() ? "DERP(" + result.Relay + ")" : result.Endpoint;
-            std::cout << "pong from " << result.NodeName << " (" << result.NodeAddress << ") via "
-                      << via << " in " << result.LatencyMilliseconds << "ms\n";
-            if (options.UntilDirect && !result.Endpoint.empty())
+                options.Tsmp ? "TSMP"
+                             : (result.Endpoint.empty() ? std::format("DERP({})", result.Relay)
+                                                        : result.Endpoint);
+            const std::string peerApiPort =
+                result.PeerApiPort == 0 ? "" : std::format(", {}", result.PeerApiPort);
+            std::cout << std::format("pong from {} ({}{}) via {} in {}ms\n",
+                                     result.NodeName,
+                                     result.NodeAddress,
+                                     peerApiPort,
+                                     via,
+                                     result.LatencyMilliseconds);
+            if (options.Tsmp || (options.UntilDirect && !result.Endpoint.empty()))
             {
                 return 0;
             }
         }
         else
         {
-            std::cout << "timeout waiting for pong from " << options.Target << "\n";
+            std::cout << std::format("timeout waiting for pong from {}\n", options.Target);
         }
         if (options.Count == 0 || attempt < options.Count)
         {
@@ -199,6 +230,8 @@ int RunApplication(int argc, char** argv, platform::IPlatformFrontend& frontend)
         }
         case cli::Command::Down:
             return frontend.Down();
+        case cli::Command::Logout:
+            return frontend.Logout();
         case cli::Command::Status:
         {
             const Status status = frontend.ReadStatus();
@@ -209,8 +242,13 @@ int RunApplication(int argc, char** argv, platform::IPlatformFrontend& frontend)
             return RunPing(frontend, arguments.Ping);
         case cli::Command::Set:
             return frontend.Set(arguments.Set);
+        case cli::Command::Funnel:
+            return frontend.Funnel(arguments.Funnel);
+        case cli::Command::Expose:
+            return frontend.Expose(arguments.Expose);
         case cli::Command::Help:
-            std::cout << cli::Arguments::HelpText();
+            std::cout << (arguments.HelpOutput.empty() ? cli::Arguments::HelpText()
+                                                       : arguments.HelpOutput);
             return 0;
         }
     }
@@ -221,7 +259,7 @@ int RunApplication(int argc, char** argv, platform::IPlatformFrontend& frontend)
     }
     catch (const std::exception& error)
     {
-        std::cerr << "tailgate: " << error.what() << "\n";
+        std::cerr << std::format("tailgate: {}\n", error.what());
         return 1;
     }
     return 0;

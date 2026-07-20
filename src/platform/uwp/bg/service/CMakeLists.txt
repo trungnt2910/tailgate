@@ -1,0 +1,29 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.Background.Service
+    STATIC
+    HostedDnsService.cpp
+    HostedDnsService.h
+    IService.h
+    ExitNodeService.cpp
+    ExitNodeService.h
+    NetworkService.cpp
+    NetworkService.h
+    PingService.cpp
+    PingService.h
+    ServiceBase.cpp
+    ServiceBase.h
+)
+target_include_directories(
+    Tailgate.Uwp.Background.Service
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(
+    Tailgate.Uwp.Background.Service
+    PUBLIC
+        Tailgate.Uwp.Background.Manager
+        Tailgate.Uwp.Common
+        tailgate_core
+    PRIVATE
+        nlohmann_json::nlohmann_json
+)

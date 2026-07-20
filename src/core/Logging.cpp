@@ -1,5 +1,6 @@
 #include "tailgate/Logging.h"
 
+#include <atomic>
 #include <mutex>
 #include <utility>
 
@@ -10,6 +11,7 @@ namespace
 
 std::mutex SinkMutex;
 LogSink Sink;
+std::atomic<LogLevel> MinimumLevel = LogLevel::Trace;
 
 } // namespace
 
@@ -19,8 +21,17 @@ void SetLogSink(LogSink sink)
     Sink = std::move(sink);
 }
 
+void SetMinimumLogLevel(LogLevel level)
+{
+    MinimumLevel = level;
+}
+
 void Log(LogLevel level, const std::string& component, const std::string& message)
 {
+    if (level < MinimumLevel.load(std::memory_order_relaxed))
+    {
+        return;
+    }
     LogSink sink;
     {
         std::lock_guard<std::mutex> lock(SinkMutex);

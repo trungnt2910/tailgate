@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace tailgate::protocol
@@ -26,6 +29,21 @@ struct H2Frame
     std::vector<std::uint8_t> Payload;
 };
 
+using H2Headers = std::unordered_multimap<std::string, std::string>;
+
+class H2HeaderDecoder final
+{
+public:
+    [[nodiscard]] std::optional<H2Headers> Decode(const std::vector<std::uint8_t>& headerBlock);
+
+private:
+    static constexpr std::size_t DefaultDynamicTableSize = 4096;
+
+    std::deque<std::pair<std::string, std::string>> m_dynamicTable;
+    std::size_t m_dynamicTableSize = 0;
+    std::size_t m_maximumDynamicTableSize = DefaultDynamicTableSize;
+};
+
 [[nodiscard]] std::vector<std::uint8_t> BuildH2Preface(std::uint32_t initialWindowSize);
 [[nodiscard]] std::vector<std::uint8_t> BuildH2SettingsAck();
 [[nodiscard]] std::vector<std::uint8_t> BuildH2PingAck(const std::vector<std::uint8_t>& payload);
@@ -41,6 +59,10 @@ BuildH2Headers(const std::string& method,
                bool endStream);
 [[nodiscard]] std::vector<std::uint8_t>
 BuildH2Data(const std::vector<std::uint8_t>& data, std::uint32_t streamId, bool endStream);
+[[nodiscard]] std::optional<H2Headers>
+DecodeH2Headers(const std::vector<std::uint8_t>& headerBlock);
+[[nodiscard]] std::optional<int> H2Status(const H2Headers& headers);
+[[nodiscard]] std::optional<int> DecodeH2Status(const std::vector<std::uint8_t>& headerBlock);
 [[nodiscard]] std::vector<H2Frame> ParseH2Frames(const std::vector<std::uint8_t>& data);
 [[nodiscard]] std::vector<H2Frame> TakeCompleteH2Frames(std::vector<std::uint8_t>& buffer);
 

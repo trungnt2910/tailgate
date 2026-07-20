@@ -2,7 +2,7 @@
 
 #include "tailgate/protocol/ReplayWindow.h"
 
-TEST(Tailgate, GivenAuthenticatedCountersBeyondThirtyTwoPackets_WhenReordered_ThenTheyAreAccepted)
+TEST(Given_AuthenticatedCountersBeyondThirtyTwoPackets, When_Reordered_Then_TheyAreAccepted)
 {
     tailgate::protocol::ReplayWindow window;
 
@@ -13,7 +13,7 @@ TEST(Tailgate, GivenAuthenticatedCountersBeyondThirtyTwoPackets_WhenReordered_Th
     EXPECT_TRUE(reorderedAccepted);
 }
 
-TEST(Tailgate, GivenAuthenticatedCounter_WhenReceivedTwice_ThenReplayIsRejected)
+TEST(Given_AuthenticatedCounter, When_ReceivedTwice_Then_ReplayIsRejected)
 {
     tailgate::protocol::ReplayWindow window;
     ASSERT_TRUE(window.Accept(42));
@@ -23,7 +23,7 @@ TEST(Tailgate, GivenAuthenticatedCounter_WhenReceivedTwice_ThenReplayIsRejected)
     EXPECT_FALSE(replayAccepted);
 }
 
-TEST(Tailgate, GivenCounterOlderThanWireGuardWindow_WhenReceived_ThenItIsRejected)
+TEST(Given_CounterOlderThanWireGuardWindow, When_Received_Then_ItIsRejected)
 {
     tailgate::protocol::ReplayWindow window;
     ASSERT_TRUE(window.Accept(tailgate::protocol::ReplayWindow::WindowSize));
@@ -33,7 +33,7 @@ TEST(Tailgate, GivenCounterOlderThanWireGuardWindow_WhenReceived_ThenItIsRejecte
     EXPECT_FALSE(staleAccepted);
 }
 
-TEST(Tailgate, GivenWindowCrossingBitmapBoundary_WhenCountersAreReordered_ThenBitsRemainDistinct)
+TEST(Given_WindowCrossingBitmapBoundary, When_CountersAreReordered_Then_BitsRemainDistinct)
 {
     tailgate::protocol::ReplayWindow window;
     ASSERT_TRUE(window.Accept(8191));

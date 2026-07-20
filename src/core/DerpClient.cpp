@@ -1,12 +1,14 @@
 #include "tailgate/protocol/DerpClient.h"
 
 #include "tailgate/Logging.h"
-
-#include <sodium.h>
+#include "tailgate/protocol/Crypto.h"
 
 #include <algorithm>
+#include <format>
 #include <stdexcept>
 #include <string>
+
+#include <sodium.h>
 
 namespace tailgate::protocol
 {
@@ -20,6 +22,8 @@ constexpr std::uint8_t SendPacketFrame = 0x04;
 constexpr std::uint8_t ReceivePacketFrame = 0x05;
 constexpr std::uint8_t KeepAliveFrame = 0x06;
 constexpr std::uint8_t PreferredFrame = 0x07;
+constexpr std::uint8_t PeerGoneFrame = 0x08;
+constexpr std::uint8_t HealthFrame = 0x14;
 constexpr std::uint8_t PingFrame = 0x12;
 constexpr std::uint8_t PongFrame = 0x13;
 constexpr std::size_t MaximumFrameSize = 1U << 20;
@@ -36,38 +40,26 @@ DerpClient::DerpClient(IByteStream& stream, Key privateKey, Key publicKey)
 {
     if (sodium_init() < 0)
     {
-        throw std::runtime_error("libsodium initialization failed");
+        throw std::runtime_error("Libsodium initialization failed.");
     }
 }
 
-void DerpClient::Connect(const std::string& hostname)
+DerpClient::DerpClient(IByteStream& stream, Authenticator authenticator)
+    : Stream(stream), Authenticate(std::move(authenticator))
 {
-    const std::string request = "GET /derp HTTP/1.1\r\nHost: " + hostname +
-                                "\r\nConnection: Upgrade\r\nUpgrade: DERP\r\n\r\n";
-    Stream.WriteAll({request.begin(), request.end()});
-    std::string response;
-    while (response.find("\r\n\r\n") == std::string::npos)
+    if (!Authenticate)
     {
-        std::vector<std::uint8_t> byte = Stream.ReadExact(1);
-        response.push_back(static_cast<char>(byte.front()));
-        if (response.size() > MaximumHttpHeaderSize)
-        {
-            throw std::runtime_error("DERP HTTP response headers are too large");
-        }
+        throw std::invalid_argument("DERP authenticator is empty.");
     }
-    if (response.rfind("HTTP/1.1 101", 0) != 0)
+    if (sodium_init() < 0)
     {
-        throw std::runtime_error("DERP HTTP upgrade was rejected");
+        throw std::runtime_error("Libsodium initialization failed.");
     }
+}
 
-    Frame greeting = ReadFrame();
-    if (greeting.Type != ServerKeyFrame || greeting.Payload.size() < ServerGreetingSize ||
-        !std::equal(DerpMagic.begin(), DerpMagic.end(), greeting.Payload.begin()))
-    {
-        throw std::runtime_error("invalid DERP server greeting");
-    }
-    std::copy_n(greeting.Payload.begin() + 8, ServerKey.size(), ServerKey.begin());
-
+std::vector<std::uint8_t>
+DerpClient::BuildClientInfo(const Key& privateKey, const Key& publicKey, const Key& serverKey)
+{
     static constexpr char ClientInfo[] = "{\"version\":2,\"CanAckPings\":true,\"IsProber\":false}";
     std::array<std::uint8_t, crypto_box_NONCEBYTES> nonce{};
     randombytes_buf(nonce.data(), nonce.size());
@@ -76,34 +68,75 @@ void DerpClient::Connect(const std::string& hostname)
                         reinterpret_cast<const unsigned char*>(ClientInfo),
                         sizeof(ClientInfo) - 1,
                         nonce.data(),
-                        ServerKey.data(),
-                        PrivateKey.data()) != 0)
+                        serverKey.data(),
+                        privateKey.data()) != 0)
     {
-        throw std::runtime_error("DERP client authentication encryption failed");
+        throw std::runtime_error("DERP client authentication encryption failed.");
     }
     std::vector<std::uint8_t> payload;
-    payload.reserve(PublicKey.size() + nonce.size() + ciphertext.size());
-    payload.insert(payload.end(), PublicKey.begin(), PublicKey.end());
+    payload.reserve(publicKey.size() + nonce.size() + ciphertext.size());
+    payload.insert(payload.end(), publicKey.begin(), publicKey.end());
     payload.insert(payload.end(), nonce.begin(), nonce.end());
     payload.insert(payload.end(), ciphertext.begin(), ciphertext.end());
+    return payload;
+}
+
+void DerpClient::Connect(const std::string& hostname)
+{
+    const std::string request = std::format("GET /derp HTTP/1.1\r\nHost: {}\r\n"
+                                            "Connection: Upgrade\r\nUpgrade: DERP\r\n\r\n",
+                                            hostname);
+    Stream.WriteAll({request.begin(), request.end()});
+    std::string response;
+    while (response.find("\r\n\r\n") == std::string::npos)
+    {
+        std::vector<std::uint8_t> byte = Stream.ReadExact(1);
+        response.push_back(static_cast<char>(byte.front()));
+        if (response.size() > MaximumHttpHeaderSize)
+        {
+            throw std::runtime_error("DERP HTTP response headers are too large.");
+        }
+    }
+    if (response.rfind("HTTP/1.1 101", 0) != 0)
+    {
+        throw std::runtime_error("DERP HTTP upgrade was rejected.");
+    }
+
+    Frame greeting = ReadFrame();
+    if (greeting.Type != ServerKeyFrame || greeting.Payload.size() < ServerGreetingSize ||
+        !std::equal(DerpMagic.begin(), DerpMagic.end(), greeting.Payload.begin()))
+    {
+        throw std::runtime_error("Invalid DERP server greeting.");
+    }
+    std::copy_n(greeting.Payload.begin() + 8, ServerKey.size(), ServerKey.begin());
+
+    const std::vector<std::uint8_t> payload =
+        Authenticate ? Authenticate(ServerKey) : BuildClientInfo(PrivateKey, PublicKey, ServerKey);
+    if (payload.size() < Key{}.size() + crypto_box_NONCEBYTES + crypto_box_MACBYTES)
+    {
+        throw std::runtime_error("DERP authenticator returned an invalid ClientInfo envelope.");
+    }
     WriteFrame(ClientInfoFrame, payload);
 
     Frame serverInfo = ReadFrame();
     if (serverInfo.Type != ServerInfoFrame ||
         serverInfo.Payload.size() < crypto_box_NONCEBYTES + crypto_box_MACBYTES)
     {
-        throw std::runtime_error("DERP server did not authenticate the client");
+        throw std::runtime_error("DERP server did not authenticate the client.");
     }
-    const std::size_t encryptedSize = serverInfo.Payload.size() - crypto_box_NONCEBYTES;
-    std::vector<std::uint8_t> serverPlaintext(encryptedSize - crypto_box_MACBYTES);
-    if (crypto_box_open_easy(serverPlaintext.data(),
-                             serverInfo.Payload.data() + crypto_box_NONCEBYTES,
-                             encryptedSize,
-                             serverInfo.Payload.data(),
-                             ServerKey.data(),
-                             PrivateKey.data()) != 0)
+    if (!Authenticate)
     {
-        throw std::runtime_error("DERP server authentication failed");
+        const std::size_t encryptedSize = serverInfo.Payload.size() - crypto_box_NONCEBYTES;
+        std::vector<std::uint8_t> serverPlaintext(encryptedSize - crypto_box_MACBYTES);
+        if (crypto_box_open_easy(serverPlaintext.data(),
+                                 serverInfo.Payload.data() + crypto_box_NONCEBYTES,
+                                 encryptedSize,
+                                 serverInfo.Payload.data(),
+                                 ServerKey.data(),
+                                 PrivateKey.data()) != 0)
+        {
+            throw std::runtime_error("DERP server authentication failed.");
+        }
     }
     Log(LogLevel::Info, "derp", "authenticated with " + hostname);
 }
@@ -165,7 +198,7 @@ std::optional<DerpClient::Packet> DerpClient::ReceiveAvailable()
         std::vector<std::uint8_t> data = std::move(*available);
         if (data.empty())
         {
-            throw std::runtime_error("DERP stream closed");
+            throw std::runtime_error("DERP stream closed.");
         }
         ReceiveBuffer.insert(ReceiveBuffer.end(), data.begin(), data.end());
     }
@@ -179,7 +212,7 @@ std::optional<DerpClient::Packet> DerpClient::ReceiveAvailable()
                                ReceiveBuffer[4];
     if (size > MaximumFrameSize)
     {
-        throw std::runtime_error("DERP frame exceeds the protocol limit");
+        throw std::runtime_error("DERP frame exceeds the protocol limit.");
     }
     if (ReceiveBuffer.size() < FrameHeaderSize + size)
     {
@@ -221,7 +254,7 @@ std::vector<DerpClient::Packet> DerpClient::ReceiveAvailableBatch()
                                        ReceiveBuffer[4];
             if (size > MaximumFrameSize)
             {
-                throw std::runtime_error("DERP frame exceeds the protocol limit");
+                throw std::runtime_error("DERP frame exceeds the protocol limit.");
             }
             if (ReceiveBuffer.size() >= FrameHeaderSize + size)
             {
@@ -235,6 +268,18 @@ std::vector<DerpClient::Packet> DerpClient::ReceiveAvailableBatch()
                 if (type == PingFrame)
                 {
                     WriteFrame(PongFrame, payload);
+                }
+                else if (type == PeerGoneFrame && payload.size() >= Key{}.size())
+                {
+                    Log(LogLevel::Debug,
+                        "derp",
+                        "peer unavailable key=" + BytesToHex(payload.data(), Key{}.size()));
+                }
+                else if (type == HealthFrame)
+                {
+                    Log(LogLevel::Warning,
+                        "derp",
+                        "server health: " + std::string(payload.begin(), payload.end()));
                 }
                 else if (type == ReceivePacketFrame && payload.size() >= Key{}.size())
                 {
@@ -257,7 +302,7 @@ std::vector<DerpClient::Packet> DerpClient::ReceiveAvailableBatch()
         }
         if (available->empty())
         {
-            throw std::runtime_error("DERP stream closed");
+            throw std::runtime_error("DERP stream closed.");
         }
         ReceiveBuffer.insert(ReceiveBuffer.end(), available->begin(), available->end());
     }
@@ -297,7 +342,7 @@ void DerpClient::Flush()
         }
         if (*written == 0)
         {
-            throw std::runtime_error("DERP stream closed during write");
+            throw std::runtime_error("DERP stream closed during write.");
         }
         SendOffset += *written;
     }
@@ -314,7 +359,7 @@ void DerpClient::WriteFrame(std::uint8_t type, const std::vector<std::uint8_t>& 
 {
     if (payload.size() > MaximumFrameSize)
     {
-        throw std::runtime_error("DERP frame is too large");
+        throw std::runtime_error("DERP frame is too large.");
     }
     const std::uint32_t size = static_cast<std::uint32_t>(payload.size());
     std::vector<std::uint8_t> frame{type,
@@ -335,9 +380,9 @@ DerpClient::Frame DerpClient::ReadFrame()
                                (static_cast<std::uint32_t>(header[3]) << 8) | header[4];
     if (size > MaximumFrameSize)
     {
-        throw std::runtime_error("DERP frame exceeds the protocol limit");
+        throw std::runtime_error("DERP frame exceeds the protocol limit.");
     }
-    return Frame{header[0], Stream.ReadExact(size)};
+    return Frame{.Type = header[0], .Payload = Stream.ReadExact(size)};
 }
 
 } // namespace tailgate::protocol

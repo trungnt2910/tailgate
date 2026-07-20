@@ -1,0 +1,30 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.App.Model
+    STATIC
+    AuthorizationControllerState.h
+    ControlPlaneState.h
+    ContentDialogState.h
+    DevicePageState.h
+    ExitNodeState.h
+    HomePageState.h
+    InteractiveAuthorizationState.h
+    NavigationState.h
+    NodeAuthorizationDialogState.h
+    ObservableState.h
+    PackageState.cpp
+    PackageState.h
+    PingDialogState.h
+    PingState.h
+    ProfilePictureState.h
+    SessionState.h
+    SetOptionsState.h
+    SettingsState.cpp
+    SettingsState.h
+    SignInDialogState.h
+    TailgateRelayState.h
+    VpnProfileState.h
+)
+target_link_libraries(
+    Tailgate.Uwp.App.Model
+    PUBLIC Tailgate.Uwp.Common
+)

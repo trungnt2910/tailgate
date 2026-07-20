@@ -8,6 +8,7 @@ typedef struct ip4_addr
 {
     uint32_t addr;
 } ip4_addr_t;
+
 typedef struct ip_addr
 {
     uint32_t addr;

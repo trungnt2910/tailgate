@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <stdexcept>
 
 namespace tailgate::network
@@ -81,9 +82,11 @@ std::optional<std::uint32_t> ParseIpv4(const std::string& text)
 
 std::string FormatIpv4(std::uint32_t address)
 {
-    return std::to_string((address >> 24U) & 0xffU) + "." +
-           std::to_string((address >> 16U) & 0xffU) + "." +
-           std::to_string((address >> 8U) & 0xffU) + "." + std::to_string(address & 0xffU);
+    return std::format("{}.{}.{}.{}",
+                       (address >> 24U) & 0xffU,
+                       (address >> 16U) & 0xffU,
+                       (address >> 8U) & 0xffU,
+                       address & 0xffU);
 }
 
 std::uint32_t PrefixMask(std::uint8_t prefixLength)
@@ -113,7 +116,7 @@ std::optional<Ipv4Prefix> ParseIpv4Prefix(const std::string& text)
         return std::nullopt;
     }
     const auto prefixLength = static_cast<std::uint8_t>(length);
-    return Ipv4Prefix{*address & PrefixMask(prefixLength), prefixLength};
+    return Ipv4Prefix{.Network = *address & PrefixMask(prefixLength), .PrefixLength = prefixLength};
 }
 
 bool Contains(const Ipv4Prefix& prefix, std::uint32_t address)
@@ -131,6 +134,27 @@ std::optional<std::uint32_t> Ipv4Destination(const std::vector<std::uint8_t>& pa
            (static_cast<std::uint32_t>(packet[Ipv4DestinationOffset + 1]) << 16U) |
            (static_cast<std::uint32_t>(packet[Ipv4DestinationOffset + 2]) << 8U) |
            packet[Ipv4DestinationOffset + 3];
+}
+
+std::optional<std::uint32_t> Ipv4Source(const std::vector<std::uint8_t>& packet)
+{
+    if (packet.size() < Ipv4HeaderSize || (packet[0] >> 4U) != Ipv4Version)
+    {
+        return std::nullopt;
+    }
+    return (static_cast<std::uint32_t>(packet[Ipv4SourceOffset]) << 24U) |
+           (static_cast<std::uint32_t>(packet[Ipv4SourceOffset + 1]) << 16U) |
+           (static_cast<std::uint32_t>(packet[Ipv4SourceOffset + 2]) << 8U) |
+           packet[Ipv4SourceOffset + 3];
+}
+
+std::uint8_t Ipv4Protocol(const std::vector<std::uint8_t>& packet)
+{
+    if (packet.size() < Ipv4HeaderSize || (packet[0] >> 4U) != Ipv4Version)
+    {
+        return 0;
+    }
+    return packet[9];
 }
 
 void WriteIpv4Header(std::vector<std::uint8_t>& packet,
@@ -154,6 +178,17 @@ void WriteIpv4Header(std::vector<std::uint8_t>& packet,
     packet[11] = static_cast<std::uint8_t>(ipChecksum);
 }
 
+std::vector<std::uint8_t> BuildIpv4Packet(std::uint32_t source,
+                                          std::uint32_t destination,
+                                          std::uint8_t protocol,
+                                          const std::vector<std::uint8_t>& payload)
+{
+    std::vector<std::uint8_t> packet(Ipv4HeaderSize + payload.size());
+    WriteIpv4Header(packet, source, destination, protocol);
+    std::copy(payload.begin(), payload.end(), packet.begin() + Ipv4HeaderSize);
+    return packet;
+}
+
 std::vector<std::uint8_t> BuildUdpPacket(std::uint32_t source,
                                          std::uint32_t destination,
                                          std::uint16_t sourcePort,
@@ -171,6 +206,39 @@ std::vector<std::uint8_t> BuildUdpPacket(std::uint32_t source,
     packet[UdpLengthOffset + 1] = static_cast<std::uint8_t>(udpLength);
     std::copy(payload.begin(), payload.end(), packet.begin() + Ipv4UdpHeaderSize);
     return packet;
+}
+
+std::optional<Ipv4UdpDatagram> ParseIpv4UdpDatagram(const std::vector<std::uint8_t>& packet)
+{
+    if (packet.size() < Ipv4HeaderSize || (packet[0] >> 4U) != Ipv4Version ||
+        packet[9] != UdpProtocol)
+    {
+        return std::nullopt;
+    }
+    const std::size_t ipv4HeaderSize = static_cast<std::size_t>(packet[0] & 0x0fU) * 4U;
+    if (ipv4HeaderSize < Ipv4HeaderSize || packet.size() < ipv4HeaderSize + UdpHeaderSize)
+    {
+        return std::nullopt;
+    }
+    const auto read16 = [&](std::size_t offset)
+    {
+        return static_cast<std::uint16_t>((static_cast<std::uint16_t>(packet[offset]) << 8U) |
+                                          packet[offset + 1]);
+    };
+    const std::uint16_t udpLength = read16(ipv4HeaderSize + 4);
+    if (udpLength < UdpHeaderSize || ipv4HeaderSize + udpLength > packet.size())
+    {
+        return std::nullopt;
+    }
+    Ipv4UdpDatagram result;
+    result.Source = *Ipv4Source(packet);
+    result.Destination = *Ipv4Destination(packet);
+    result.SourcePort = read16(ipv4HeaderSize);
+    result.DestinationPort = read16(ipv4HeaderSize + 2);
+    result.Payload.assign(packet.begin() +
+                              static_cast<std::ptrdiff_t>(ipv4HeaderSize + UdpHeaderSize),
+                          packet.begin() + static_cast<std::ptrdiff_t>(ipv4HeaderSize + udpLength));
+    return result;
 }
 
 std::optional<std::vector<std::uint8_t>> ExtractUdpPayload(const std::vector<std::uint8_t>& packet,

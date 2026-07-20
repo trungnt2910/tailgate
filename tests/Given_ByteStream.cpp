@@ -40,7 +40,7 @@ public:
 
 } // namespace
 
-TEST(Tailgate, GivenPartialTryOperations_WhenUsingThrowingWrappers_ThenTryPrimitivesDriveIo)
+TEST(Given_PartialTryOperations, When_UsingThrowingWrappers_Then_TryPrimitivesDriveIo)
 {
     TryStream stream;
     stream.Reads.push_back({1, 2});
@@ -54,7 +54,7 @@ TEST(Tailgate, GivenPartialTryOperations_WhenUsingThrowingWrappers_ThenTryPrimit
     EXPECT_EQ(input, (std::vector<std::uint8_t>{1, 2, 3, 4}));
 }
 
-TEST(Tailgate, GivenTryReadWouldBlock_WhenUsingReadSome_ThenWrapperReportsWouldBlock)
+TEST(Given_TryReadWouldBlock, When_UsingReadSome_Then_WrapperReportsWouldBlock)
 {
     TryStream stream;
 

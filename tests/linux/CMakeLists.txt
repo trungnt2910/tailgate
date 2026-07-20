@@ -1,0 +1,19 @@
+tailgate_add_test_executable(
+    tailgate_linux_tests
+    Given_FdStream.cpp
+    Given_LinuxDataplaneEvents.cpp
+    Given_LinuxPeerApiServer.cpp
+    Given_LinuxPingIpc.cpp
+    Given_LinuxQrCode.cpp
+    Given_LinuxState.cpp
+)
+target_include_directories(
+    tailgate_linux_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/src/platform/linux
+)
+target_link_libraries(
+    tailgate_linux_tests
+    PRIVATE
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests>"
+        tailgate_linux
+)

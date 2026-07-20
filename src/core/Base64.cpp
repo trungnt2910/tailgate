@@ -32,7 +32,7 @@ std::uint8_t DecodeChar(char ch)
     {
         return 63;
     }
-    throw std::runtime_error("invalid base64 character");
+    throw std::runtime_error("Invalid Base64 character.");
 }
 
 } // namespace
@@ -69,7 +69,7 @@ std::vector<std::uint8_t> Base64Decode(const std::string& text)
 {
     if (text.size() % 4 != 0)
     {
-        throw std::runtime_error("base64 length must be a multiple of four");
+        throw std::runtime_error("Base64 length must be a multiple of four.");
     }
 
     std::vector<std::uint8_t> output;

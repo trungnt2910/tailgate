@@ -1,8 +1,9 @@
 #include "tailgate/protocol/Keys.h"
 
-#include <iomanip>
-#include <sstream>
+#include <string>
 #include <utility>
+
+#include <boost/algorithm/hex.hpp>
 
 namespace tailgate::protocol
 {
@@ -18,13 +19,10 @@ const std::array<std::uint8_t, PublicKey::Size>& PublicKey::Bytes() const
 
 std::string PublicKey::ToHex() const
 {
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0');
-    for (std::uint8_t byte : m_bytes)
-    {
-        stream << std::setw(2) << static_cast<int>(byte);
-    }
-    return stream.str();
+    std::string result;
+    result.reserve(m_bytes.size() * 2);
+    boost::algorithm::hex_lower(m_bytes, std::back_inserter(result));
+    return result;
 }
 
 } // namespace tailgate::protocol

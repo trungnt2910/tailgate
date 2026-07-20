@@ -1,14 +1,19 @@
 tailgate_add_library(
     tailgate_core
     STATIC
+    AcmeClient.cpp
+    AcmeCrypto.cpp
     Base64.cpp
     ControlClient.cpp
     ControlHandshake.cpp
     ControlRequests.cpp
     Crypto.cpp
     DerpClient.cpp
+    DerpSendQueue.cpp
     Disco.cpp
     Dns.cpp
+    FunnelConfig.cpp
+    HandshakeLimiter.cpp
     H2.cpp
     Ipv4.cpp
     Keys.cpp
@@ -16,11 +21,23 @@ tailgate_add_library(
     NetworkMap.cpp
     Noise.cpp
     NoiseTransport.cpp
+    PeerApiIngress.cpp
+    PsaCryptoContext.cpp
+    QrCode.cpp
+    RelayProtocol.cpp
     ReplayWindow.cpp
+    RetryBackoff.cpp
+    ResolverConfig.cpp
+    Stun.cpp
+    Strings.cpp
+    TailnetDns.cpp
     TlsStream.cpp
+    Tsmp.cpp
     WireGuardTunnel.cpp
+    WireGuardRouter.cpp
 )
-target_link_libraries(tailgate_core PUBLIC tailgate_wireguard_crypto)
+target_link_libraries(tailgate_core PUBLIC Boost::algorithm tailgate_wireguard_crypto)
+target_link_libraries(tailgate_core PRIVATE zint-static)
 target_link_libraries(
     tailgate_core
     PRIVATE

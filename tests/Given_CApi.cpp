@@ -34,7 +34,7 @@ tg_stream_result TryRead(void*, std::uint8_t*, size_t, size_t*)
 
 } // namespace
 
-TEST(Tailgate, GivenCDiscoApi_WhenPinging_ThenPortableHandlesRoundTrip)
+TEST(Given_CDiscoApi, When_Pinging_Then_PortableHandlesRoundTrip)
 {
     std::array<uint8_t, 32> privateA{};
     std::array<uint8_t, 32> privateB{};
@@ -69,7 +69,7 @@ TEST(Tailgate, GivenCDiscoApi_WhenPinging_ThenPortableHandlesRoundTrip)
     tg_disco_destroy(b);
 }
 
-TEST(Tailgate, GivenAsyncCStreamWouldBlock_WhenDerpSends_ThenOutputRemainsQueuedUntilFlush)
+TEST(Given_AsyncCStreamWouldBlock, When_DerpSends_Then_OutputRemainsQueuedUntilFlush)
 {
     AsyncStreamContext stream;
     std::array<std::uint8_t, 32> privateKey{};
