@@ -158,9 +158,8 @@ if(TAILGATE_UWP_TESTS_DEPLOYABLE)
         TAILGATE_UWP_TEST_MANIFEST_STAGED
         "${CMAKE_CURRENT_BINARY_DIR}/Tailgate.Tests-appx/AppxManifest.xml"
     )
-    set_property(
-        TARGET tailgate_uwp_tests
-        PROPERTY CROSSCOMPILING_EMULATOR
+    set(
+        TAILGATE_UWP_TEST_LAUNCHER
             "${TAILGATE_UWP_POWERSHELL_EXECUTABLE}"
             -NoProfile
             -NonInteractive
@@ -171,9 +170,20 @@ if(TAILGATE_UWP_TESTS_DEPLOYABLE)
             -ManifestPath
             "${TAILGATE_UWP_TEST_MANIFEST_STAGED}"
     )
+    set_property(
+        TARGET tailgate_uwp_tests
+        PROPERTY CROSSCOMPILING_EMULATOR ${TAILGATE_UWP_TEST_LAUNCHER}
+    )
     gtest_discover_tests(
         tailgate_uwp_tests
         DISCOVERY_MODE PRE_TEST
+        DISCOVERY_TIMEOUT -1
         PROPERTIES RUN_SERIAL TRUE
+    )
+    add_custom_target(
+        tailgate_uwp_tests_all
+        COMMAND ${TAILGATE_UWP_TEST_LAUNCHER} "$<TARGET_FILE:tailgate_uwp_tests>"
+        DEPENDS Tailgate.Tests-appx
+        USES_TERMINAL
     )
 endif()

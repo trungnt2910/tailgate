@@ -1,5 +1,5 @@
 if(TAILGATE_BUILD_TESTS)
-    enable_testing()
+    include(CTest)
     include(GoogleTest)
 
     function(tailgate_add_test_executable target)

@@ -7,7 +7,6 @@
 #include <string_view>
 #include <vector>
 
-#include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Graphics.Display.h>
 #include <winrt/Windows.Graphics.Imaging.h>
@@ -21,7 +20,6 @@
 namespace tailgate::uwp::tests
 {
 
-namespace appmodel_core = winrt::Windows::ApplicationModel::Core;
 namespace display = winrt::Windows::Graphics::Display;
 namespace graphics_imaging = winrt::Windows::Graphics::Imaging;
 namespace imaging = winrt::Windows::UI::Xaml::Media::Imaging;
@@ -319,16 +317,10 @@ ScreenshotEnvironment TestHost::Environment() noexcept
 }
 
 foundation::IAsyncAction TestHost::CompleteTestRunAsync(const winrt::hstring& message,
-                                                        TestRunResult result,
-                                                        bool exitWhenComplete)
+                                                        TestRunResult result)
 {
     co_await winrt::resume_foreground(s_dispatcher);
     s_status.Text(message);
-    if (exitWhenComplete)
-    {
-        appmodel_core::CoreApplication::Exit();
-        co_return;
-    }
     s_resultDisplay =
         std::make_shared<TestResultDisplay>(s_root, message, OutputFileName, std::move(result));
     co_await s_resultDisplay->ShowAsync();

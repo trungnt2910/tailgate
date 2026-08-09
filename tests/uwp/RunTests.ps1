@@ -60,7 +60,6 @@ namespace Tailgate.Uwp.Testing
 {
     public static class ProtocolActivator
     {
-        private const int ErrorInvalidParameter = 87;
         private const uint Infinite = 0xFFFFFFFF;
         private const uint ProcessQueryLimitedInformation = 0x1000;
         private const uint Synchronize = 0x00100000;
@@ -120,10 +119,13 @@ namespace Tailgate.Uwp.Testing
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
         [DllImport("kernel32.dll")]
         private static extern bool CloseHandle(IntPtr handle);
 
-        public static void ActivateAndWait(string appUserModelId, string uri)
+        public static int ActivateAndWait(string appUserModelId, string uri)
         {
             IntPtr shellItem = IntPtr.Zero;
             IntPtr shellItemArray = IntPtr.Zero;
@@ -159,10 +161,6 @@ namespace Tailgate.Uwp.Testing
                 if (process == IntPtr.Zero)
                 {
                     int error = Marshal.GetLastWin32Error();
-                    if (error == ErrorInvalidParameter)
-                    {
-                        return;
-                    }
                     throw new Win32Exception(error);
                 }
             }
@@ -189,6 +187,12 @@ namespace Tailgate.Uwp.Testing
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error());
                 }
+                uint exitCode;
+                if (!GetExitCodeProcess(process, out exitCode))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                return unchecked((int)exitCode);
             }
             finally
             {
@@ -220,15 +224,26 @@ try
 
     $processName = [IO.Path]::GetFileNameWithoutExtension($application.Executable)
     Stop-Process -Name $processName -Force -ErrorAction SilentlyContinue
-    Get-AppxPackage -Name $identity.Name | ForEach-Object `
-    {
-        Remove-AppxPackage -Package $_.PackageFullName
-    }
-    Add-AppxPackage -Register $resolvedManifest -ForceApplicationShutdown
-
+    $packageRoot = Split-Path -Parent $resolvedManifest
+    # AppX staging recreates this directory, so a missing marker means registration is stale.
+    $registrationMarker = Join-Path $packageRoot '.registered'
     $package = Get-AppxPackage -Name $identity.Name |
         Sort-Object Version -Descending |
         Select-Object -First 1
+    $registeredHere =
+        $null -ne $package -and
+        [string]::Equals($package.InstallLocation,
+                         $packageRoot,
+                         [StringComparison]::OrdinalIgnoreCase)
+    if (-not $registeredHere -or
+        -not (Test-Path -LiteralPath $registrationMarker -PathType Leaf))
+    {
+        Add-AppxPackage -Register $resolvedManifest -ForceApplicationShutdown
+        $package = Get-AppxPackage -Name $identity.Name |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+        New-Item -ItemType File -Path $registrationMarker -Force | Out-Null
+    }
     if ($null -eq $package)
     {
         throw "The UWP test package was not registered: $($identity.Name)"
@@ -243,32 +258,59 @@ try
         [Windows.Management.Core.ApplicationDataManager]::
             CreateForPackageFamily($package.PackageFamilyName)
     $outputFileName = "$processName.output.txt"
-    $exitFileName = "$processName.exit.txt"
     $outputPath = Join-Path $applicationData.TemporaryFolder.Path $outputFileName
-    $exitPath = Join-Path $applicationData.TemporaryFolder.Path $exitFileName
+    $jsonOutputPrefix = '--gtest_output=json:'
+    $jsonOutputPath = $null
+    $temporaryJsonOutputPath = $null
+    $forwardedGoogleTestArguments = @(foreach ($argument in $GoogleTestArguments)
+    {
+        if (-not $argument.StartsWith($jsonOutputPrefix, [StringComparison]::Ordinal))
+        {
+            $argument
+            continue
+        }
+
+        $jsonOutputPath = $argument.Substring($jsonOutputPrefix.Length)
+        if ([string]::IsNullOrWhiteSpace($jsonOutputPath))
+        {
+            throw 'GoogleTest JSON output requires a file path.'
+        }
+        $jsonOutputPath = [IO.Path]::GetFullPath($jsonOutputPath)
+        $temporaryJsonOutputPath =
+            Join-Path $applicationData.TemporaryFolder.Path ([IO.Path]::GetFileName($jsonOutputPath))
+        "$jsonOutputPrefix$temporaryJsonOutputPath"
+    })
+    $temporaryOutputPaths = @($outputPath)
+    if ($null -ne $temporaryJsonOutputPath)
+    {
+        $temporaryOutputPaths += $temporaryJsonOutputPath
+    }
     Remove-Item `
-        -LiteralPath $outputPath, $exitPath `
+        -LiteralPath $temporaryOutputPaths `
         -Force `
         -ErrorAction SilentlyContinue
 
     $appUserModelId = "$($package.PackageFamilyName)!$($application.Id)"
-    $testUri = ConvertTo-TestUri -Arguments $GoogleTestArguments
-    [Tailgate.Uwp.Testing.ProtocolActivator]::ActivateAndWait(
+    $testUri = ConvertTo-TestUri -Arguments $forwardedGoogleTestArguments
+    $exitCode = [Tailgate.Uwp.Testing.ProtocolActivator]::ActivateAndWait(
         $appUserModelId,
         $testUri.AbsoluteUri)
-    if (-not (Test-Path -LiteralPath $exitPath -PathType Leaf))
-    {
-        throw "The UWP test harness produced no exit code: $exitPath"
-    }
     if (-not (Test-Path -LiteralPath $outputPath -PathType Leaf))
     {
         throw "The UWP test harness produced no GoogleTest output: $outputPath"
     }
+    if ($null -ne $jsonOutputPath)
+    {
+        if (-not (Test-Path -LiteralPath $temporaryJsonOutputPath -PathType Leaf))
+        {
+            throw "The UWP test harness produced no GoogleTest JSON: $temporaryJsonOutputPath"
+        }
+        Copy-Item -LiteralPath $temporaryJsonOutputPath -Destination $jsonOutputPath -Force
+    }
 
-    $exitCode = [int](Get-Content -LiteralPath $exitPath -Raw)
     Write-Verbose "UWP GoogleTest output: $outputPath"
     $output = Get-Content -LiteralPath $outputPath -Raw
-    [Console]::Out.Write($output)
+    Write-Output -NoEnumerate $output
     exit $exitCode
 }
 catch

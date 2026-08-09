@@ -13,11 +13,13 @@ CPMAddPackage(
     OPTIONS "SODIUM_DISABLE_TESTS ON"
 )
 
+# Avoid git for MbedTLS
+# The source repository has large submodules and requires other third-party tools for codegen.
 CPMAddPackage(
     NAME MbedTLS
     VERSION 4.1.0
-    GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
-    GIT_TAG mbedtls-4.1.0
+    URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.0/mbedtls-4.1.0.tar.bz2
+    URL_HASH SHA256=377a09cf8eb81b5fb2707045e5522d5489d3309fed5006c9874e60558fc81d10
     OPTIONS "ENABLE_PROGRAMS OFF" "ENABLE_TESTING OFF"
 )
 

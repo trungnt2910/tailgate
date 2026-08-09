@@ -13,7 +13,6 @@
 #endif
 
 #include <winrt/Windows.ApplicationModel.Activation.h>
-#include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.System.Threading.h>
@@ -98,19 +97,15 @@ void CompleteTestRun(int exitCode,
                      std::vector<tailgate::uwp::tests::FailedTestResult> failures = {})
 {
     TestExitCode.store(exitCode);
-    const auto folder = storage::ApplicationData::Current().TemporaryFolder();
-    const auto exitCodeFile =
-        folder
-            .CreateFileAsync(tailgate::uwp::tests::TestHost::ExitFileName,
-                             storage::CreationCollisionOption::ReplaceExisting)
-            .get();
-    storage::FileIO::WriteTextAsync(exitCodeFile, winrt::to_hstring(exitCode)).get();
+    if (exitWhenComplete)
+    {
+        ::ExitProcess(static_cast<UINT>(exitCode));
+    }
     tailgate::uwp::tests::TestHost::CompleteTestRunAsync(message,
                                                          tailgate::uwp::tests::TestRunResult{
                                                              .exitCode = exitCode,
                                                              .failedTests = std::move(failures),
-                                                         },
-                                                         exitWhenComplete)
+                                                         })
         .get();
 }
 
