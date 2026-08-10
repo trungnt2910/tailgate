@@ -42,6 +42,7 @@ public:
     TestHost() = delete;
 
     inline static constexpr wchar_t OutputFileName[] = L"Tailgate.Tests.output.txt";
+    inline static constexpr wchar_t ExitFileName[] = L"Tailgate.Tests.exit.txt";
     inline static constexpr wchar_t StandardLanguage[] = L"en-US";
     inline static constexpr double StandardViewportWidth = 1024.0;
     inline static constexpr double StandardViewportHeight = 768.0;

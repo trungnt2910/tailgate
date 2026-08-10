@@ -97,6 +97,13 @@ void CompleteTestRun(int exitCode,
                      std::vector<tailgate::uwp::tests::FailedTestResult> failures = {})
 {
     TestExitCode.store(exitCode);
+    const auto folder = storage::ApplicationData::Current().TemporaryFolder();
+    const auto exitCodeFile =
+        folder
+            .CreateFileAsync(tailgate::uwp::tests::TestHost::ExitFileName,
+                             storage::CreationCollisionOption::ReplaceExisting)
+            .get();
+    storage::FileIO::WriteTextAsync(exitCodeFile, winrt::to_hstring(exitCode)).get();
     if (exitWhenComplete)
     {
         ::ExitProcess(static_cast<UINT>(exitCode));

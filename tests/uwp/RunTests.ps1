@@ -60,6 +60,7 @@ namespace Tailgate.Uwp.Testing
 {
     public static class ProtocolActivator
     {
+        private const int ErrorInvalidParameter = 87;
         private const uint Infinite = 0xFFFFFFFF;
         private const uint ProcessQueryLimitedInformation = 0x1000;
         private const uint Synchronize = 0x00100000;
@@ -119,13 +120,10 @@ namespace Tailgate.Uwp.Testing
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
-
         [DllImport("kernel32.dll")]
         private static extern bool CloseHandle(IntPtr handle);
 
-        public static int ActivateAndWait(string appUserModelId, string uri)
+        public static void ActivateAndWait(string appUserModelId, string uri)
         {
             IntPtr shellItem = IntPtr.Zero;
             IntPtr shellItemArray = IntPtr.Zero;
@@ -161,6 +159,13 @@ namespace Tailgate.Uwp.Testing
                 if (process == IntPtr.Zero)
                 {
                     int error = Marshal.GetLastWin32Error();
+                    // A short-lived test process can exit between activation returning its PID
+                    // and OpenProcess acquiring a handle. The exit-code file is the durable
+                    // completion signal in that case.
+                    if (error == ErrorInvalidParameter)
+                    {
+                        return;
+                    }
                     throw new Win32Exception(error);
                 }
             }
@@ -187,12 +192,6 @@ namespace Tailgate.Uwp.Testing
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error());
                 }
-                uint exitCode;
-                if (!GetExitCodeProcess(process, out exitCode))
-                {
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-                }
-                return unchecked((int)exitCode);
             }
             finally
             {
@@ -258,7 +257,9 @@ try
         [Windows.Management.Core.ApplicationDataManager]::
             CreateForPackageFamily($package.PackageFamilyName)
     $outputFileName = "$processName.output.txt"
+    $exitFileName = "$processName.exit.txt"
     $outputPath = Join-Path $applicationData.TemporaryFolder.Path $outputFileName
+    $exitPath = Join-Path $applicationData.TemporaryFolder.Path $exitFileName
     $jsonOutputPrefix = '--gtest_output=json:'
     $jsonOutputPath = $null
     $temporaryJsonOutputPath = $null
@@ -280,7 +281,7 @@ try
             Join-Path $applicationData.TemporaryFolder.Path ([IO.Path]::GetFileName($jsonOutputPath))
         "$jsonOutputPrefix$temporaryJsonOutputPath"
     })
-    $temporaryOutputPaths = @($outputPath)
+    $temporaryOutputPaths = @($outputPath, $exitPath)
     if ($null -ne $temporaryJsonOutputPath)
     {
         $temporaryOutputPaths += $temporaryJsonOutputPath
@@ -292,9 +293,13 @@ try
 
     $appUserModelId = "$($package.PackageFamilyName)!$($application.Id)"
     $testUri = ConvertTo-TestUri -Arguments $forwardedGoogleTestArguments
-    $exitCode = [Tailgate.Uwp.Testing.ProtocolActivator]::ActivateAndWait(
+    [Tailgate.Uwp.Testing.ProtocolActivator]::ActivateAndWait(
         $appUserModelId,
         $testUri.AbsoluteUri)
+    if (-not (Test-Path -LiteralPath $exitPath -PathType Leaf))
+    {
+        throw "The UWP test harness produced no exit code: $exitPath"
+    }
     if (-not (Test-Path -LiteralPath $outputPath -PathType Leaf))
     {
         throw "The UWP test harness produced no GoogleTest output: $outputPath"
@@ -308,6 +313,7 @@ try
         Copy-Item -LiteralPath $temporaryJsonOutputPath -Destination $jsonOutputPath -Force
     }
 
+    $exitCode = [int](Get-Content -LiteralPath $exitPath -Raw)
     Write-Verbose "UWP GoogleTest output: $outputPath"
     $output = Get-Content -LiteralPath $outputPath -Raw
     Write-Output -NoEnumerate $output
