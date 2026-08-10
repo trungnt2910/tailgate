@@ -1,0 +1,144 @@
+name: Build (UWP Cross)
+
+on:
+  push:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        architecture: [x86_64, i686, aarch64, armv7]
+        configuration: [Debug, Release]
+    runs-on: ubuntu-24.04
+    env:
+      LLVM_VERSION: 22
+      BUILD_DIRECTORY: build_${{ matrix.architecture }}_${{ matrix.configuration }}
+      ARTIFACT_DIRECTORY: artifact_${{ matrix.architecture }}_${{ matrix.configuration }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Add LLVM Repository
+      run: |
+        sudo install -d -m 0755 /etc/apt/keyrings
+        curl --fail --silent --show-error https://apt.llvm.org/llvm-snapshot.gpg.key |
+          sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+        . /etc/os-release
+        if [[ -z "${VERSION_CODENAME}" ]]; then
+          echo "VERSION_CODENAME is missing from /etc/os-release" >&2
+          exit 1
+        fi
+        llvm_repository="deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc]"
+        llvm_repository="${llvm_repository} https://apt.llvm.org/${VERSION_CODENAME}/"
+        llvm_repository="${llvm_repository} llvm-toolchain-${VERSION_CODENAME}"
+        llvm_repository="${llvm_repository}-${LLVM_VERSION} main"
+        echo "${llvm_repository}" |
+          sudo tee /etc/apt/sources.list.d/llvm-${LLVM_VERSION}.list > /dev/null
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y           \
+          clang-${LLVM_VERSION}           \
+          libc++-${LLVM_VERSION}-dev      \
+          libclang-rt-${LLVM_VERSION}-dev \
+          llvm-${LLVM_VERSION}            \
+          ninja-build
+
+    - name: Download CMake
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release download     \
+          --repo Kitware/CMake  \
+          --pattern 'cmake-*-linux-x86_64.tar.gz'
+
+    - name: Extract CMake
+      run: |
+        mkdir -p "${GITHUB_WORKSPACE}/.tools/cmake"
+        tar                                     \
+          -xf cmake-*-linux-x86_64.tar.gz       \
+          -C "${GITHUB_WORKSPACE}/.tools/cmake" \
+          --strip-components=1
+        echo "${GITHUB_WORKSPACE}/.tools/cmake/bin" >> "${GITHUB_PATH}"
+
+    - name: Download llvm-mingw
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release download           \
+          --repo mstorsjo/llvm-mingw  \
+          --pattern 'llvm-mingw-*-ucrt-ubuntu-22.04-x86_64.tar.xz'
+
+    - name: Extract llvm-mingw
+      run: |
+        tar -xf llvm-mingw-*-ucrt-ubuntu-22.04-x86_64.tar.xz
+        mv llvm-mingw-*-ucrt-ubuntu-22.04-x86_64 llvm-mingw
+        echo "${GITHUB_WORKSPACE}/llvm-mingw/bin" >> "${GITHUB_PATH}"
+
+    - name: Install Code Signing Certificate
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      env:
+        TAILGATE_CERT_PFX: ${{ secrets.TAILGATE_CERT_PFX }}
+      run: |
+        pfx_path="${GITHUB_WORKSPACE}/Tailgate.pfx"
+        printf '%s' "${TAILGATE_CERT_PFX}" | base64 --decode > "${pfx_path}"
+        echo "TAILGATE_CERTIFICATE=${pfx_path}" >> "${GITHUB_ENV}"
+
+    - name: Configure
+      env:
+        TARGET: ${{ matrix.architecture }}-w64-mingw32
+      run: |
+        host_cc="$(command -v "clang-${LLVM_VERSION}")"
+        host_cxx="$(command -v "clang++-${LLVM_VERSION}")"
+        cmake                                                   \
+          -S .                                                  \
+          -B "${BUILD_DIRECTORY}"                               \
+          -G Ninja                                              \
+          -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}        \
+          -DCMAKE_SYSTEM_NAME=Windows                           \
+          -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.architecture }}   \
+          -DCMAKE_C_COMPILER="${TARGET}-clang"                  \
+          -DCMAKE_CXX_COMPILER="${TARGET}-clang++"              \
+          -DUWP_HOST_CLANG_EXECUTABLE:FILEPATH="${host_cc}"     \
+          -DUWP_HOST_CLANGXX_EXECUTABLE:FILEPATH="${host_cxx}"  \
+          -DTAILGATE_BUILD_LINUX=OFF                            \
+          -DTAILGATE_BUILD_TESTS=OFF                            \
+          -DTAILGATE_BUILD_UWP=ON
+
+    - name: Configure Project Reality Package
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: |
+        cmake                                                       \
+          -S .                                                      \
+          -B "${BUILD_DIRECTORY}"                                   \
+          -DTAILGATE_UWP_APPX_NAME="ProjectReality.Tailgate"        \
+          -DTAILGATE_UWP_APPX_PUBLISHER="CN=Project Reality"        \
+          -DTAILGATE_UWP_APPX_CERTIFICATE="${TAILGATE_CERTIFICATE}"
+
+    - name: Build
+      run: |
+        cmake                                   \
+          --build "${BUILD_DIRECTORY}"          \
+          --config ${{ matrix.configuration }}
+
+    - name: Stage Artifacts
+      run: |
+        build_output="${BUILD_DIRECTORY}/src/platform/uwp"
+        cmake -E make_directory "${ARTIFACT_DIRECTORY}"
+        cmake -E copy                               \
+          "${build_output}/Tailgate.appx"           \
+          "${build_output}/Tailgate.cer"            \
+          "${build_output}/Tailgate.pdb"            \
+          "${build_output}/Tailgate.Background.pdb" \
+          "${ARTIFACT_DIRECTORY}"
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: tailgate-uwp-cross-${{ matrix.architecture }}-${{ matrix.configuration }}
+        path: ${{ env.ARTIFACT_DIRECTORY }}
+        if-no-files-found: error

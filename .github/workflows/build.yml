@@ -1,0 +1,85 @@
+name: Build (Linux)
+
+on:
+  push:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        architecture: [x86_64, aarch64]
+        configuration: [Debug, Release]
+        include:
+          - architecture: x86_64
+            runner: ubuntu-24.04
+          - architecture: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      LLVM_VERSION: 22
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Add LLVM Repository
+      run: |
+        sudo install -d -m 0755 /etc/apt/keyrings
+        curl --fail --silent --show-error https://apt.llvm.org/llvm-snapshot.gpg.key |
+          sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+        . /etc/os-release
+        if [[ -z "${VERSION_CODENAME}" ]]; then
+          echo "VERSION_CODENAME is missing from /etc/os-release" >&2
+          exit 1
+        fi
+        llvm_repository="deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc]"
+        llvm_repository="${llvm_repository} https://apt.llvm.org/${VERSION_CODENAME}/"
+        llvm_repository="${llvm_repository} llvm-toolchain-${VERSION_CODENAME}"
+        llvm_repository="${llvm_repository}-${LLVM_VERSION} main"
+        echo "${llvm_repository}" |
+          sudo tee /etc/apt/sources.list.d/llvm-${LLVM_VERSION}.list > /dev/null
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y           \
+          clang-${LLVM_VERSION}           \
+          cmake                           \
+          libc++-${LLVM_VERSION}-dev      \
+          libclang-rt-${LLVM_VERSION}-dev \
+          llvm-${LLVM_VERSION}            \
+          ninja-build
+
+    - name: Configure
+      run: |
+        cmake                                             \
+          -S .                                            \
+          -B build_${{ matrix.configuration }}            \
+          -G Ninja                                        \
+          -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}  \
+          -DCMAKE_C_COMPILER=clang-${LLVM_VERSION}        \
+          -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION}    \
+          -DCMAKE_CXX_FLAGS=-stdlib=libc++
+
+    - name: Build
+      run: |
+        cmake                                         \
+          --build build_${{ matrix.configuration }}   \
+          --config ${{ matrix.configuration }}
+
+    - name: Run Tests
+      run: |
+        ctest                                           \
+          --output-on-failure                           \
+          --test-dir build_${{ matrix.configuration }}  \
+          --build-config ${{ matrix.configuration }}
+
+    - name: Upload Artifacts
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: tailgate-linux-${{ matrix.architecture }}-${{ matrix.configuration }}
+        path: build_${{ matrix.configuration }}/tailgate
+        if-no-files-found: error

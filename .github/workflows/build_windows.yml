@@ -1,0 +1,168 @@
+name: Build (Windows)
+
+on:
+  push:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        architecture: [x86_64, i686, aarch64, armv7]
+        configuration: [Debug, Release]
+        include:
+          - architecture: x86_64
+            runner: windows-latest
+            host: x86_64
+            run_tests: true
+          - architecture: i686
+            runner: windows-latest
+            host: x86_64
+            run_tests: true
+          - architecture: aarch64
+            runner: windows-11-arm
+            host: aarch64
+            run_tests: true
+          - architecture: armv7
+            runner: windows-latest
+            host: x86_64
+            run_tests: false
+    runs-on: ${{ matrix.runner }}
+    env:
+      BUILD_DIRECTORY: build_${{ matrix.architecture }}_${{ matrix.configuration }}
+      ARTIFACT_DIRECTORY: artifact_${{ matrix.architecture }}_${{ matrix.configuration }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Download llvm-mingw
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release download                                     ^
+          --repo mstorsjo/llvm-mingw                            ^
+          --pattern "llvm-mingw-*-ucrt-${{ matrix.host }}.zip"
+      shell: cmd
+
+    - name: Extract llvm-mingw
+      run: |
+        for %%F in (llvm-mingw-*-ucrt-${{ matrix.host }}.zip) do tar -xf "%%F"
+        for /d %%D in (llvm-mingw*) do ren "%%D" llvm-mingw
+        echo ${{ github.workspace }}\llvm-mingw\bin>>"%GITHUB_PATH%"
+      shell: cmd
+
+    - name: Install Code Signing Certificate
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      env:
+        TAILGATE_CERT_PFX: ${{ secrets.TAILGATE_CERT_PFX }}
+      run: |
+        $pfxBytes = [System.Convert]::FromBase64String($env:TAILGATE_CERT_PFX.Trim())
+        $pfxPath = "${{ github.workspace }}\Tailgate.pfx"
+        [System.IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+
+        Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My
+
+        [System.IO.File]::AppendAllLines(
+          $env:GITHUB_ENV,
+          [string[]]@("TAILGATE_CERTIFICATE=$pfxPath")
+        )
+      shell: powershell
+
+    - name: Configure
+      env:
+        TARGET: ${{ matrix.architecture }}-w64-mingw32
+      run: |
+        cmake                                                 ^
+          -S .                                                ^
+          -B %BUILD_DIRECTORY%                                ^
+          -G Ninja                                            ^
+          -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}      ^
+          -DCMAKE_SYSTEM_NAME=Windows                         ^
+          -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.architecture }} ^
+          -DCMAKE_C_COMPILER=%TARGET%-clang.exe               ^
+          -DCMAKE_CXX_COMPILER=%TARGET%-clang++.exe
+      shell: cmd
+
+    - name: Configure Project Reality Package
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: |
+        cmake                                                      ^
+          -S .                                                     ^
+          -B %BUILD_DIRECTORY%                                     ^
+          -DTAILGATE_UWP_APPX_NAME="ProjectReality.Tailgate"       ^
+          -DTAILGATE_UWP_APPX_PUBLISHER="CN=Project Reality"       ^
+          -DTAILGATE_UWP_APPX_CERTIFICATE="%TAILGATE_CERTIFICATE%"
+      shell: cmd
+
+    - name: Build
+      run: |
+        cmake                                   ^
+          --build %BUILD_DIRECTORY%             ^
+          --config ${{ matrix.configuration }}
+      shell: cmd
+
+    - name: Configure UWP Test Environment
+      if: matrix.run_tests
+      run: .github/scripts/Configure-TestEnvironment.ps1
+      shell: powershell
+
+    - name: Run Tests
+      if: matrix.run_tests
+      run: |
+        ctest                                         ^
+          --output-on-failure                         ^
+          --test-dir %BUILD_DIRECTORY%                ^
+          --build-config ${{ matrix.configuration }}
+      shell: cmd
+
+    - name: Stage Artifacts
+      if: always()
+      run: |
+        set "BUILD_OUTPUT=%BUILD_DIRECTORY%\src\platform\uwp"
+        cmake -E make_directory "%ARTIFACT_DIRECTORY%"
+        cmake -E copy                               ^
+          "%BUILD_OUTPUT%\Tailgate.appx"            ^
+          "%BUILD_OUTPUT%\Tailgate.cer"             ^
+          "%BUILD_OUTPUT%\Tailgate.pdb"             ^
+          "%BUILD_OUTPUT%\Tailgate.Background.pdb"  ^
+          "%ARTIFACT_DIRECTORY%"
+      shell: cmd
+
+    - name: Stage Screenshots
+      if: always() && matrix.run_tests
+      run: |
+        $package = Get-AppxPackage -Name Tailgate.Tests |
+          Sort-Object Version -Descending |
+          Select-Object -First 1
+        if ($null -eq $package)
+        {
+          Write-Output 'The UWP test package is not installed; no screenshots to stage.'
+          exit 0
+        }
+
+        $applicationData =
+          [Windows.Management.Core.ApplicationDataManager]::
+            CreateForPackageFamily($package.PackageFamilyName)
+        $goldens = Join-Path $applicationData.LocalFolder.Path 'goldens'
+        if (-not (Test-Path -LiteralPath $goldens -PathType Container))
+        {
+          Write-Output 'The UWP tests produced no screenshots.'
+          exit 0
+        }
+
+        $destination = Join-Path $env:ARTIFACT_DIRECTORY 'screenshots'
+        New-Item -ItemType Directory -Path $destination -Force | Out-Null
+        Get-ChildItem -LiteralPath $goldens | ForEach-Object {
+          Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
+        }
+      shell: powershell
+
+    - name: Upload Artifacts
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: tailgate-uwp-${{ matrix.architecture }}-${{ matrix.configuration }}
+        path: ${{ env.ARTIFACT_DIRECTORY }}
+        if-no-files-found: error
