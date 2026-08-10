@@ -177,7 +177,7 @@ if(TAILGATE_UWP_TESTS_DEPLOYABLE)
     gtest_discover_tests(
         tailgate_uwp_tests
         DISCOVERY_MODE PRE_TEST
-        DISCOVERY_TIMEOUT -1
+        DISCOVERY_TIMEOUT 999999999 # GTest does not support a genuine infinite timeout.
         PROPERTIES RUN_SERIAL TRUE
     )
     add_custom_target(
