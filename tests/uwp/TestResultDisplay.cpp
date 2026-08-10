@@ -232,7 +232,6 @@ CreateComparisonAsync(const FailedTestResult& test, const storage::StorageFile& 
     co_await DecodePngAsync(actualFile, actualPixels);
     ScreenDiff::Pixels referencePixels;
     co_await DecodePngAsync(referenceFile, referencePixels);
-    const auto referenceImage = co_await LoadImageAsync(referenceFile);
     const auto difference = ScreenDiff::TryCreateDiff(referencePixels, actualPixels);
     media::ImageSource differenceImage{nullptr};
     streams::IRandomAccessStream differenceStream{nullptr};
@@ -241,6 +240,7 @@ CreateComparisonAsync(const FailedTestResult& test, const storage::StorageFile& 
         differenceStream = co_await EncodeDifferenceAsync(*difference);
     }
     co_await winrt::resume_foreground(dispatcher);
+    const auto referenceImage = co_await LoadImageAsync(referenceFile);
     if (differenceStream)
     {
         imaging::BitmapImage image;
