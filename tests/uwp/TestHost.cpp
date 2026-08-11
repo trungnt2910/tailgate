@@ -15,6 +15,8 @@
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/base.h>
 
+#include <mapbox/pixelmatch.hpp>
+
 #include "TestResultDisplay.h"
 
 namespace tailgate::uwp::tests
@@ -80,8 +82,8 @@ GoldenImage DecodePng(const streams::IRandomAccessStream& stream)
     const auto decoder = graphics_imaging::BitmapDecoder::CreateAsync(stream).get();
     const auto pixelData =
         decoder
-            .GetPixelDataAsync(graphics_imaging::BitmapPixelFormat::Bgra8,
-                               graphics_imaging::BitmapAlphaMode::Premultiplied,
+            .GetPixelDataAsync(graphics_imaging::BitmapPixelFormat::Rgba8,
+                               graphics_imaging::BitmapAlphaMode::Straight,
                                graphics_imaging::BitmapTransform(),
                                graphics_imaging::ExifOrientationMode::IgnoreExifOrientation,
                                graphics_imaging::ColorManagementMode::DoNotColorManage)
@@ -102,37 +104,6 @@ GoldenImage LoadGolden(const winrt::hstring& goldenPath)
         storage::StorageFile::GetFileFromApplicationUriAsync(foundation::Uri(uri)).get();
     const auto stream = file.OpenAsync(storage::FileAccessMode::Read).get();
     return DecodePng(stream);
-}
-
-bool PixelsMatch(const std::vector<std::uint8_t>& expected,
-                 const std::vector<std::uint8_t>& actual,
-                 GoldenComparisonOptions options)
-{
-    constexpr std::size_t BytesPerPixel = 4;
-    if (expected.size() != actual.size())
-    {
-        return false;
-    }
-    std::size_t differentPixels = 0;
-    for (std::size_t offset = 0; offset < expected.size(); offset += BytesPerPixel)
-    {
-        bool pixelDifferent = false;
-        for (std::size_t channel = 0; channel < BytesPerPixel; ++channel)
-        {
-            const auto difference = std::abs(static_cast<int>(expected[offset + channel]) -
-                                             static_cast<int>(actual[offset + channel]));
-            if (difference > options.maximumChannelDifference)
-            {
-                return false;
-            }
-            pixelDifferent = pixelDifferent || difference != 0;
-        }
-        if (pixelDifferent && ++differentPixels > options.maximumDifferentPixels)
-        {
-            return false;
-        }
-    }
-    return true;
 }
 
 storage::StorageFile CreatePersistentGolden(const GoldenPath& goldenPath)
@@ -241,21 +212,21 @@ TestHost::CaptureTestContentAsync(const xaml::UIElement& content)
 
 testing::AssertionResult TestHost::CheckGolden(const xaml::UIElement& content,
                                                const winrt::hstring& goldenPath,
-                                               GoldenComparisonOptions options)
+                                               GoldenComparisonMode mode)
 {
-    return CheckCapturedGolden(CaptureTestContentAsync(content).get(), goldenPath, options);
+    return CheckCapturedGolden(CaptureTestContentAsync(content).get(), goldenPath, mode);
 }
 
 testing::AssertionResult TestHost::CheckGolden(const winrt::hstring& goldenPath,
-                                               GoldenComparisonOptions options)
+                                               GoldenComparisonMode mode)
 {
-    return CheckCapturedGolden(CaptureTestContentAsync().get(), goldenPath, options);
+    return CheckCapturedGolden(CaptureTestContentAsync().get(), goldenPath, mode);
 }
 
 testing::AssertionResult
 TestHost::CheckCapturedGolden(const streams::IRandomAccessStream& capturedPng,
                               const winrt::hstring& goldenPath,
-                              GoldenComparisonOptions options)
+                              GoldenComparisonMode mode)
 {
     GoldenPath parsedPath;
     try
@@ -283,7 +254,9 @@ TestHost::CheckCapturedGolden(const streams::IRandomAccessStream& capturedPng,
             {
                 return testing::AssertionSuccess();
             }
-            if (PixelsMatch(expected.pixels, actual.pixels, options))
+            if (mode == GoldenComparisonMode::Perceptual &&
+                mapbox::pixelmatch(
+                    expected.pixels.data(), actual.pixels.data(), actual.width, actual.height) == 0)
             {
                 (void)WriteActualGolden(parsedPath, capturedPng);
                 return testing::AssertionSuccess();

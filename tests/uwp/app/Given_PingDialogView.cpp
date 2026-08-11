@@ -13,13 +13,6 @@
 
 namespace tailgate::uwp::tests
 {
-namespace
-{
-
-constexpr GoldenComparisonOptions ChartLabelAntialiasTolerance{
-    .maximumChannelDifference = 1,
-    .maximumDifferentPixels = 16,
-};
 
 class Given_PingDialogView : public testing::Test
 {
@@ -67,9 +60,7 @@ TEST_F(Given_PingDialogView, When_DirectPingSucceeds_Then_PingDialogMatchesGolde
                              .get();
 
     const auto result = TestHost::CheckGolden(
-        content,
-        L"Given_PingDialogView/When_DirectPingSucceeds_Then_PingDialogMatchesGolden.png",
-        ChartLabelAntialiasTolerance);
+        content, L"Given_PingDialogView/When_DirectPingSucceeds_Then_PingDialogMatchesGolden.png");
 
     EXPECT_TRUE(result);
 }
@@ -99,9 +90,7 @@ TEST_F(Given_PingDialogView, When_RelayedPingSucceeds_Then_PingDialogMatchesGold
                              .get();
 
     const auto result = TestHost::CheckGolden(
-        content,
-        L"Given_PingDialogView/When_RelayedPingSucceeds_Then_PingDialogMatchesGolden.png",
-        ChartLabelAntialiasTolerance);
+        content, L"Given_PingDialogView/When_RelayedPingSucceeds_Then_PingDialogMatchesGolden.png");
 
     EXPECT_TRUE(result);
 }
@@ -123,5 +112,4 @@ TEST_F(Given_PingDialogView, When_DialogCloses_Then_ControllerIsNotified)
     EXPECT_EQ(m_pingDialog->OnClosedCount, 1U);
 }
 
-} // namespace
 } // namespace tailgate::uwp::tests

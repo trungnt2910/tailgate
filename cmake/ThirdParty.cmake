@@ -99,6 +99,16 @@ if(TAILGATE_BUILD_TESTS)
     )
 endif()
 
+if(TAILGATE_BUILD_TESTS AND TAILGATE_BUILD_UWP)
+    CPMAddPackage(
+        NAME Pixelmatch
+        GIT_REPOSITORY https://github.com/mapbox/pixelmatch-cpp.git
+        GIT_TAG 3bc0604f748c005e6bab0e588c2024c2ddc9dd50
+        GIT_SHALLOW TRUE
+        EXCLUDE_FROM_ALL
+    )
+endif()
+
 CPMAddPackage(
     NAME WireGuardLwip
     GIT_REPOSITORY https://github.com/smartalock/wireguard-lwip.git

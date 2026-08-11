@@ -26,10 +26,7 @@ uwp_add_executable(
     SOURCES
         App.cpp
         Given_Arguments.cpp
-        Given_ScreenDiff.cpp
         Given_TestHost.cpp
-        ScreenDiff.cpp
-        ScreenDiff.h
         TestHost.cpp
         TestHost.h
         TestResult.h
@@ -92,6 +89,7 @@ target_link_libraries(
     PRIVATE
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests>"
         Boost.DI
+        mapbox::pixelmatch
         Tailgate.Uwp.App.Controller.Impl
         Tailgate.Uwp.App.Ui
         Tailgate.Uwp.App.View.Impl

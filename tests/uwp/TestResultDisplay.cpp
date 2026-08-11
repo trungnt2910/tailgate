@@ -15,7 +15,7 @@
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/base.h>
 
-#include "ScreenDiff.h"
+#include <mapbox/pixelmatch.hpp>
 
 namespace tailgate::uwp::tests
 {
@@ -39,6 +39,7 @@ constexpr wchar_t ReferenceLabel[] = L"Reference";
 constexpr wchar_t DifferenceLabel[] = L"Difference";
 constexpr wchar_t ActualLabel[] = L"Actual";
 constexpr wchar_t DifferenceUnavailableLabel[] = L"Difference unavailable";
+constexpr std::wstring_view PngExtension = L".png";
 constexpr double PageMargin = 24.0;
 constexpr double ElementSpacing = 12.0;
 constexpr double ScreenshotMaxHeight = 480.0;
@@ -58,6 +59,13 @@ enum class ComparisonRow : std::int32_t
 {
     Label,
     Image,
+};
+
+struct Pixels final
+{
+    std::uint32_t width;
+    std::uint32_t height;
+    std::vector<std::uint8_t> rgba;
 };
 
 [[nodiscard]] xaml::Thickness UniformThickness(double value) noexcept
@@ -86,21 +94,21 @@ enum class ComparisonRow : std::int32_t
 }
 
 [[nodiscard]] foundation::IAsyncAction DecodePngAsync(const storage::StorageFile& file,
-                                                      ScreenDiff::Pixels& result)
+                                                      Pixels& result)
 {
     const auto stream = co_await file.OpenAsync(storage::FileAccessMode::Read);
     const auto decoder = co_await graphics_imaging::BitmapDecoder::CreateAsync(stream);
     const auto pixelData = co_await decoder.GetPixelDataAsync(
-        graphics_imaging::BitmapPixelFormat::Bgra8,
-        graphics_imaging::BitmapAlphaMode::Premultiplied,
+        graphics_imaging::BitmapPixelFormat::Rgba8,
+        graphics_imaging::BitmapAlphaMode::Straight,
         graphics_imaging::BitmapTransform(),
         graphics_imaging::ExifOrientationMode::IgnoreExifOrientation,
         graphics_imaging::ColorManagementMode::DoNotColorManage);
     const auto pixels = pixelData.DetachPixelData();
-    result = ScreenDiff::Pixels{
+    result = Pixels{
         .width = decoder.PixelWidth(),
         .height = decoder.PixelHeight(),
-        .bgra = std::vector<std::uint8_t>(pixels.begin(), pixels.end()),
+        .rgba = std::vector<std::uint8_t>(pixels.begin(), pixels.end()),
     };
 }
 
@@ -114,18 +122,18 @@ LoadImageAsync(const storage::StorageFile& file)
 }
 
 [[nodiscard]] foundation::IAsyncOperation<streams::IRandomAccessStream>
-EncodeDifferenceAsync(const ScreenDiff::Pixels& pixels)
+EncodeDifferenceAsync(const Pixels& pixels)
 {
     const streams::InMemoryRandomAccessStream stream;
     const auto encoder = co_await graphics_imaging::BitmapEncoder::CreateAsync(
         graphics_imaging::BitmapEncoder::PngEncoderId(), stream);
-    encoder.SetPixelData(graphics_imaging::BitmapPixelFormat::Bgra8,
-                         graphics_imaging::BitmapAlphaMode::Premultiplied,
+    encoder.SetPixelData(graphics_imaging::BitmapPixelFormat::Rgba8,
+                         graphics_imaging::BitmapAlphaMode::Straight,
                          pixels.width,
                          pixels.height,
                          StandardLogicalDpi,
                          StandardLogicalDpi,
-                         pixels.bgra);
+                         pixels.rgba);
     co_await encoder.FlushAsync();
     stream.Seek(0);
     co_return stream;
@@ -228,16 +236,27 @@ CreateComparisonAsync(const FailedTestResult& test, const storage::StorageFile& 
 
     const auto dispatcher = xaml::Window::Current().Dispatcher();
     co_await winrt::resume_background();
-    ScreenDiff::Pixels actualPixels;
+    Pixels actualPixels;
     co_await DecodePngAsync(actualFile, actualPixels);
-    ScreenDiff::Pixels referencePixels;
+    Pixels referencePixels;
     co_await DecodePngAsync(referenceFile, referencePixels);
-    const auto difference = ScreenDiff::TryCreateDiff(referencePixels, actualPixels);
     media::ImageSource differenceImage{nullptr};
     streams::IRandomAccessStream differenceStream{nullptr};
-    if (difference.has_value() && difference->width != 0 && difference->height != 0)
+    if (referencePixels.width == actualPixels.width &&
+        referencePixels.height == actualPixels.height && actualPixels.width != 0 &&
+        actualPixels.height != 0)
     {
-        differenceStream = co_await EncodeDifferenceAsync(*difference);
+        Pixels difference{
+            .width = actualPixels.width,
+            .height = actualPixels.height,
+            .rgba = std::vector<std::uint8_t>(actualPixels.rgba.size()),
+        };
+        (void)mapbox::pixelmatch(referencePixels.rgba.data(),
+                                 actualPixels.rgba.data(),
+                                 actualPixels.width,
+                                 actualPixels.height,
+                                 difference.rgba.data());
+        differenceStream = co_await EncodeDifferenceAsync(difference);
     }
     co_await winrt::resume_foreground(dispatcher);
     const auto referenceImage = co_await LoadImageAsync(referenceFile);
@@ -303,7 +322,9 @@ foundation::IAsyncAction TestResultDisplay::ShowAsync()
                 const auto files = co_await suiteFolder.GetFilesAsync();
                 for (const auto& file : files)
                 {
-                    if (ScreenDiff::Matches(file.Name(), failedTest.testName))
+                    const std::wstring_view fileName = file.Name();
+                    if (!failedTest.testName.empty() && fileName.starts_with(failedTest.testName) &&
+                        fileName.ends_with(PngExtension))
                     {
                         displayed.screenshots.push_back(file);
                     }

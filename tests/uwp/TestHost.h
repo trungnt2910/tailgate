@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -30,10 +29,10 @@ struct ScreenshotEnvironment final
     bool animationsEnabled;
 };
 
-struct GoldenComparisonOptions final
+enum class GoldenComparisonMode
 {
-    std::uint8_t maximumChannelDifference = 0;
-    std::size_t maximumDifferentPixels = 0;
+    Perceptual,
+    Exact,
 };
 
 class TestHost final
@@ -115,23 +114,25 @@ public:
         }
     }
 
-    [[nodiscard]] static testing::AssertionResult CheckGolden(const xaml::UIElement& content,
-                                                              const winrt::hstring& goldenPath,
-                                                              GoldenComparisonOptions options = {});
+    [[nodiscard]] static testing::AssertionResult
+    CheckGolden(const xaml::UIElement& content,
+                const winrt::hstring& goldenPath,
+                GoldenComparisonMode mode = GoldenComparisonMode::Perceptual);
 
-    [[nodiscard]] static testing::AssertionResult CheckGolden(const winrt::hstring& goldenPath,
-                                                              GoldenComparisonOptions options = {});
+    [[nodiscard]] static testing::AssertionResult
+    CheckGolden(const winrt::hstring& goldenPath,
+                GoldenComparisonMode mode = GoldenComparisonMode::Perceptual);
 
     [[nodiscard]] static ScreenshotEnvironment Environment() noexcept;
 
-    [[nodiscard]] static foundation::IAsyncAction CompleteTestRunAsync(
-        const winrt::hstring& message, TestRunResult result);
+    [[nodiscard]] static foundation::IAsyncAction
+    CompleteTestRunAsync(const winrt::hstring& message, TestRunResult result);
 
 private:
     [[nodiscard]] static testing::AssertionResult
     CheckCapturedGolden(const streams::IRandomAccessStream& capturedPng,
                         const winrt::hstring& goldenPath,
-                        GoldenComparisonOptions options);
+                        GoldenComparisonMode mode);
 
     static ui_core::CoreDispatcher s_dispatcher;
     static controls::Grid s_root;
