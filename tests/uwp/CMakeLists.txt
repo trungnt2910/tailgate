@@ -27,6 +27,8 @@ uwp_add_executable(
         App.cpp
         Given_Arguments.cpp
         Given_TestHost.cpp
+        IdlingRegistry.cpp
+        IdlingRegistry.h
         TestHost.cpp
         TestHost.h
         TestResult.h

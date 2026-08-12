@@ -8,6 +8,7 @@
 #include "fakes/app/controller/FakeContentDialogController.h"
 #include "fakes/app/view/FakeDialogViews.h"
 
+#include "IdlingRegistry.h"
 #include "TestHost.h"
 
 namespace tailgate::uwp::tests
@@ -35,6 +36,11 @@ protected:
                         {
                             return *m_controller;
                         }),
+                    di::bind<IdlingRegistry>.to(
+                        [this](const auto&) -> IdlingRegistry&
+                        {
+                            return m_idlingRegistry;
+                        }),
                     di::bind<NodeAuthorizationDialogView>.to<FakeNodeAuthorizationDialogView>(),
                     di::bind<PingDialogView>.to<FakePingDialogView>(),
                     di::bind<SignInDialogView>.to<FakeSignInDialogView>());
@@ -42,6 +48,16 @@ protected:
             });
     }
 
+    void TearDown() override
+    {
+        TestHost::RunOnUiThread(
+            [this]
+            {
+                m_subject.reset();
+            });
+    }
+
+    IdlingRegistry m_idlingRegistry;
     std::shared_ptr<FakeContentDialogController> m_controller;
     std::unique_ptr<ContentDialogViewImpl> m_subject;
 };
@@ -53,13 +69,13 @@ TEST_F(Given_ContentDialogView, When_SignInDialogIsHidden_Then_OnlyThatViewIsClo
         {
             m_controller->ShowDialog(ContentDialogControllerState::SignIn);
         });
-    TestHost::WaitForIdleAsync().get();
+    m_idlingRegistry.OnIdle();
     TestHost::RunOnUiThread(
         [this]
         {
             m_controller->HideDialog(ContentDialogControllerState::SignIn);
         });
-    TestHost::WaitForIdleAsync().get();
+    m_idlingRegistry.OnIdle();
 
     EXPECT_EQ(FakeSignInDialogView::OnClosedCount, 1U);
     EXPECT_EQ(FakeNodeAuthorizationDialogView::OnClosedCount, 0U);
@@ -73,19 +89,19 @@ TEST_F(Given_ContentDialogView, When_DialogTypeChanges_Then_OldAndNewViewsCloseI
         {
             m_controller->ShowDialog(ContentDialogControllerState::SignIn);
         });
-    TestHost::WaitForIdleAsync().get();
+    m_idlingRegistry.OnIdle();
     TestHost::RunOnUiThread(
         [this]
         {
             m_controller->ShowDialog(ContentDialogControllerState::Ping);
         });
-    TestHost::WaitForIdleAsync().get();
+    m_idlingRegistry.OnIdle();
     TestHost::RunOnUiThread(
         [this]
         {
             m_controller->HideDialog(ContentDialogControllerState::Ping);
         });
-    TestHost::WaitForIdleAsync().get();
+    m_idlingRegistry.OnIdle();
 
     EXPECT_EQ(FakeSignInDialogView::OnClosedCount, 1U);
     EXPECT_EQ(FakePingDialogView::OnClosedCount, 1U);

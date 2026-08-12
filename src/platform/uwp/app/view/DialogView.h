@@ -14,6 +14,10 @@ public:
 
     [[nodiscard]] virtual controls::ContentDialog Dialog() const = 0;
 
+    virtual void OnOpening() noexcept
+    {
+    }
+
     virtual void OnClosed(controls::ContentDialogResult)
     {
     }

@@ -72,6 +72,7 @@ foundation::IAsyncAction ContentDialogViewImpl::PresentAsync(DialogView& view,
                                                              std::uint64_t generation)
 {
     controls::ContentDialogResult result = controls::ContentDialogResult::None;
+    view.OnOpening();
     try
     {
         result = co_await view.Dialog().ShowAsync();
