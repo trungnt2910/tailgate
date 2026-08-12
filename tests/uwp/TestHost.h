@@ -138,6 +138,7 @@ private:
     static controls::Grid s_root;
     static controls::Grid s_surface;
     static controls::TextBlock s_status;
+    static controls::Button s_focusSink;
     static ScreenshotEnvironment s_environment;
     static std::shared_ptr<class TestResultDisplay> s_resultDisplay;
 };

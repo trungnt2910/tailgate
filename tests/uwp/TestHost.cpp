@@ -150,6 +150,7 @@ ui_core::CoreDispatcher TestHost::s_dispatcher{nullptr};
 controls::Grid TestHost::s_root{nullptr};
 controls::Grid TestHost::s_surface{nullptr};
 controls::TextBlock TestHost::s_status{nullptr};
+controls::Button TestHost::s_focusSink{nullptr};
 ScreenshotEnvironment TestHost::s_environment{};
 std::shared_ptr<TestResultDisplay> TestHost::s_resultDisplay;
 
@@ -162,6 +163,13 @@ void TestHost::Initialize(const ui_core::CoreDispatcher& dispatcher,
     s_root = root;
     s_surface = surface;
     s_status = status;
+    s_focusSink = controls::Button();
+    s_focusSink.Width(1.0);
+    s_focusSink.Height(1.0);
+    s_focusSink.Opacity(0.0);
+    s_focusSink.HorizontalAlignment(xaml::HorizontalAlignment::Right);
+    s_focusSink.VerticalAlignment(xaml::VerticalAlignment::Bottom);
+    s_root.Children().Append(s_focusSink);
     s_surface.Width(StandardViewportWidth);
     s_surface.Height(StandardViewportHeight);
     s_surface.HorizontalAlignment(xaml::HorizontalAlignment::Left);
@@ -192,6 +200,14 @@ foundation::IAsyncOperation<streams::IRandomAccessStream>
 TestHost::CaptureTestContentAsync(const xaml::UIElement& content)
 {
     co_await winrt::resume_foreground(s_dispatcher);
+    if (!s_focusSink.Focus(xaml::FocusState::Programmatic))
+    {
+        throw winrt::hresult_illegal_method_call();
+    }
+    co_await s_dispatcher.RunIdleAsync(
+        [](const ui_core::IdleDispatchedHandlerArgs&)
+        {
+        });
     const imaging::RenderTargetBitmap screenshot;
     co_await screenshot.RenderAsync(content);
     const auto pixels = co_await screenshot.GetPixelsAsync();

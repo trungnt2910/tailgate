@@ -63,4 +63,33 @@ TEST(Given_TestHost, When_XamlElementIsAttached_Then_GoldenCanBeCaptured)
     EXPECT_TRUE(result);
 }
 
+TEST(Given_TestHost, When_ContentIsCaptured_Then_FocusMovesOutsideContent)
+{
+    controls::TextBox content{nullptr};
+    bool receivedFocus = false;
+    TestHost::SetTestContentAsync(
+        [&content]() -> xaml::UIElement
+        {
+            content = controls::TextBox();
+            return content;
+        })
+        .get();
+    TestHost::RunOnUiThread(
+        [&content, &receivedFocus]
+        {
+            receivedFocus = content.Focus(xaml::FocusState::Programmatic);
+        });
+    ASSERT_TRUE(receivedFocus);
+
+    (void)TestHost::CaptureTestContentAsync(content).get();
+    xaml::FocusState focusState = xaml::FocusState::Programmatic;
+    TestHost::RunOnUiThread(
+        [&content, &focusState]
+        {
+            focusState = content.FocusState();
+        });
+
+    EXPECT_EQ(xaml::FocusState::Unfocused, focusState);
+}
+
 } // namespace tailgate::uwp::tests
