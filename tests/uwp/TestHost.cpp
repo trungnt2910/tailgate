@@ -1,7 +1,9 @@
 #include "TestHost.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -16,6 +18,8 @@
 #include <winrt/base.h>
 
 #include <mapbox/pixelmatch.hpp>
+
+#include "common/EventSignal.h"
 
 #include "TestResultDisplay.h"
 
@@ -34,6 +38,15 @@ constexpr std::wstring_view PackagedGoldenRoot = L"ms-appx:///data/goldens/";
 constexpr std::wstring_view PersistentGoldenFolder = L"goldens";
 constexpr wchar_t TestThemeUri[] = L"ms-appx:///test/TestTheme.xaml";
 constexpr wchar_t ScreenshotSurfaceBrushKey[] = L"TailgateTestSurfaceBrush";
+constexpr std::size_t StableDimensionFrameCount = 3;
+
+struct ElementDimensions final
+{
+    double width;
+    double height;
+
+    bool operator==(const ElementDimensions&) const = default;
+};
 
 struct GoldenPath final
 {
@@ -204,10 +217,7 @@ TestHost::CaptureTestContentAsync(const xaml::UIElement& content)
     {
         throw winrt::hresult_illegal_method_call();
     }
-    co_await s_dispatcher.RunIdleAsync(
-        [](const ui_core::IdleDispatchedHandlerArgs&)
-        {
-        });
+    co_await WaitForStableDimensionsAsync(content);
     const imaging::RenderTargetBitmap screenshot;
     co_await screenshot.RenderAsync(content);
     const auto pixels = co_await screenshot.GetPixelsAsync();
@@ -224,6 +234,46 @@ TestHost::CaptureTestContentAsync(const xaml::UIElement& content)
     co_await encoder.FlushAsync();
     stream.Seek(0);
     co_return stream;
+}
+
+foundation::IAsyncAction TestHost::WaitForStableDimensionsAsync(const xaml::UIElement& content)
+{
+    co_await winrt::resume_foreground(s_dispatcher);
+    const auto frameworkElement = content.as<xaml::FrameworkElement>();
+    EventSignal dimensionsStable;
+    std::optional<ElementDimensions> previousDimensions;
+    std::size_t stableFrameCount = 0;
+    const auto rendering = media::CompositionTarget::Rendering(
+        winrt::auto_revoke,
+        [frameworkElement, &dimensionsStable, &previousDimensions, &stableFrameCount](
+            const foundation::IInspectable&, const foundation::IInspectable&)
+        {
+            const ElementDimensions dimensions{
+                .width = frameworkElement.ActualWidth(),
+                .height = frameworkElement.ActualHeight(),
+            };
+            if (dimensions.width <= 0.0 || dimensions.height <= 0.0)
+            {
+                previousDimensions.reset();
+                stableFrameCount = 0;
+                return;
+            }
+            if (previousDimensions == dimensions)
+            {
+                ++stableFrameCount;
+            }
+            else
+            {
+                previousDimensions = dimensions;
+                stableFrameCount = 1;
+            }
+            if (stableFrameCount == StableDimensionFrameCount)
+            {
+                dimensionsStable.Set();
+            }
+        });
+    co_await winrt::resume_on_signal(dimensionsStable.Handle());
+    co_await winrt::resume_foreground(s_dispatcher);
 }
 
 testing::AssertionResult TestHost::CheckGolden(const xaml::UIElement& content,

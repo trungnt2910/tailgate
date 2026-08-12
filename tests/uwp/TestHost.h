@@ -129,6 +129,9 @@ public:
     CompleteTestRunAsync(const winrt::hstring& message, TestRunResult result);
 
 private:
+    [[nodiscard]] static foundation::IAsyncAction
+    WaitForStableDimensionsAsync(const xaml::UIElement& content);
+
     [[nodiscard]] static testing::AssertionResult
     CheckCapturedGolden(const streams::IRandomAccessStream& capturedPng,
                         const winrt::hstring& goldenPath,

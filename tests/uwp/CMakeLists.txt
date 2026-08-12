@@ -97,6 +97,7 @@ target_link_libraries(
         Tailgate.Uwp.App.View.Impl
         Tailgate.Uwp.Background.Manager
         Tailgate.Uwp.Background.Service
+        Tailgate.Uwp.Common
 )
 target_include_directories(
     tailgate_uwp_tests

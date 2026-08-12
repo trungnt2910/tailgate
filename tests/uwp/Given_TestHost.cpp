@@ -1,4 +1,8 @@
+#include <cstddef>
+#include <cstdint>
+
 #include <winrt/Windows.ApplicationModel.h>
+#include <winrt/Windows.Graphics.Imaging.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.h>
@@ -11,6 +15,7 @@ namespace tailgate::uwp::tests
 {
 
 namespace appmodel = winrt::Windows::ApplicationModel;
+namespace graphics_imaging = winrt::Windows::Graphics::Imaging;
 
 TEST(Given_TestHost, When_PackageRuns_Then_IdentityIsAvailable)
 {
@@ -90,6 +95,56 @@ TEST(Given_TestHost, When_ContentIsCaptured_Then_FocusMovesOutsideContent)
         });
 
     EXPECT_EQ(xaml::FocusState::Unfocused, focusState);
+}
+
+TEST(Given_TestHost, When_ContentDimensionsChangeAcrossFrames_Then_FinalDimensionsAreCaptured)
+{
+    constexpr double InitialWidth = 100.0;
+    constexpr double IntermediateWidth = 140.0;
+    constexpr double FinalWidth = 180.0;
+    constexpr double Height = 64.0;
+    constexpr std::uint32_t ExpectedWidth = 180;
+    constexpr std::uint32_t ExpectedHeight = 64;
+    const controls::Border content;
+    content.Width(InitialWidth);
+    content.Height(Height);
+    TestHost::SetTestContentAsync(
+        [content]() -> xaml::UIElement
+        {
+            return content;
+        })
+        .get();
+    std::size_t renderingCount = 0;
+    winrt::event_token renderingToken;
+    TestHost::RunOnUiThread(
+        [content,
+         &renderingCount,
+         &renderingToken,
+         intermediateWidth = IntermediateWidth,
+         finalWidth = FinalWidth]
+        {
+            renderingToken = media::CompositionTarget::Rendering(
+                [content, &renderingCount, &renderingToken, intermediateWidth, finalWidth](
+                    const foundation::IInspectable&, const foundation::IInspectable&)
+                {
+                    ++renderingCount;
+                    if (renderingCount == 1)
+                    {
+                        content.Width(intermediateWidth);
+                    }
+                    else if (renderingCount == 2)
+                    {
+                        content.Width(finalWidth);
+                        media::CompositionTarget::Rendering(renderingToken);
+                    }
+                });
+        });
+
+    const auto screenshot = TestHost::CaptureTestContentAsync(content).get();
+    const auto decoder = graphics_imaging::BitmapDecoder::CreateAsync(screenshot).get();
+
+    EXPECT_EQ(ExpectedWidth, decoder.PixelWidth());
+    EXPECT_EQ(ExpectedHeight, decoder.PixelHeight());
 }
 
 } // namespace tailgate::uwp::tests
