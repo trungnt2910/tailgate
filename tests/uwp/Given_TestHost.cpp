@@ -105,15 +105,16 @@ TEST(Given_TestHost, When_ContentDimensionsChangeAcrossFrames_Then_FinalDimensio
     constexpr double Height = 64.0;
     constexpr std::uint32_t ExpectedWidth = 180;
     constexpr std::uint32_t ExpectedHeight = 64;
-    const controls::Border content;
-    content.Width(InitialWidth);
-    content.Height(Height);
-    TestHost::SetTestContentAsync(
-        [content]() -> xaml::UIElement
-        {
-            return content;
-        })
-        .get();
+    const auto content = TestHost::SetTestContentAsync(
+                             [initialWidth = InitialWidth, height = Height]() -> xaml::UIElement
+                             {
+                                 const controls::Border result;
+                                 result.Width(initialWidth);
+                                 result.Height(height);
+                                 return result;
+                             })
+                             .get()
+                             .as<controls::Border>();
     std::size_t renderingCount = 0;
     winrt::event_token renderingToken;
     TestHost::RunOnUiThread(
