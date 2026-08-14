@@ -5,8 +5,8 @@ target_sources(
     PRIVATE
         AuthorizationController.h
         ClipboardController.h
-        ControlPlaneController.h
         ContentDialogController.h
+        ControlPlaneController.h
         DevicePageController.h
         ExitNodeController.h
         HomePageController.h

@@ -2,11 +2,11 @@ tailgate_add_library(
     tailgate_linux
     STATIC
     ControlStream.cpp
-    LinuxDataplaneEvents.cpp
+    FdStream.cpp
     LinuxAcme.cpp
     LinuxCaBundle.cpp
+    LinuxDataplaneEvents.cpp
     LinuxDerpWorker.cpp
-    FdStream.cpp
     LinuxFiles.cpp
     LinuxFrontend.cpp
     LinuxHost.cpp

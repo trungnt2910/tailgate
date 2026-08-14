@@ -14,9 +14,9 @@ tailgate_uwp_add_test_library(
     Given_PingDialogController.cpp
     Given_PingDialogView.cpp
     Given_SessionController.cpp
+    Given_SetOptionsController.cpp
     Given_SettingsController.cpp
     Given_SettingsPageView.cpp
-    Given_SetOptionsController.cpp
     Given_SignInDialogView.cpp
     Given_UiFactory.cpp
 )

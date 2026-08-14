@@ -2,8 +2,8 @@ tailgate_uwp_add_library(
     Tailgate.Uwp.App.Model
     STATIC
     AuthorizationControllerState.h
-    ControlPlaneState.h
     ContentDialogState.h
+    ControlPlaneState.h
     DevicePageState.h
     ExitNodeState.h
     HomePageState.h

@@ -5,10 +5,10 @@ tailgate_uwp_add_library(
     AuthorizationControllerImpl.h
     ClipboardControllerImpl.cpp
     ClipboardControllerImpl.h
-    ControlPlaneControllerImpl.cpp
-    ControlPlaneControllerImpl.h
     ContentDialogControllerImpl.cpp
     ContentDialogControllerImpl.h
+    ControlPlaneControllerImpl.cpp
+    ControlPlaneControllerImpl.h
     DevicePageControllerImpl.cpp
     DevicePageControllerImpl.h
     ExitNodeControllerImpl.cpp

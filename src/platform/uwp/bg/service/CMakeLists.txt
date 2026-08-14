@@ -1,11 +1,11 @@
 tailgate_uwp_add_library(
     Tailgate.Uwp.Background.Service
     STATIC
+    ExitNodeService.cpp
+    ExitNodeService.h
     HostedDnsService.cpp
     HostedDnsService.h
     IService.h
-    ExitNodeService.cpp
-    ExitNodeService.h
     NetworkService.cpp
     NetworkService.h
     PingService.cpp
