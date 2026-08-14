@@ -18,6 +18,7 @@
 #include <tailgate/control/base/ControlHandshake.h>
 #include <tailgate/control/base/H2.h>
 #include <tailgate/control/base/NoiseTransport.h>
+#include <tailgate/control/client/NetworkMapParser.h>
 #include <tailgate/crypto/Base64.h>
 #include <tailgate/crypto/Crypto.h>
 
@@ -31,9 +32,7 @@ using tailgate::base::TrimEnd;
 using tailgate::control::base::ControlHandshake;
 using tailgate::control::base::ControlHandshakeResult;
 using tailgate::control::base::NoiseTransport;
-using tailgate::types::netmap::ApplyNetworkMapUpdate;
 using tailgate::types::netmap::NetworkConfig;
-using tailgate::types::netmap::ParseNetworkMap;
 
 namespace
 {

@@ -2,7 +2,7 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/types/netmap/NetworkMap.h>
+#include <tailgate/control/client/NetworkMapParser.h>
 
 TEST(Given_NetworkMap, When_PeerIsIpv6Only_Then_ItRemainsVisibleInStatusData)
 {
@@ -40,7 +40,7 @@ TEST(Given_NetworkMap, When_PeerIsIpv6Only_Then_ItRemainsVisibleInStatusData)
         }
     })";
 
-    const auto config = tailgate::types::netmap::ParseNetworkMap(json);
+    const auto config = tailgate::control::client::ParseNetworkMap(json);
     const auto route = tailgate::types::netmap::FindRoute(config.Peers, 0x64646464U);
     const bool ipv6PeerRetained =
         config.Peers.size() == 2U && config.Peers[1].Address == "fd7a:115c:a1e0::2";
@@ -89,7 +89,7 @@ TEST(Given_NetworkMapPeerWithIpv4AndIpv6, When_Parsed_Then_AllAddressesAreRetain
         }
     })";
 
-    const auto config = tailgate::types::netmap::ParseNetworkMap(json);
+    const auto config = tailgate::control::client::ParseNetworkMap(json);
     const bool retainedAddresses = config.Peers.size() == 1U &&
                                    config.Peers[0].Address == "100.64.0.2" &&
                                    config.Peers[0].Addresses.size() == 2U &&
@@ -138,7 +138,7 @@ TEST(Given_TaggedNodeUser, When_ParsingNetworkMap_Then_HumanAccountIsPreferred)
         }
     })";
 
-    const auto config = tailgate::types::netmap::ParseNetworkMap(json);
+    const auto config = tailgate::control::client::ParseNetworkMap(json);
     const std::string peerOwner = config.Peers.empty() ? std::string{} : config.Peers.front().Owner;
 
     EXPECT_EQ(config.Peers.size(), 1U);
@@ -179,7 +179,7 @@ TEST(Given_NetworkMapDomain, When_ParsingAndUpdating_Then_DomainIsStored)
         }
     })";
 
-    auto config = tailgate::types::netmap::ParseNetworkMap(json);
+    auto config = tailgate::control::client::ParseNetworkMap(json);
 
     EXPECT_EQ(config.Domain, "example.ts.net");
     EXPECT_EQ(config.SelfName, "self.example.ts.net");
@@ -188,8 +188,8 @@ TEST(Given_NetworkMapDomain, When_ParsingAndUpdating_Then_DomainIsStored)
     EXPECT_EQ(config.AccountName, "owner@example.com");
     EXPECT_EQ(config.AccountDisplayName, "Example Owner");
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config,
-                                                                        R"({
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config,
+                                                                          R"({
                 "Domain":"renamed.example.ts.net",
                 "Node":{
                     "Name":"self.renamed.example.ts.net.",
@@ -241,7 +241,7 @@ TEST(Given_NetworkMapCapabilities, When_Parsing_Then_FunnelPortsAreDetected)
         }
     })";
 
-    const auto config = tailgate::types::netmap::ParseNetworkMap(json);
+    const auto config = tailgate::control::client::ParseNetworkMap(json);
 
     EXPECT_TRUE(tailgate::types::netmap::HasCapability(config, "https"));
     EXPECT_TRUE(tailgate::types::netmap::HasCapability(config, "funnel"));
@@ -278,7 +278,7 @@ TEST(Given_IncrementalPeerPatch, When_ApplyingNetworkMapUpdate_Then_PeerStateIsU
         }]
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -300,7 +300,7 @@ TEST(Given_IncrementalPeerRemoval, When_ApplyingNetworkMapUpdate_Then_PeerIsRemo
     config.Peers = {removed, kept};
     const std::string update = R"({"PeersRemoved":[7]})";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -329,7 +329,7 @@ TEST(Given_IncrementalPeerChangeWithoutDerpMap, When_Applying_Then_DerpMetadataI
         }]
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -358,7 +358,7 @@ TEST(Given_NewTaggedPeerWithoutUserProfiles, When_ApplyingUpdate_Then_CachedOwne
         }]
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -381,7 +381,7 @@ TEST(Given_NewExitNodePeer, When_ApplyingUpdate_Then_ExitNodeOptionIsAvailable)
         }]
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -398,7 +398,7 @@ TEST(Given_IncrementalOnlineChange, When_ApplyingNetworkMapUpdate_Then_PeerOnlin
     config.Peers.push_back(peer);
     const std::string update = R"({"OnlineChange":{"7":true}})";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -411,7 +411,7 @@ TEST(Given_MachineApprovalUpdate, When_ApplyingNetworkMapUpdate_Then_SelfIsAutho
     config.SelfMachineAuthorized = false;
     const std::string update = R"({"Node":{"MachineAuthorized":true}})";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     EXPECT_TRUE(changed);
     EXPECT_TRUE(config.SelfMachineAuthorized);
@@ -431,7 +431,7 @@ TEST(Given_IncrementalDiscoKeyPatch, When_ApplyingNetworkMapUpdate_Then_DiscoKey
         }]
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -454,7 +454,7 @@ TEST(Given_IncrementalObjectDiscoKeyPatch, When_ApplyingNetworkMapUpdate_Then_Di
         }]
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -471,7 +471,7 @@ TEST(Given_IncrementalPeerSeenFalse, When_ApplyingNetworkMapUpdate_Then_OnlyLast
     config.Peers.push_back(peer);
     const std::string update = R"({"PeerSeenChange":{"7":false}})";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -488,7 +488,7 @@ TEST(Given_IncrementalPeerSeenTrue, When_ApplyingNetworkMapUpdate_Then_OnlyLastS
     config.Peers.push_back(peer);
     const std::string update = R"({"PeerSeenChange":{"7":true}})";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -510,7 +510,7 @@ TEST(Given_IncrementalLastSeenPatch, When_ApplyingNetworkMapUpdate_Then_Timestam
         }]
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.Peers.size(), 1U);
@@ -527,7 +527,7 @@ TEST(Given_IncrementalDnsConfig, When_ApplyingNetworkMapUpdate_Then_DnsRoutesAre
         "DNSConfig":{"Domains":["new.example.ts.net"],"Routes":{"new.example.ts.net.":[{"Addr":"100.100.100.101"}]}}
     })";
 
-    const bool changed = tailgate::types::netmap::ApplyNetworkMapUpdate(config, update);
+    const bool changed = tailgate::control::client::ApplyNetworkMapUpdate(config, update);
 
     ASSERT_TRUE(changed);
     ASSERT_EQ(config.DnsDomains.size(), 1U);

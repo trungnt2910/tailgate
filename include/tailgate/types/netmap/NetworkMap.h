@@ -87,8 +87,6 @@ struct NetworkConfig
     std::vector<std::uint64_t> RemovedPeerNodeIds;
 };
 
-[[nodiscard]] NetworkConfig ParseNetworkMap(const std::string& json);
-[[nodiscard]] bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& json);
 [[nodiscard]] std::optional<std::size_t>
 FindRoute(const std::vector<PeerConfig>& peers,
           std::uint32_t destination,

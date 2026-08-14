@@ -3,6 +3,7 @@ tailgate_add_library(
     STATIC
     ControlClient.cpp
     ControlRequests.cpp
+    NetworkMapParser.cpp
     RetryBackoff.cpp
 )
 target_link_libraries(
