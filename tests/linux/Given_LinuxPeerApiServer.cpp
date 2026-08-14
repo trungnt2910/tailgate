@@ -8,7 +8,7 @@
 namespace
 {
 
-class BufferedStream final : public tailgate::IByteStream
+class BufferedStream final : public tailgate::base::IByteStream
 {
 public:
     explicit BufferedStream(bool buffered) : m_buffered(buffered)

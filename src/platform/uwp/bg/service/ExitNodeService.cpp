@@ -10,11 +10,10 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/base.h>
 
-#include <tailgate/network/Ipv4.h>
-
-#include "common/VpnConstants.h"
+#include <tailgate/net/packet/Ipv4.h>
 
 #include "common/Settings.h"
+#include "common/VpnConstants.h"
 
 namespace tailgate::uwp::bg::service
 {
@@ -30,7 +29,7 @@ constexpr wchar_t PortField[] = L"Port";
 constexpr wchar_t ExitNodeField[] = L"ExitNode";
 constexpr wchar_t PreserveSelectionField[] = L"PreserveSelection";
 
-std::string ShortExitNodeName(const control::PeerConfig& peer)
+std::string ShortExitNodeName(const tailgate::types::netmap::PeerConfig& peer)
 {
     std::string name = peer.Name;
     if (!name.empty() && name.back() == '.')
@@ -53,11 +52,11 @@ std::vector<std::uint8_t> BuildResponse(std::uint32_t appAddress,
             .Sequence = sequence,
             .ExitNode = exitNode,
         });
-    return network::BuildUdpPacket(VpnConstants::Network::ServiceIpv4Address,
-                                   appAddress,
-                                   VpnConstants::AppService::Port,
-                                   appPort,
-                                   payload);
+    return tailgate::net::packet::BuildUdpPacket(VpnConstants::Network::ServiceIpv4Address,
+                                                 appAddress,
+                                                 VpnConstants::AppService::Port,
+                                                 appPort,
+                                                 payload);
 }
 
 } // namespace
@@ -85,8 +84,8 @@ void ExitNodeService::Reset()
 
 void ExitNodeService::Encapsulate(EncapsulationContext& context)
 {
-    const std::optional<network::Ipv4UdpDatagram> datagram =
-        network::ParseIpv4UdpDatagram(context.Original);
+    const std::optional<tailgate::net::packet::Ipv4UdpDatagram> datagram =
+        tailgate::net::packet::ParseIpv4UdpDatagram(context.Original);
     if (!datagram || datagram->Destination != VpnConstants::Network::ServiceIpv4Address ||
         datagram->DestinationPort != VpnConstants::AppService::Port)
     {
@@ -98,7 +97,8 @@ void ExitNodeService::Encapsulate(EncapsulationContext& context)
     {
         return;
     }
-    const std::optional<std::uint32_t> self = network::ParseIpv4(context.Config.SelfAddress);
+    const std::optional<std::uint32_t> self =
+        tailgate::net::packet::ParseIpv4(context.Config.SelfAddress);
     const std::optional<app_service::ExitNodeRequest> request =
         app_service::DecodeExitNodeRequest(*message);
     if (!self || datagram->Source != *self || datagram->SourcePort == 0 || !request)
@@ -126,7 +126,8 @@ void ExitNodeService::FlushLocal(std::vector<std::vector<std::uint8_t>>& localOu
     m_responses.clear();
 }
 
-void ExitNodeService::LoadPending(const control::NetworkConfig& config, std::string& exitNode)
+void ExitNodeService::LoadPending(const tailgate::types::netmap::NetworkConfig& config,
+                                  std::string& exitNode)
 {
     m_pending = Load();
     if (!m_pending)
@@ -136,7 +137,7 @@ void ExitNodeService::LoadPending(const control::NetworkConfig& config, std::str
     const std::string& requested = m_pending->RequestedExitNode;
     const std::optional<std::size_t> selected =
         requested.empty() ? std::optional<std::size_t>{}
-                          : control::FindExitNode(config.Peers, requested, true);
+                          : tailgate::types::netmap::FindExitNode(config.Peers, requested, true);
     if (requested.empty() || selected)
     {
         exitNode = selected ? ShortExitNodeName(config.Peers[*selected]) : std::string{};
@@ -165,9 +166,9 @@ void ExitNodeService::CommitPending(const std::string& exitNode)
     m_responseReady = true;
 }
 
-ExitNodeAction ExitNodeService::Handle(const network::Ipv4UdpDatagram& datagram,
+ExitNodeAction ExitNodeService::Handle(const tailgate::net::packet::Ipv4UdpDatagram& datagram,
                                        const app_service::ExitNodeRequest& request,
-                                       const control::NetworkConfig& config,
+                                       const tailgate::types::netmap::NetworkConfig& config,
                                        const std::string& currentExitNode,
                                        std::vector<std::vector<std::uint8_t>>& appResponses)
 {
@@ -175,7 +176,7 @@ ExitNodeAction ExitNodeService::Handle(const network::Ipv4UdpDatagram& datagram,
     if (!request.ExitNode.empty())
     {
         const std::optional<std::size_t> selected =
-            control::FindExitNode(config.Peers, request.ExitNode, true);
+            tailgate::types::netmap::FindExitNode(config.Peers, request.ExitNode, true);
         if (!selected)
         {
             appResponses.push_back(BuildResponse(datagram.Source,

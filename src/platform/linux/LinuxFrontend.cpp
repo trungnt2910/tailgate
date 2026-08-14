@@ -2,44 +2,6 @@
 // any standard-library header includes libc++'s configuration.
 #define _LIBCPP_ENABLE_EXPERIMENTAL
 
-#include "ControlStream.h"
-#include "LinuxAcme.h"
-#include "LinuxCaBundle.h"
-#include "LinuxDataplaneEvents.h"
-#include "LinuxDerpWorker.h"
-#include "LinuxFiles.h"
-#include "LinuxHost.h"
-#include "LinuxNetwork.h"
-#include "LinuxPeerApiServer.h"
-#include "LinuxPingIpc.h"
-#include "LinuxQrCode.h"
-#include "LinuxRelayServer.h"
-#include "LinuxState.h"
-#include "LinuxStatusWriter.h"
-#include "TcpStream.h"
-#include "UniqueFd.h"
-#include <tailgate/Logging.h>
-#include <tailgate/PlatformFrontend.h>
-#include <tailgate/QrCode.h>
-#include <tailgate/acme/AcmeClient.h>
-#include <tailgate/cli/Arguments.h>
-#include <tailgate/control/ControlClient.h>
-#include <tailgate/control/RetryBackoff.h>
-#include <tailgate/network/Dns.h>
-#include <tailgate/network/Ipv4.h>
-#include <tailgate/network/TailnetDns.h>
-#include <tailgate/protocol/ControlHandshake.h>
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/protocol/DerpClient.h>
-#include <tailgate/protocol/Disco.h>
-#include <tailgate/protocol/Stun.h>
-#include <tailgate/protocol/TlsStream.h>
-#include <tailgate/protocol/Tsmp.h>
-#include <tailgate/protocol/WireGuardRouter.h>
-#include <tailgate/protocol/WireGuardTunnel.h>
-#include <tailgate/relay/RelayProtocol.h>
-#include <tailgate/serve/FunnelConfig.h>
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -50,7 +12,6 @@
 #include <cstring>
 #include <deque>
 #include <exception>
-#include <fcntl.h>
 #include <filesystem>
 #include <format>
 #include <functional>
@@ -67,9 +28,8 @@
 #include <utility>
 #include <vector>
 
-#include <boost/algorithm/string/join.hpp>
-
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include <net/route.h>
@@ -82,6 +42,47 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <boost/algorithm/string/join.hpp>
+
+#include <tailgate/PlatformFrontend.h>
+#include <tailgate/base/Logging.h>
+#include <tailgate/cli/Arguments.h>
+#include <tailgate/control/base/ControlHandshake.h>
+#include <tailgate/control/client/ControlClient.h>
+#include <tailgate/control/client/RetryBackoff.h>
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/derp/Client.h>
+#include <tailgate/disco/Disco.h>
+#include <tailgate/hosted/Protocol.h>
+#include <tailgate/net/dns/Dns.h>
+#include <tailgate/net/dns/TailnetDns.h>
+#include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/net/packet/Tsmp.h>
+#include <tailgate/net/stun/Stun.h>
+#include <tailgate/net/tls/TlsStream.h>
+#include <tailgate/qr/QrCode.h>
+#include <tailgate/serve/FunnelConfig.h>
+#include <tailgate/serve/acme/Client.h>
+#include <tailgate/wgengine/wireguard/Router.h>
+#include <tailgate/wgengine/wireguard/Tunnel.h>
+
+#include "ControlStream.h"
+#include "LinuxAcme.h"
+#include "LinuxCaBundle.h"
+#include "LinuxDataplaneEvents.h"
+#include "LinuxDerpWorker.h"
+#include "LinuxFiles.h"
+#include "LinuxHost.h"
+#include "LinuxNetwork.h"
+#include "LinuxPeerApiServer.h"
+#include "LinuxPingIpc.h"
+#include "LinuxQrCode.h"
+#include "LinuxRelayServer.h"
+#include "LinuxState.h"
+#include "LinuxStatusWriter.h"
+#include "TcpStream.h"
+#include "UniqueFd.h"
 
 namespace
 {
@@ -141,8 +142,8 @@ using tailgate::linux_frontend::UniqueFd;
 using tailgate::linux_frontend::UnpackDataplaneEvent;
 using tailgate::linux_frontend::WriteAll;
 using tailgate::linux_frontend::WriteResolver;
-using Ipv4Prefix = tailgate::network::Ipv4Prefix;
-using TailPeer = tailgate::control::PeerConfig;
+using Ipv4Prefix = tailgate::net::packet::Ipv4Prefix;
+using TailPeer = tailgate::types::netmap::PeerConfig;
 
 [[nodiscard]] std::optional<std::string> HostedPathForNode(std::uint64_t nodeId);
 
@@ -151,7 +152,7 @@ constexpr std::size_t MaximumVerifiedEndpointsPerPeer = 32;
 struct PeerRuntime
 {
     TailPeer Config;
-    tailgate::protocol::WireGuardTunnel::PeerId TunnelPeer = 0;
+    tailgate::wgengine::wireguard::WireGuardTunnel::PeerId TunnelPeer = 0;
     UniqueFd Socket;
     bool UseAdvertisedSocket = false;
     sockaddr_in Endpoint{};
@@ -159,11 +160,11 @@ struct PeerRuntime
     std::vector<sockaddr_in> VerifiedEndpoints;
     bool DirectProbeStarted = false;
     bool AwaitingDirectResponse = false;
-    tailgate::protocol::Disco::TransactionId DirectProbeTransaction{};
+    tailgate::disco::Disco::TransactionId DirectProbeTransaction{};
     std::chrono::steady_clock::time_point FirstUnansweredDirectSend{};
     std::chrono::steady_clock::time_point LastDirectProbe{};
-    tailgate::protocol::WireGuardTunnel::Key PublicKey{};
-    tailgate::protocol::Bytes32 DiscoPublicKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key PublicKey{};
+    tailgate::crypto::Bytes32 DiscoPublicKey{};
     bool HasDiscoKey = false;
     std::uint64_t TxBytes = 0;
     std::uint64_t RxBytes = 0;
@@ -238,8 +239,8 @@ void TimedSection(const char* name, Callback&& callback)
     const auto elapsed = std::chrono::steady_clock::now() - started;
     if (elapsed >= DataplaneSlowSection)
     {
-        tailgate::Log(
-            tailgate::LogLevel::Warning,
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Warning,
             "dataplane",
             std::format("{} took {}ms",
                         name,
@@ -247,9 +248,9 @@ void TimedSection(const char* name, Callback&& callback)
     }
 }
 
-tailgate::protocol::stun::TransactionId GenerateStunTransactionId()
+tailgate::net::stun::TransactionId GenerateStunTransactionId()
 {
-    tailgate::protocol::stun::TransactionId result{};
+    tailgate::net::stun::TransactionId result{};
     std::random_device random;
     for (std::uint8_t& byte : result)
     {
@@ -277,9 +278,9 @@ sockaddr_in ResolveIpv4UdpEndpoint(const std::string& host, int port)
 
 std::optional<std::string> QueryStunEndpoint(int fd, const std::string& host, int port)
 {
-    const tailgate::protocol::stun::TransactionId transactionId = GenerateStunTransactionId();
+    const tailgate::net::stun::TransactionId transactionId = GenerateStunTransactionId();
     const std::vector<std::uint8_t> request =
-        tailgate::protocol::stun::BuildBindingRequest(transactionId);
+        tailgate::net::stun::BuildBindingRequest(transactionId);
     const sockaddr_in endpoint = ResolveIpv4UdpEndpoint(host, port);
     SendUdp(fd, endpoint, request);
 
@@ -290,7 +291,7 @@ std::optional<std::string> QueryStunEndpoint(int fd, const std::string& host, in
         if (!response.empty())
         {
             if (std::optional<std::string> mapped =
-                    tailgate::protocol::stun::ParseMappedIpv4Endpoint(response, transactionId))
+                    tailgate::net::stun::ParseMappedIpv4Endpoint(response, transactionId))
             {
                 return mapped;
             }
@@ -342,7 +343,7 @@ std::string CapabilitySummary(const std::vector<std::string>& capabilities)
     return boost::algorithm::join(capabilities, ", ");
 }
 
-std::string FeatureEnablementSummary(const tailgate::control::FeatureEnablement& enablement)
+std::string FeatureEnablementSummary(const tailgate::control::client::FeatureEnablement& enablement)
 {
     std::string result;
     if (!enablement.Text.empty())
@@ -480,7 +481,7 @@ ApplyUpOptions(const tailgate::linux_frontend::SettingsState& current,
 
 std::uint32_t Ipv4ToHostOrder(const std::string& ip)
 {
-    const auto address = tailgate::network::ParseIpv4(ip);
+    const auto address = tailgate::net::packet::ParseIpv4(ip);
     if (!address)
     {
         throw std::runtime_error("invalid IPv4 address: " + ip);
@@ -561,14 +562,14 @@ std::optional<std::string> TcpPortSummary(const std::vector<std::uint8_t>& packe
 struct LiveControlSession
 {
     std::unique_ptr<tailgate::linux_frontend::ControlStream> Stream;
-    std::unique_ptr<tailgate::control::ControlClient> Control;
-    tailgate::control::NetworkConfig InitialNetwork;
+    std::unique_ptr<tailgate::control::client::ControlClient> Control;
+    tailgate::types::netmap::NetworkConfig InitialNetwork;
 };
 
 void StartTunnel(
-    const tailgate::protocol::Bytes32& nodePrivateKey,
-    const tailgate::protocol::Bytes32& nodePublicKey,
-    const tailgate::protocol::Bytes32& discoPrivateKey,
+    const tailgate::crypto::Bytes32& nodePrivateKey,
+    const tailgate::crypto::Bytes32& nodePublicKey,
+    const tailgate::crypto::Bytes32& discoPrivateKey,
     const std::string& selfIp,
     const std::string& selfIpv6,
     const std::string& selfDnsName,
@@ -576,7 +577,7 @@ void StartTunnel(
     const std::string& initialDnsResolver,
     const std::vector<std::string>& initialDnsDomains,
     const std::vector<std::string>& initialDnsDefaultResolvers,
-    const std::vector<tailgate::control::NetworkConfig::DnsRoute>& initialDnsRoutes,
+    const std::vector<tailgate::types::netmap::NetworkConfig::DnsRoute>& initialDnsRoutes,
     const std::vector<TailPeer>& peerConfigs,
     int derpRegion,
     const std::string& derpHost,
@@ -585,7 +586,7 @@ void StartTunnel(
     const tailgate::serve::FunnelConfig& funnel,
     const std::string& funnelCertificatePem,
     const std::string& funnelPrivateKeyPem,
-    tailgate::control::ControlClient* control,
+    tailgate::control::client::ControlClient* control,
     int controlFd,
     int advertisedUdpFd,
     std::function<std::unique_ptr<LiveControlSession>()> reconnectControl,
@@ -596,8 +597,8 @@ void StartTunnel(
     bool persistStatus = true,
     bool encryptedPacketTransport = false,
     int networkMapFd = -1,
-    std::function<void(const tailgate::control::NetworkConfig&)> networkMapUpdated = {},
-    tailgate::protocol::DerpClient::Authenticator derpAuthenticator = {})
+    std::function<void(const tailgate::types::netmap::NetworkConfig&)> networkMapUpdated = {},
+    tailgate::derp::DerpClient::Authenticator derpAuthenticator = {})
 {
     std::string interfaceName = "tailgate0";
     status.Domain = domain;
@@ -617,7 +618,8 @@ void StartTunnel(
     std::string currentDnsResolver = initialDnsResolver;
     std::vector<std::string> currentDnsDomains = initialDnsDomains;
     std::vector<std::string> currentDnsDefaultResolvers = initialDnsDefaultResolvers;
-    std::vector<tailgate::control::NetworkConfig::DnsRoute> currentDnsRoutes = initialDnsRoutes;
+    std::vector<tailgate::types::netmap::NetworkConfig::DnsRoute> currentDnsRoutes =
+        initialDnsRoutes;
 
     UniqueFd tun(packetFd >= 0 ? dup(packetFd) : OpenTun(interfaceName).Release());
     if (tun.Fd < 0)
@@ -674,27 +676,27 @@ void StartTunnel(
         }
     }
 
-    std::unique_ptr<tailgate::protocol::WireGuardTunnel> tunnel;
+    std::unique_ptr<tailgate::wgengine::wireguard::WireGuardTunnel> tunnel;
     if (!encryptedPacketTransport)
     {
-        tunnel = std::make_unique<tailgate::protocol::WireGuardTunnel>(nodePrivateKey);
+        tunnel = std::make_unique<tailgate::wgengine::wireguard::WireGuardTunnel>(nodePrivateKey);
     }
-    std::unique_ptr<tailgate::protocol::Disco> disco;
+    std::unique_ptr<tailgate::disco::Disco> disco;
     if (!encryptedPacketTransport)
     {
-        disco = std::make_unique<tailgate::protocol::Disco>(discoPrivateKey, nodePublicKey);
+        disco = std::make_unique<tailgate::disco::Disco>(discoPrivateKey, nodePublicKey);
     }
 
     std::deque<PeerRuntime> peers;
     auto buildPeerRuntime = [&](const TailPeer& config) -> std::optional<PeerRuntime>
     {
         std::vector<std::uint8_t> publicKeyBytes =
-            tailgate::protocol::HexToBytes(config.Key.substr(8));
-        if (publicKeyBytes.size() != tailgate::protocol::WireGuardTunnel::Key{}.size())
+            tailgate::crypto::HexToBytes(config.Key.substr(8));
+        if (publicKeyBytes.size() != tailgate::wgengine::wireguard::WireGuardTunnel::Key{}.size())
         {
             return std::nullopt;
         }
-        tailgate::protocol::WireGuardTunnel::Key publicKey{};
+        tailgate::wgengine::wireguard::WireGuardTunnel::Key publicKey{};
         std::copy(publicKeyBytes.begin(), publicKeyBytes.end(), publicKey.begin());
         PeerRuntime runtime;
         runtime.Config = config;
@@ -705,7 +707,7 @@ void StartTunnel(
         runtime.PublicKey = publicKey;
         if (config.DiscoKey.rfind("discokey:", 0) == 0)
         {
-            const auto discoKey = tailgate::protocol::HexToBytes(config.DiscoKey.substr(9));
+            const auto discoKey = tailgate::crypto::HexToBytes(config.DiscoKey.substr(9));
             if (discoKey.size() == runtime.DiscoPublicKey.size())
             {
                 std::copy(discoKey.begin(), discoKey.end(), runtime.DiscoPublicKey.begin());
@@ -723,16 +725,17 @@ void StartTunnel(
             if (config.IngressEnabled || config.WireIngress || config.PeerApi4Port != 0 ||
                 config.PeerApi6Port != 0)
             {
-                tailgate::Log(tailgate::LogLevel::Info,
-                              "control",
-                              std::format("peer advertises ingress name={} version={} ingress={} "
-                                          "wire-ingress={} peerapi4={} peerapi6={}",
-                                          config.Name,
-                                          config.ClientVersion,
-                                          config.IngressEnabled ? 1 : 0,
-                                          config.WireIngress ? 1 : 0,
-                                          config.PeerApi4Port,
-                                          config.PeerApi6Port));
+                tailgate::base::Log(
+                    tailgate::base::LogLevel::Info,
+                    "control",
+                    std::format("peer advertises ingress name={} version={} ingress={} "
+                                "wire-ingress={} peerapi4={} peerapi6={}",
+                                config.Name,
+                                config.ClientVersion,
+                                config.IngressEnabled ? 1 : 0,
+                                config.WireIngress ? 1 : 0,
+                                config.PeerApi4Port,
+                                config.PeerApi6Port));
             }
             peers.push_back(std::move(*runtime));
         }
@@ -760,8 +763,8 @@ void StartTunnel(
         {
             throw std::runtime_error("peer has no usable DERP region");
         }
-        tailgate::Log(
-            tailgate::LogLevel::Info,
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Info,
             "derp",
             std::format(
                 "connecting region={} host={}{}", region, host, preferred ? " preferred" : ""));
@@ -828,7 +831,7 @@ void StartTunnel(
     std::optional<std::size_t> exitPeerIndex;
     if (!exitNode.empty())
     {
-        exitPeerIndex = tailgate::control::FindExitNode(routablePeers, exitNode, true);
+        exitPeerIndex = tailgate::types::netmap::FindExitNode(routablePeers, exitNode, true);
         if (!exitPeerIndex)
         {
             throw std::runtime_error("exit node was not found in the network map: " + exitNode);
@@ -841,16 +844,17 @@ void StartTunnel(
             AddRoute(interfaceName,
                      Ipv4Prefix{.Network = Ipv4ToHostOrder("128.0.0.0"), .PrefixLength = 1});
         }
-        tailgate::Log(tailgate::LogLevel::Info,
-                      "tunnel",
-                      std::format("exit node={} address={}",
-                                  exitPeer->Config.Name,
-                                  exitPeer->Config.Address));
+        tailgate::base::Log(tailgate::base::LogLevel::Info,
+                            "tunnel",
+                            std::format("exit node={} address={}",
+                                        exitPeer->Config.Name,
+                                        exitPeer->Config.Address));
     }
 
     auto findRoute = [&](std::uint32_t destination) -> PeerRuntime*
     {
-        const auto index = tailgate::control::FindRoute(routablePeers, destination, exitPeerIndex);
+        const auto index =
+            tailgate::types::netmap::FindRoute(routablePeers, destination, exitPeerIndex);
         return index ? &peers[*index] : nullptr;
     };
     auto findIpv6Route = [&](const std::string& destination) -> PeerRuntime*
@@ -866,7 +870,7 @@ void StartTunnel(
         return found == peers.end() ? nullptr : &*found;
     };
 
-    auto peerForKey = [&](const tailgate::protocol::DerpClient::Key& key) -> PeerRuntime*
+    auto peerForKey = [&](const tailgate::derp::DerpClient::Key& key) -> PeerRuntime*
     {
         auto found = std::find_if(peers.begin(),
                                   peers.end(),
@@ -876,7 +880,7 @@ void StartTunnel(
                                   });
         return found == peers.end() ? nullptr : &*found;
     };
-    auto peerForDiscoKey = [&](const tailgate::protocol::Bytes32& key) -> PeerRuntime*
+    auto peerForDiscoKey = [&](const tailgate::crypto::Bytes32& key) -> PeerRuntime*
     {
         auto found = std::find_if(peers.begin(),
                                   peers.end(),
@@ -890,8 +894,8 @@ void StartTunnel(
     {
         return peer.UseAdvertisedSocket ? advertisedUdpFd : peer.Socket.Fd;
     };
-    std::vector<tailgate::protocol::DerpClient::Key> unknownDerpSources;
-    auto logUnknownDerpSource = [&](const tailgate::protocol::DerpClient::Key& key)
+    std::vector<tailgate::derp::DerpClient::Key> unknownDerpSources;
+    auto logUnknownDerpSource = [&](const tailgate::derp::DerpClient::Key& key)
     {
         if (std::find(unknownDerpSources.begin(), unknownDerpSources.end(), key) !=
             unknownDerpSources.end())
@@ -899,10 +903,10 @@ void StartTunnel(
             return;
         }
         unknownDerpSources.push_back(key);
-        tailgate::Log(tailgate::LogLevel::Warning,
-                      "derp",
-                      "dropping packet from unknown source key=" +
-                          tailgate::protocol::BytesToHex(key.data(), key.size()));
+        tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                            "derp",
+                            "dropping packet from unknown source key=" +
+                                tailgate::crypto::BytesToHex(key.data(), key.size()));
     };
 
     auto startDirectProbe = [&](PeerRuntime& peer)
@@ -943,13 +947,13 @@ void StartTunnel(
             now - peer.LastBackpressureLog >= std::chrono::seconds(1))
         {
             peer.LastBackpressureLog = now;
-            tailgate::Log(tailgate::LogLevel::Debug,
-                          "tunnel",
-                          std::format("UDP backpressure peer={} queued={} bytes={} events={}",
-                                      peer.Config.Name,
-                                      peer.OutgoingPackets.size(),
-                                      peer.OutgoingBytes,
-                                      peer.UdpBackpressureEvents));
+            tailgate::base::Log(tailgate::base::LogLevel::Debug,
+                                "tunnel",
+                                std::format("UDP backpressure peer={} queued={} bytes={} events={}",
+                                            peer.Config.Name,
+                                            peer.OutgoingPackets.size(),
+                                            peer.OutgoingBytes,
+                                            peer.UdpBackpressureEvents));
         }
         while (!peer.OutgoingPackets.empty() &&
                (peer.OutgoingPackets.size() >= MaximumPendingPacketsPerPeer ||
@@ -957,9 +961,9 @@ void StartTunnel(
         {
             peer.OutgoingBytes -= peer.OutgoingPackets.front().size();
             peer.OutgoingPackets.pop_front();
-            tailgate::Log(tailgate::LogLevel::Warning,
-                          "tunnel",
-                          "outgoing packet limit reached for peer=" + peer.Config.Name);
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "tunnel",
+                                "outgoing packet limit reached for peer=" + peer.Config.Name);
         }
         if (packet.size() <= MaximumPendingBytesPerPeer)
         {
@@ -1022,7 +1026,8 @@ void StartTunnel(
         }
         const std::vector<std::uint8_t> handshake = tunnel->CreateHandshake(peer.TunnelPeer);
         peer.LastHandshake = now;
-        tailgate::Log(tailgate::LogLevel::Debug, "tunnel", "handshake peer=" + peer.Config.Name);
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Debug, "tunnel", "handshake peer=" + peer.Config.Name);
         sendRelay(peer, handshake, DerpWorker::Priority::Control);
         if (peer.HasEndpoint)
         {
@@ -1053,13 +1058,13 @@ void StartTunnel(
             sendHandshake(*exitPeer);
         }
     }
-    tailgate::Log(tailgate::LogLevel::Info,
-                  "tunnel",
-                  std::format("ready interface={} address={} dns={} peers={}",
-                              interfaceName,
-                              selfIp,
-                              currentDnsResolver,
-                              peers.size()));
+    tailgate::base::Log(tailgate::base::LogLevel::Info,
+                        "tunnel",
+                        std::format("ready interface={} address={} dns={} peers={}",
+                                    interfaceName,
+                                    selfIp,
+                                    currentDnsResolver,
+                                    peers.size()));
 
     status.BackendState = "Running";
     status.Online = true;
@@ -1091,9 +1096,9 @@ void StartTunnel(
         const char ready = '1';
         if (write(readyFd, &ready, 1) != 1)
         {
-            tailgate::Log(tailgate::LogLevel::Warning,
-                          "daemon",
-                          "failed to notify parent that the tunnel is ready");
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "daemon",
+                                "failed to notify parent that the tunnel is ready");
         }
         close(readyFd);
         readyFd = -1;
@@ -1145,8 +1150,8 @@ void StartTunnel(
         {
             pendingTunBytes -= pendingTunPackets.front().size();
             pendingTunPackets.pop_front();
-            tailgate::Log(
-                tailgate::LogLevel::Warning, "tunnel", "outbound TUN queue limit reached");
+            tailgate::base::Log(
+                tailgate::base::LogLevel::Warning, "tunnel", "outbound TUN queue limit reached");
         }
         if (packet.size() <= MaximumPendingBytesPerPeer)
         {
@@ -1160,7 +1165,7 @@ void StartTunnel(
                                             bool isDisco,
                                             const std::optional<sockaddr_in>& source)
     {
-        tailgate::relay::PeerPacket forwarded;
+        tailgate::hosted::PeerPacket forwarded;
         forwarded.Peer = peer.PublicKey;
         forwarded.Payload = packet;
         forwarded.Disco = isDisco;
@@ -1169,7 +1174,7 @@ void StartTunnel(
             forwarded.EndpointAddress = ntohl(source->sin_addr.s_addr);
             forwarded.EndpointPort = ntohs(source->sin_port);
         }
-        queueTun(tailgate::relay::EncodePeerPacket(forwarded));
+        queueTun(tailgate::hosted::EncodePeerPacket(forwarded));
     };
     UniqueFd upstreamDns = OpenUdpSocket(underlayInterface);
     UniqueFd pingServer;
@@ -1180,8 +1185,8 @@ void StartTunnel(
 
     struct PendingPing
     {
-        tailgate::protocol::Disco::TransactionId Transaction{};
-        tailgate::protocol::TsmpToken TsmpToken{};
+        tailgate::disco::Disco::TransactionId Transaction{};
+        tailgate::net::packet::TsmpToken TsmpToken{};
         PeerRuntime* Peer = nullptr;
         sockaddr_un Client{};
         socklen_t ClientLength = 0;
@@ -1196,11 +1201,11 @@ void StartTunnel(
 
     struct ControlUpdateWorker
     {
-        tailgate::control::ControlClient* Control = nullptr;
+        tailgate::control::client::ControlClient* Control = nullptr;
         std::atomic<int> ControlFd = -1;
         UniqueFd Event;
         std::mutex Mutex;
-        std::deque<tailgate::control::NetworkConfig> Updates;
+        std::deque<tailgate::types::netmap::NetworkConfig> Updates;
         std::exception_ptr Error;
         std::atomic_bool Stop = false;
         std::thread Thread;
@@ -1208,7 +1213,7 @@ void StartTunnel(
         std::unique_ptr<LiveControlSession> OwnedControl;
         std::atomic<int>* PublishedControlFd = nullptr;
 
-        ControlUpdateWorker(tailgate::control::ControlClient* controlClient,
+        ControlUpdateWorker(tailgate::control::client::ControlClient* controlClient,
                             int fd,
                             std::function<std::unique_ptr<LiveControlSession>()> reconnect,
                             std::atomic<int>* publishedControlFd)
@@ -1315,7 +1320,7 @@ void StartTunnel(
                         }
                         ResetDeadlineTimerFd(silenceDeadline.Fd, ControlSilenceTimeout);
                         bool changed = false;
-                        while (std::optional<tailgate::control::NetworkConfig> update =
+                        while (std::optional<tailgate::types::netmap::NetworkConfig> update =
                                    Control->PollNetworkMap())
                         {
                             std::lock_guard<std::mutex> lock(Mutex);
@@ -1341,18 +1346,18 @@ void StartTunnel(
                         Wake();
                         return;
                     }
-                    tailgate::Log(tailgate::LogLevel::Warning,
-                                  "control",
-                                  std::format("stream interrupted: {}; reconnecting without "
-                                              "stopping the data plane",
-                                              error.what()));
+                    tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                        "control",
+                                        std::format("stream interrupted: {}; reconnecting without "
+                                                    "stopping the data plane",
+                                                    error.what()));
                 }
                 while (!Stop)
                 {
                     try
                     {
                         std::unique_ptr<LiveControlSession> replacement = Reconnect();
-                        tailgate::control::NetworkConfig initialNetwork =
+                        tailgate::types::netmap::NetworkConfig initialNetwork =
                             std::move(replacement->InitialNetwork);
                         Control = replacement->Control.get();
                         ControlFd.store(replacement->Stream->NativeHandle());
@@ -1367,19 +1372,21 @@ void StartTunnel(
                         }
                         Wake();
                         retrySeconds = 1;
-                        tailgate::Log(tailgate::LogLevel::Info,
-                                      "control",
-                                      "stream reconnected with a fresh network map; data plane "
-                                      "remained active");
+                        tailgate::base::Log(
+                            tailgate::base::LogLevel::Info,
+                            "control",
+                            "stream reconnected with a fresh network map; data plane "
+                            "remained active");
                         break;
                     }
                     catch (const std::exception& error)
                     {
-                        tailgate::Log(tailgate::LogLevel::Warning,
-                                      "control",
-                                      std::format("reconnect failed: {}; retrying in {} seconds",
-                                                  error.what(),
-                                                  retrySeconds));
+                        tailgate::base::Log(
+                            tailgate::base::LogLevel::Warning,
+                            "control",
+                            std::format("reconnect failed: {}; retrying in {} seconds",
+                                        error.what(),
+                                        retrySeconds));
                     }
                     for (int elapsed = 0; elapsed < retrySeconds && !Stop; ++elapsed)
                     {
@@ -1390,14 +1397,14 @@ void StartTunnel(
             }
         }
 
-        std::deque<tailgate::control::NetworkConfig> TakeUpdates()
+        std::deque<tailgate::types::netmap::NetworkConfig> TakeUpdates()
         {
             std::lock_guard<std::mutex> lock(Mutex);
             if (Error)
             {
                 std::rethrow_exception(Error);
             }
-            std::deque<tailgate::control::NetworkConfig> result;
+            std::deque<tailgate::types::netmap::NetworkConfig> result;
             result.swap(Updates);
             return result;
         }
@@ -1416,9 +1423,9 @@ void StartTunnel(
         {
             peer.PendingBytes -= peer.PendingPackets.front().size();
             peer.PendingPackets.pop_front();
-            tailgate::Log(tailgate::LogLevel::Warning,
-                          "tunnel",
-                          "pending packet limit reached for peer=" + peer.Config.Name);
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "tunnel",
+                                "pending packet limit reached for peer=" + peer.Config.Name);
         }
         if (plaintext.size() <= MaximumPendingBytesPerPeer)
         {
@@ -1442,13 +1449,14 @@ void StartTunnel(
     {
         if (configureHost)
         {
-            if (const auto tsmpPong = tailgate::protocol::BuildTsmpPong(packet, FunnelPeerApiPort))
+            if (const auto tsmpPong =
+                    tailgate::net::packet::BuildTsmpPong(packet, FunnelPeerApiPort))
             {
-                tailgate::Log(tailgate::LogLevel::Info,
-                              "peerapi",
-                              std::format("TSMP probe from peer={} address={}",
-                                          peer.Config.Name,
-                                          peer.Config.Address));
+                tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                    "peerapi",
+                                    std::format("TSMP probe from peer={} address={}",
+                                                peer.Config.Name,
+                                                peer.Config.Address));
                 queueOrSend(peer, *tsmpPong);
                 return true;
             }
@@ -1472,25 +1480,26 @@ void StartTunnel(
             packet.resize(static_cast<std::size_t>(bytesRead));
             if (encryptedPacketTransport)
             {
-                const tailgate::relay::PeerPacket transportPacket =
-                    tailgate::relay::DecodePeerPacket(packet);
+                const tailgate::hosted::PeerPacket transportPacket =
+                    tailgate::hosted::DecodePeerPacket(packet);
                 PeerRuntime* peer = peerForKey(transportPacket.Peer);
                 if (peer == nullptr)
                 {
-                    tailgate::Log(tailgate::LogLevel::Warning,
-                                  "relay",
-                                  "dropping encrypted packet for unknown peer");
+                    tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                        "relay",
+                                        "dropping encrypted packet for unknown peer");
                     continue;
                 }
                 if (transportPacket.Disco)
                 {
-                    tailgate::Log(
-                        tailgate::LogLevel::Trace,
+                    tailgate::base::Log(
+                        tailgate::base::LogLevel::Trace,
                         "relay",
-                        std::format("forwarding hosted disco packet peer={} endpoint={}:{}",
-                                    peer->Config.Name,
-                                    tailgate::network::FormatIpv4(transportPacket.EndpointAddress),
-                                    transportPacket.EndpointPort));
+                        std::format(
+                            "forwarding hosted disco packet peer={} endpoint={}:{}",
+                            peer->Config.Name,
+                            tailgate::net::packet::FormatIpv4(transportPacket.EndpointAddress),
+                            transportPacket.EndpointPort));
                     if (transportPacket.EndpointAddress != 0 && transportPacket.EndpointPort != 0)
                     {
                         sockaddr_in endpoint{};
@@ -1523,16 +1532,16 @@ void StartTunnel(
                 continue;
             }
             const std::optional<std::uint32_t> destination =
-                tailgate::network::Ipv4Destination(packet);
+                tailgate::net::packet::Ipv4Destination(packet);
             if (destination)
             {
                 PeerRuntime* peer = findRoute(*destination);
                 if (!peer)
                 {
-                    tailgate::Log(tailgate::LogLevel::Warning,
-                                  "tunnel",
-                                  "dropping unroutable packet to " +
-                                      tailgate::network::FormatIpv4(*destination));
+                    tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                        "tunnel",
+                                        "dropping unroutable packet to " +
+                                            tailgate::net::packet::FormatIpv4(*destination));
                     continue;
                 }
                 queueOrSend(*peer, std::move(packet));
@@ -1546,12 +1555,12 @@ void StartTunnel(
             PeerRuntime* peer = findIpv6Route(*ipv6Destination);
             if (!peer)
             {
-                tailgate::Log(tailgate::LogLevel::Warning,
-                              "tunnel",
-                              std::format("dropping unroutable IPv6 packet {} -> {} ports={}",
-                                          Ipv6SourceText(packet).value_or("<unknown>"),
-                                          *ipv6Destination,
-                                          TcpPortSummary(packet).value_or("<not-tcp>")));
+                tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                    "tunnel",
+                                    std::format("dropping unroutable IPv6 packet {} -> {} ports={}",
+                                                Ipv6SourceText(packet).value_or("<unknown>"),
+                                                *ipv6Destination,
+                                                TcpPortSummary(packet).value_or("<not-tcp>")));
                 continue;
             }
             queueOrSend(*peer, std::move(packet));
@@ -1559,13 +1568,13 @@ void StartTunnel(
     };
     auto selectDnsResolver = [&](const std::vector<std::uint8_t>& query)
     {
-        const auto name = tailgate::network::DnsQueryName(query);
+        const auto name = tailgate::net::dns::DnsQueryName(query);
         const std::vector<std::string>* selected = nullptr;
         std::size_t selectedSuffixLength = 0;
         for (const auto& route : currentDnsRoutes)
         {
             if (name && route.Suffix.size() >= selectedSuffixLength &&
-                tailgate::network::DnsNameHasSuffix(*name, route.Suffix))
+                tailgate::net::dns::DnsNameHasSuffix(*name, route.Suffix))
             {
                 selected = &route.Resolvers;
                 selectedSuffixLength = route.Suffix.size();
@@ -1584,7 +1593,7 @@ void StartTunnel(
         {
             resolver = originalResolvers.front();
         }
-        if (!tailgate::network::ParseIpv4(resolver))
+        if (!tailgate::net::packet::ParseIpv4(resolver))
         {
             throw std::runtime_error("DNS resolver transport is unsupported: " + resolver);
         }
@@ -1595,7 +1604,7 @@ void StartTunnel(
         for (auto pending = pendingDnsClients.begin(); pending != pendingDnsClients.end();
              ++pending)
         {
-            auto payload = tailgate::network::ExtractUdpPayload(
+            auto payload = tailgate::net::packet::ExtractUdpPayload(
                 packet, pending->Resolver, Ipv4ToHostOrder(selfIp), 53, pending->SourcePort);
             if (payload && payload->size() >= 2 &&
                 (((static_cast<std::uint16_t>((*payload)[0]) << 8) | (*payload)[1]) == pending->Id))
@@ -1634,8 +1643,8 @@ void StartTunnel(
     };
     auto handlePingResponse = [&](const std::vector<std::uint8_t>& packet)
     {
-        const std::optional<tailgate::protocol::TsmpPong> pong =
-            tailgate::protocol::ParseTsmpPong(packet);
+        const std::optional<tailgate::net::packet::TsmpPong> pong =
+            tailgate::net::packet::ParseTsmpPong(packet);
         if (!pong)
         {
             return false;
@@ -1664,9 +1673,9 @@ void StartTunnel(
         {
             queueOrSend(
                 *pending.Peer,
-                tailgate::protocol::BuildTsmpPing(Ipv4ToHostOrder(selfIp),
-                                                  Ipv4ToHostOrder(pending.Peer->Config.Address),
-                                                  pending.TsmpToken));
+                tailgate::net::packet::BuildTsmpPing(Ipv4ToHostOrder(selfIp),
+                                                     Ipv4ToHostOrder(pending.Peer->Config.Address),
+                                                     pending.TsmpToken));
             pending.LastSent = std::chrono::steady_clock::now();
             return;
         }
@@ -1694,7 +1703,7 @@ void StartTunnel(
         {
             return;
         }
-        const auto discoKey = tailgate::protocol::HexToBytes(peer.Config.DiscoKey.substr(9));
+        const auto discoKey = tailgate::crypto::HexToBytes(peer.Config.DiscoKey.substr(9));
         if (discoKey.size() == peer.DiscoPublicKey.size())
         {
             std::copy(discoKey.begin(), discoKey.end(), peer.DiscoPublicKey.begin());
@@ -1715,9 +1724,10 @@ void StartTunnel(
         peer.AwaitingDirectResponse = false;
         if (changed)
         {
-            tailgate::Log(tailgate::LogLevel::Info,
-                          component,
-                          std::format("direct peer={} endpoint={}", peer.Config.Name, endpoint));
+            tailgate::base::Log(
+                tailgate::base::LogLevel::Info,
+                component,
+                std::format("direct peer={} endpoint={}", peer.Config.Name, endpoint));
         }
         for (auto& peerStatus : status.Peers)
         {
@@ -1740,14 +1750,14 @@ void StartTunnel(
                            const std::vector<std::uint8_t>& packet,
                            const std::optional<sockaddr_in>& source,
                            DerpWorker* sourceDerp,
-                           const tailgate::protocol::DerpClient::Key* derpSource)
+                           const tailgate::derp::DerpClient::Key* derpSource)
     {
         const auto message = disco->Parse(packet);
         if (!message || message->Sender != peer.DiscoPublicKey)
         {
             return;
         }
-        if (message->Type == tailgate::protocol::Disco::MessageType::CallMeMaybe)
+        if (message->Type == tailgate::disco::Disco::MessageType::CallMeMaybe)
         {
             if (derpSource == nullptr)
             {
@@ -1764,20 +1774,20 @@ void StartTunnel(
                 SendUdp(advertisedUdpFd, endpoint, ping);
             }
             peer.DirectProbeStarted = true;
-            tailgate::Log(tailgate::LogLevel::Debug,
-                          "disco",
-                          std::format("CallMeMaybe peer={} endpoints={}",
-                                      peer.Config.Name,
-                                      message->Endpoints.size()));
+            tailgate::base::Log(tailgate::base::LogLevel::Debug,
+                                "disco",
+                                std::format("CallMeMaybe peer={} endpoints={}",
+                                            peer.Config.Name,
+                                            message->Endpoints.size()));
             return;
         }
-        if (message->Type == tailgate::protocol::Disco::MessageType::Ping)
+        if (message->Type == tailgate::disco::Disco::MessageType::Ping)
         {
             // DERP-received pings have no UDP source; peers discard pongs with a zero source,
             // so report the Tailscale DERP magic address for the home region instead.
-            const std::uint32_t sourceAddress =
-                source ? ntohl(source->sin_addr.s_addr)
-                       : tailgate::protocol::Disco::DerpMagicIpv4Address;
+            const std::uint32_t sourceAddress = source
+                                                    ? ntohl(source->sin_addr.s_addr)
+                                                    : tailgate::disco::Disco::DerpMagicIpv4Address;
             const std::uint16_t sourcePort =
                 source ? ntohs(source->sin_port) : static_cast<std::uint16_t>(derpRegion);
             const auto pong = disco->BuildPong(
@@ -1796,7 +1806,7 @@ void StartTunnel(
             }
             return;
         }
-        if (message->Type == tailgate::protocol::Disco::MessageType::Pong && source)
+        if (message->Type == tailgate::disco::Disco::MessageType::Pong && source)
         {
             markDirect(peer, *source, "disco");
         }
@@ -1820,7 +1830,7 @@ void StartTunnel(
     };
     auto handleUdpWireGuard =
         [&](PeerRuntime& peer,
-            std::optional<tailgate::protocol::WireGuardTunnel::ReceivedPacket> received,
+            std::optional<tailgate::wgengine::wireguard::WireGuardTunnel::ReceivedPacket> received,
             const sockaddr_in& source,
             int socketFd)
     {
@@ -1836,9 +1846,9 @@ void StartTunnel(
             received ? std::move(received->Plaintext) : std::vector<std::uint8_t>{};
         if (received && received->SessionEstablished)
         {
-            tailgate::Log(tailgate::LogLevel::Debug,
-                          "tunnel",
-                          "session established peer=" + peer.Config.Name);
+            tailgate::base::Log(tailgate::base::LogLevel::Debug,
+                                "tunnel",
+                                "session established peer=" + peer.Config.Name);
             markDirect(peer, source, "tunnel");
             flushPending(peer);
             return;
@@ -1966,7 +1976,7 @@ void StartTunnel(
         }
     };
 
-    auto applyStatusFromNetworkMap = [&](const tailgate::control::NetworkConfig& config)
+    auto applyStatusFromNetworkMap = [&](const tailgate::types::netmap::NetworkConfig& config)
     {
         bool changed = false;
         for (const TailPeer& peer : config.Peers)
@@ -2042,7 +2052,7 @@ void StartTunnel(
         }
     };
 
-    auto applyNetworkMap = [&](const tailgate::control::NetworkConfig& config)
+    auto applyNetworkMap = [&](const tailgate::types::netmap::NetworkConfig& config)
     {
         TimedSection(
             "control DERP apply",
@@ -2098,8 +2108,8 @@ void StartTunnel(
                                          events,
                                          PackDataplaneEvent(DataplaneEventKind::Peer,
                                                             static_cast<std::uint32_t>(peerIndex)));
-                        tailgate::Log(
-                            tailgate::LogLevel::Info,
+                        tailgate::base::Log(
+                            tailgate::base::LogLevel::Info,
                             "control",
                             std::format(
                                 "added peer from network-map update: {} version={} ingress={} "
@@ -2115,16 +2125,17 @@ void StartTunnel(
 
                     if (existing->Config.Key != configPeer.Key)
                     {
-                        tailgate::Log(tailgate::LogLevel::Info,
-                                      "control",
-                                      std::format("peer key generation changed name={} address={} "
-                                                  "old-node={} new-node={}",
-                                                  configPeer.Name,
-                                                  configPeer.Address,
-                                                  existing->Config.NodeId,
-                                                  configPeer.NodeId));
+                        tailgate::base::Log(
+                            tailgate::base::LogLevel::Info,
+                            "control",
+                            std::format("peer key generation changed name={} address={} "
+                                        "old-node={} new-node={}",
+                                        configPeer.Name,
+                                        configPeer.Address,
+                                        existing->Config.NodeId,
+                                        configPeer.NodeId));
                         const std::vector<std::uint8_t> publicKeyBytes =
-                            tailgate::protocol::HexToBytes(configPeer.Key.substr(8));
+                            tailgate::crypto::HexToBytes(configPeer.Key.substr(8));
                         if (publicKeyBytes.size() == existing->PublicKey.size())
                         {
                             std::copy(publicKeyBytes.begin(),
@@ -2150,8 +2161,8 @@ void StartTunnel(
                     updateRuntimeDiscoKey(*existing);
                     if (onlineChanged || discoKeyChanged || endpointsChanged)
                     {
-                        tailgate::Log(
-                            tailgate::LogLevel::Info,
+                        tailgate::base::Log(
+                            tailgate::base::LogLevel::Info,
                             "control",
                             std::format("peer update name={} online={} disco={} endpoints={} "
                                         "version={} ingress={} wire-ingress={} peerapi4={} "
@@ -2202,8 +2213,8 @@ void StartTunnel(
                             {
                                 if (!peer.Config.AllowedPrefixes.empty())
                                 {
-                                    tailgate::Log(
-                                        tailgate::LogLevel::Info,
+                                    tailgate::base::Log(
+                                        tailgate::base::LogLevel::Info,
                                         "control",
                                         std::format("peer generation removed name={} address={} "
                                                     "node={}",
@@ -2250,7 +2261,7 @@ void StartTunnel(
                                  rebuildRoutablePeers();
                                  if (!exitNode.empty())
                                  {
-                                     exitPeerIndex = tailgate::control::FindExitNode(
+                                     exitPeerIndex = tailgate::types::netmap::FindExitNode(
                                          routablePeers, exitNode, true);
                                      exitPeer = exitPeerIndex ? &peers[*exitPeerIndex] : nullptr;
                                  }
@@ -2278,8 +2289,8 @@ void StartTunnel(
                                  applyStatusFromNetworkMap(config);
                              });
             });
-        tailgate::Log(
-            tailgate::LogLevel::Info,
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Info,
             "control",
             std::format("applied live network-map update: peers={}", config.Peers.size()));
         if (networkMapUpdated)
@@ -2379,8 +2390,9 @@ void StartTunnel(
                    sizeof(eventCount))
             {
             }
-            std::deque<tailgate::control::NetworkConfig> updates = controlUpdates.TakeUpdates();
-            for (const tailgate::control::NetworkConfig& update : updates)
+            std::deque<tailgate::types::netmap::NetworkConfig> updates =
+                controlUpdates.TakeUpdates();
+            for (const tailgate::types::netmap::NetworkConfig& update : updates)
             {
                 applyNetworkMap(update);
             }
@@ -2394,7 +2406,7 @@ void StartTunnel(
                 throw std::runtime_error("relay network-map channel closed");
             }
             payload.resize(static_cast<std::size_t>(received));
-            applyNetworkMap(tailgate::relay::DecodeNetworkConfig(payload));
+            applyNetworkMap(tailgate::hosted::DecodeNetworkConfig(payload));
         }
 
         if (maintenanceExpired)
@@ -2443,11 +2455,11 @@ void StartTunnel(
                         if (peer)
                         {
                             std::vector<std::uint8_t> dnsPacket =
-                                tailgate::network::BuildUdpPacket(Ipv4ToHostOrder(selfIp),
-                                                                  resolverAddress,
-                                                                  sourcePort,
-                                                                  53,
-                                                                  dnsPayload);
+                                tailgate::net::packet::BuildUdpPacket(Ipv4ToHostOrder(selfIp),
+                                                                      resolverAddress,
+                                                                      sourcePort,
+                                                                      53,
+                                                                      dnsPayload);
                             queueOrSend(*peer, std::move(dnsPacket));
                         }
                         else
@@ -2494,76 +2506,76 @@ void StartTunnel(
 
         if (pingInput)
         {
-            TimedSection(
-                "ping IPC",
-                [&]()
-                {
-                    tailgate::linux_frontend::PingRequest request{};
-                    sockaddr_un client{};
-                    socklen_t clientLength = sizeof(client);
-                    if (tailgate::linux_frontend::ReceivePingRequest(
-                            pingServer.Fd, request, client, clientLength))
-                    {
-                        const std::string& target = request.Target;
-                        const std::string normalizedTarget =
-                            !target.empty() && target.back() == '.'
-                                ? target.substr(0, target.size() - 1)
-                                : target;
-                        const auto found =
-                            std::find_if(peers.begin(),
-                                         peers.end(),
-                                         [&](const PeerRuntime& peer)
+            TimedSection("ping IPC",
+                         [&]()
+                         {
+                             tailgate::linux_frontend::PingRequest request{};
+                             sockaddr_un client{};
+                             socklen_t clientLength = sizeof(client);
+                             if (tailgate::linux_frontend::ReceivePingRequest(
+                                     pingServer.Fd, request, client, clientLength))
+                             {
+                                 const std::string& target = request.Target;
+                                 const std::string normalizedTarget =
+                                     !target.empty() && target.back() == '.'
+                                         ? target.substr(0, target.size() - 1)
+                                         : target;
+                                 const auto found = std::find_if(
+                                     peers.begin(),
+                                     peers.end(),
+                                     [&](const PeerRuntime& peer)
+                                     {
+                                         std::string name = peer.Config.Name;
+                                         if (!name.empty() && name.back() == '.')
                                          {
-                                             std::string name = peer.Config.Name;
-                                             if (!name.empty() && name.back() == '.')
-                                             {
-                                                 name.pop_back();
-                                             }
-                                             const std::size_t dot = name.find('.');
-                                             return peer.Config.Address == normalizedTarget ||
-                                                    name == normalizedTarget ||
-                                                    name.substr(0, dot) == normalizedTarget;
-                                         });
-                        const bool tsmp = request.Tsmp;
-                        if (found == peers.end() || (!tsmp && !found->HasDiscoKey))
-                        {
-                            tailgate::Log(tailgate::LogLevel::Warning,
-                                          "ping",
-                                          found == peers.end()
-                                              ? "target not found: " + normalizedTarget
-                                              : std::format("target has no disco key: {} online={}",
-                                                            found->Config.Name,
-                                                            found->Config.Online ? 1 : 0));
-                            tailgate::linux_frontend::PingResponse response{};
-                            tailgate::linux_frontend::SendPingResponse(
-                                pingServer.Fd, client, clientLength, response);
-                        }
-                        else
-                        {
-                            PendingPing pending;
-                            pending.Tsmp = tsmp;
-                            if (tsmp)
-                            {
-                                const tailgate::protocol::Bytes32 random =
-                                    tailgate::protocol::GeneratePrivateKey();
-                                std::copy_n(random.begin(),
-                                            pending.TsmpToken.size(),
-                                            pending.TsmpToken.begin());
-                            }
-                            else
-                            {
-                                pending.Transaction = disco->NewTransactionId();
-                            }
-                            pending.Peer = &*found;
-                            pending.Client = client;
-                            pending.ClientLength = clientLength;
-                            pending.Started = std::chrono::steady_clock::now();
-                            pending.TimeoutSeconds = std::max(1, request.TimeoutSeconds);
-                            pendingPings.push_back(std::move(pending));
-                            sendPendingPing(pendingPings.back());
-                        }
-                    }
-                });
+                                             name.pop_back();
+                                         }
+                                         const std::size_t dot = name.find('.');
+                                         return peer.Config.Address == normalizedTarget ||
+                                                name == normalizedTarget ||
+                                                name.substr(0, dot) == normalizedTarget;
+                                     });
+                                 const bool tsmp = request.Tsmp;
+                                 if (found == peers.end() || (!tsmp && !found->HasDiscoKey))
+                                 {
+                                     tailgate::base::Log(
+                                         tailgate::base::LogLevel::Warning,
+                                         "ping",
+                                         found == peers.end()
+                                             ? "target not found: " + normalizedTarget
+                                             : std::format("target has no disco key: {} online={}",
+                                                           found->Config.Name,
+                                                           found->Config.Online ? 1 : 0));
+                                     tailgate::linux_frontend::PingResponse response{};
+                                     tailgate::linux_frontend::SendPingResponse(
+                                         pingServer.Fd, client, clientLength, response);
+                                 }
+                                 else
+                                 {
+                                     PendingPing pending;
+                                     pending.Tsmp = tsmp;
+                                     if (tsmp)
+                                     {
+                                         const tailgate::crypto::Bytes32 random =
+                                             tailgate::crypto::GeneratePrivateKey();
+                                         std::copy_n(random.begin(),
+                                                     pending.TsmpToken.size(),
+                                                     pending.TsmpToken.begin());
+                                     }
+                                     else
+                                     {
+                                         pending.Transaction = disco->NewTransactionId();
+                                     }
+                                     pending.Peer = &*found;
+                                     pending.Client = client;
+                                     pending.ClientLength = clientLength;
+                                     pending.Started = std::chrono::steady_clock::now();
+                                     pending.TimeoutSeconds = std::max(1, request.TimeoutSeconds);
+                                     pendingPings.push_back(std::move(pending));
+                                     sendPendingPing(pendingPings.back());
+                                 }
+                             }
+                         });
         }
 
         if (tunInput)
@@ -2586,13 +2598,13 @@ void StartTunnel(
                         {
                             break;
                         }
-                        if (tailgate::protocol::Disco::IsDiscoPacket(data))
+                        if (tailgate::disco::Disco::IsDiscoPacket(data))
                         {
                             if (data.size() < 38)
                             {
                                 continue;
                             }
-                            tailgate::protocol::Bytes32 sender{};
+                            tailgate::crypto::Bytes32 sender{};
                             std::copy_n(data.begin() + 6, sender.size(), sender.begin());
                             PeerRuntime* peer = peerForDiscoKey(sender);
                             if (peer != nullptr)
@@ -2679,7 +2691,7 @@ void StartTunnel(
                             break;
                         }
                         peer.RxBytes += data.size();
-                        if (tailgate::protocol::Disco::IsDiscoPacket(data))
+                        if (tailgate::disco::Disco::IsDiscoPacket(data))
                         {
                             if (encryptedPacketTransport)
                             {
@@ -2715,8 +2727,7 @@ void StartTunnel(
                         continue;
                     }
                     DerpWorker& worker = *derps[derpIndex].Worker;
-                    for (const tailgate::protocol::DerpClient::Packet& packet :
-                         worker.ReceivePackets())
+                    for (const tailgate::derp::DerpClient::Packet& packet : worker.ReceivePackets())
                     {
                         PeerRuntime* peer = peerForKey(packet.Source);
                         if (peer == nullptr)
@@ -2725,12 +2736,12 @@ void StartTunnel(
                             continue;
                         }
                         peer->RxBytes += packet.Payload.size();
-                        if (tailgate::protocol::Disco::IsDiscoPacket(packet.Payload))
+                        if (tailgate::disco::Disco::IsDiscoPacket(packet.Payload))
                         {
                             PeerRuntime* discoPeer = nullptr;
                             if (packet.Payload.size() >= 38)
                             {
-                                tailgate::protocol::Bytes32 sender{};
+                                tailgate::crypto::Bytes32 sender{};
                                 std::copy_n(
                                     packet.Payload.begin() + 6, sender.size(), sender.begin());
                                 discoPeer = peerForDiscoKey(sender);
@@ -2753,14 +2764,14 @@ void StartTunnel(
                             }
                             else
                             {
-                                tailgate::Log(
-                                    tailgate::LogLevel::Debug,
+                                tailgate::base::Log(
+                                    tailgate::base::LogLevel::Debug,
                                     "disco",
                                     std::format(
                                         "dropping DERP disco packet from unmatched disco key={} "
                                         "source-peer={}",
                                         packet.Payload.size() >= 38
-                                            ? tailgate::protocol::BytesToHex(
+                                            ? tailgate::crypto::BytesToHex(
                                                   packet.Payload.data() + 6, 8)
                                             : "<short>",
                                         peer->Config.Name));
@@ -2780,13 +2791,14 @@ void StartTunnel(
                                 (static_cast<std::uint32_t>(packet.Payload[1]) << 8U) |
                                 (static_cast<std::uint32_t>(packet.Payload[2]) << 16U) |
                                 (static_cast<std::uint32_t>(packet.Payload[3]) << 24U);
-                            tailgate::Log(tailgate::LogLevel::Debug,
-                                          "tunnel",
-                                          std::format("rejected DERP WireGuard packet peer={} "
-                                                      "type={} bytes={}",
-                                                      peer->Config.Name,
-                                                      type,
-                                                      packet.Payload.size()));
+                            tailgate::base::Log(
+                                tailgate::base::LogLevel::Debug,
+                                "tunnel",
+                                std::format("rejected DERP WireGuard packet peer={} "
+                                            "type={} bytes={}",
+                                            peer->Config.Name,
+                                            type,
+                                            packet.Payload.size()));
                         }
                         if (received && !received->Reply.empty())
                         {
@@ -2795,9 +2807,9 @@ void StartTunnel(
                         }
                         if (received && received->SessionEstablished)
                         {
-                            tailgate::Log(tailgate::LogLevel::Debug,
-                                          "tunnel",
-                                          "session established peer=" + peer->Config.Name);
+                            tailgate::base::Log(tailgate::base::LogLevel::Debug,
+                                                "tunnel",
+                                                "session established peer=" + peer->Config.Name);
                             flushPending(*peer);
                         }
                         if (received && !received->Plaintext.empty())
@@ -2818,62 +2830,62 @@ void StartTunnel(
 
         if (maintenanceExpired)
         {
-            TimedSection(
-                "timers",
-                [&]()
-                {
-                    for (PeerRuntime& peer : peers)
-                    {
-                        if (peer.HasEndpoint && peer.AwaitingDirectResponse &&
-                            std::chrono::steady_clock::now() - peer.FirstUnansweredDirectSend >
-                                std::chrono::seconds(15))
-                        {
-                            peer.HasEndpoint = false;
-                            peer.DirectProbeStarted = false;
-                            peer.AwaitingDirectResponse = false;
-                            tailgate::Log(tailgate::LogLevel::Info,
-                                          "tunnel",
-                                          "relay fallback peer=" + peer.Config.Name);
-                            for (auto& peerStatus : status.Peers)
-                            {
-                                if (peerStatus.Address == peer.Config.Address)
-                                {
-                                    peerStatus.Direct = false;
-                                    peerStatus.Endpoint.clear();
-                                }
-                            }
-                            submitStatus(status);
-                        }
-                        if (!tunnel)
-                        {
-                            continue;
-                        }
-                        if (tunnel->HasSession(peer.TunnelPeer) && !peer.HasEndpoint)
-                        {
-                            startDirectProbe(peer);
-                        }
-                        auto action = tunnel->UpdateTimers(peer.TunnelPeer);
-                        if (action ==
-                            tailgate::protocol::WireGuardTunnel::TimerAction::SendHandshake)
-                        {
-                            sendHandshake(peer);
-                        }
-                        else if (action ==
-                                 tailgate::protocol::WireGuardTunnel::TimerAction::SendKeepalive)
-                        {
-                            sendPeer(peer, tunnel->Encrypt(peer.TunnelPeer, {}), false);
-                        }
-                        for (auto& peerStatus : status.Peers)
-                        {
-                            if (peerStatus.Address == peer.Config.Address)
-                            {
-                                peerStatus.Active = tunnel->HasSession(peer.TunnelPeer);
-                                peerStatus.TxBytes = peer.TxBytes;
-                                peerStatus.RxBytes = peer.RxBytes;
-                            }
-                        }
-                    }
-                });
+            TimedSection("timers",
+                         [&]()
+                         {
+                             for (PeerRuntime& peer : peers)
+                             {
+                                 if (peer.HasEndpoint && peer.AwaitingDirectResponse &&
+                                     std::chrono::steady_clock::now() -
+                                             peer.FirstUnansweredDirectSend >
+                                         std::chrono::seconds(15))
+                                 {
+                                     peer.HasEndpoint = false;
+                                     peer.DirectProbeStarted = false;
+                                     peer.AwaitingDirectResponse = false;
+                                     tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                                         "tunnel",
+                                                         "relay fallback peer=" + peer.Config.Name);
+                                     for (auto& peerStatus : status.Peers)
+                                     {
+                                         if (peerStatus.Address == peer.Config.Address)
+                                         {
+                                             peerStatus.Direct = false;
+                                             peerStatus.Endpoint.clear();
+                                         }
+                                     }
+                                     submitStatus(status);
+                                 }
+                                 if (!tunnel)
+                                 {
+                                     continue;
+                                 }
+                                 if (tunnel->HasSession(peer.TunnelPeer) && !peer.HasEndpoint)
+                                 {
+                                     startDirectProbe(peer);
+                                 }
+                                 auto action = tunnel->UpdateTimers(peer.TunnelPeer);
+                                 if (action == tailgate::wgengine::wireguard::WireGuardTunnel::
+                                                   TimerAction::SendHandshake)
+                                 {
+                                     sendHandshake(peer);
+                                 }
+                                 else if (action == tailgate::wgengine::wireguard::WireGuardTunnel::
+                                                        TimerAction::SendKeepalive)
+                                 {
+                                     sendPeer(peer, tunnel->Encrypt(peer.TunnelPeer, {}), false);
+                                 }
+                                 for (auto& peerStatus : status.Peers)
+                                 {
+                                     if (peerStatus.Address == peer.Config.Address)
+                                     {
+                                         peerStatus.Active = tunnel->HasSession(peer.TunnelPeer);
+                                         peerStatus.TxBytes = peer.TxBytes;
+                                         peerStatus.RxBytes = peer.RxBytes;
+                                     }
+                                 }
+                             }
+                         });
             TimedSection(
                 "bookkeeping",
                 [&]()
@@ -2884,8 +2896,8 @@ void StartTunnel(
                             std::chrono::steady_clock::now() - pending.Started >=
                                 std::chrono::seconds(pending.TimeoutSeconds))
                         {
-                            tailgate::Log(
-                                tailgate::LogLevel::Warning,
+                            tailgate::base::Log(
+                                tailgate::base::LogLevel::Warning,
                                 "ping",
                                 std::format("timeout peer={} online={} disco={} endpoints={}",
                                             pending.Peer->Config.Name,
@@ -2931,19 +2943,19 @@ void StartTunnel(
     }
 }
 
-void RunHostedRelay(tailgate::IByteStream& stream,
+void RunHostedRelay(tailgate::base::IByteStream& stream,
                     const std::string& expectedDomain,
                     const std::string& relayHostName,
                     const std::string& relayHostAddress,
-                    const tailgate::protocol::Bytes32& relayPrivateKey,
-                    const tailgate::protocol::Bytes32& relayPublicKey,
+                    const tailgate::crypto::Bytes32& relayPrivateKey,
+                    const tailgate::crypto::Bytes32& relayPublicKey,
                     const std::function<void()>& closeConnection,
                     const std::function<void()>& markIdentityVerified);
 
-void UpdateRelayHostNetworkMap(const tailgate::control::NetworkConfig& config);
+void UpdateRelayHostNetworkMap(const tailgate::types::netmap::NetworkConfig& config);
 [[nodiscard]] bool WaitForHostedNodeVisibility(const std::string& tailnet,
                                                std::uint64_t nodeId,
-                                               const tailgate::protocol::Bytes32& nodePublicKey);
+                                               const tailgate::crypto::Bytes32& nodePublicKey);
 
 struct RelayEndpoint
 {
@@ -3004,7 +3016,7 @@ void WaitForTlsIo(int fd, bool needsRead)
     }
 }
 
-void WriteTlsBlocking(tailgate::protocol::TlsStream& tls,
+void WriteTlsBlocking(tailgate::net::tls::TlsStream& tls,
                       int fd,
                       const std::vector<std::uint8_t>& data)
 {
@@ -3027,7 +3039,7 @@ void WriteTlsBlocking(tailgate::protocol::TlsStream& tls,
 }
 
 std::vector<std::uint8_t>
-ReadTlsBlocking(tailgate::protocol::TlsStream& tls, int fd, std::size_t size)
+ReadTlsBlocking(tailgate::net::tls::TlsStream& tls, int fd, std::size_t size)
 {
     std::vector<std::uint8_t> result;
     result.reserve(size);
@@ -3056,20 +3068,20 @@ RelayEndpoint ResolveRelayEndpoint(RelayEndpoint endpoint,
     constexpr const char* CloudflareTlsName = "cloudflare-dns.com";
     constexpr const char* DnsOverTlsPort = "853";
     constexpr std::size_t MaximumCanonicalQueries = 8;
-    if (tailgate::network::ParseIpv4(endpoint.Host))
+    if (tailgate::net::packet::ParseIpv4(endpoint.Host))
     {
         endpoint.ConnectAddress = endpoint.Host;
         return endpoint;
     }
     tailgate::linux_frontend::TcpStream dnsTransport(
         CloudflareAddress, DnsOverTlsPort, interfaceName);
-    tailgate::protocol::TlsStream dnsTls(
+    tailgate::net::tls::TlsStream dnsTls(
         dnsTransport, CloudflareTlsName, tailgate::linux_frontend::SystemCaBundle(), true);
     const auto queryDns = [&dnsTls, &dnsTransport](const std::string& current)
     {
-        const tailgate::protocol::Bytes32 random = tailgate::protocol::GeneratePrivateKey();
+        const tailgate::crypto::Bytes32 random = tailgate::crypto::GeneratePrivateKey();
         const std::uint16_t transaction = (static_cast<std::uint16_t>(random[0]) << 8U) | random[1];
-        std::vector<std::uint8_t> query = tailgate::network::BuildDnsQuery(current, transaction);
+        std::vector<std::uint8_t> query = tailgate::net::dns::BuildDnsQuery(current, transaction);
         if (query.size() > 65535)
         {
             throw std::runtime_error("DNS-over-TLS query is too large");
@@ -3082,28 +3094,29 @@ RelayEndpoint ResolveRelayEndpoint(RelayEndpoint endpoint,
             ReadTlsBlocking(dnsTls, dnsTransport.NativeHandle(), 2);
         const std::size_t responseLength =
             (static_cast<std::size_t>(lengthBytes[0]) << 8U) | lengthBytes[1];
-        return tailgate::network::ParseDnsAnswer(
+        return tailgate::net::dns::ParseDnsAnswer(
             ReadTlsBlocking(dnsTls, dnsTransport.NativeHandle(), responseLength),
             transaction,
             current);
     };
-    const tailgate::network::DnsTarget target = tailgate::network::ResolveDnsTarget(
+    const tailgate::net::dns::DnsTarget target = tailgate::net::dns::ResolveDnsTarget(
         endpoint.Host, queryDns, addressAttempt, MaximumCanonicalQueries);
     endpoint.Host = target.ValidationName;
     endpoint.ConnectAddress = target.ConnectAddress;
-    tailgate::Log(
-        tailgate::LogLevel::Info,
+    tailgate::base::Log(
+        tailgate::base::LogLevel::Info,
         "dns",
         std::format("relay resolution name={} address={}", endpoint.Host, endpoint.ConnectAddress));
     return endpoint;
 }
 
-tailgate::control::RegistrationOptions BuildRegistrationOptions(
+tailgate::control::client::RegistrationOptions BuildRegistrationOptions(
     const std::string& followupUrl,
     const std::string& reauthorizationKey,
-    const std::function<void(const tailgate::control::RegistrationResult&)>& registrationPending)
+    const std::function<void(const tailgate::control::client::RegistrationResult&)>&
+        registrationPending)
 {
-    tailgate::control::RegistrationOptions result;
+    tailgate::control::client::RegistrationOptions result;
     result.InitialFollowupUrl = followupUrl;
     result.ReauthorizationKey = reauthorizationKey;
     if (registrationPending)
@@ -3112,7 +3125,7 @@ tailgate::control::RegistrationOptions BuildRegistrationOptions(
     }
     else
     {
-        result.StateChanged = [](const tailgate::control::RegistrationResult&)
+        result.StateChanged = [](const tailgate::control::client::RegistrationResult&)
         {
             throw std::runtime_error("registration requires user action");
         };
@@ -3136,43 +3149,44 @@ void RunRelayConnection(
     const std::string& url,
     const std::string& authKey,
     const std::string& followupUrl,
-    const tailgate::protocol::HostInfo& host,
-    const tailgate::protocol::Bytes32& machinePrivateKey,
-    const tailgate::protocol::Bytes32& nodePrivateKey,
-    const tailgate::protocol::Bytes32& discoPrivateKey,
+    const tailgate::control::client::HostInfo& host,
+    const tailgate::crypto::Bytes32& machinePrivateKey,
+    const tailgate::crypto::Bytes32& nodePrivateKey,
+    const tailgate::crypto::Bytes32& discoPrivateKey,
     bool acceptDns,
     const std::string& exitNode,
     tailgate::linux_frontend::DaemonStatus& status,
     int& readyFd,
     std::size_t addressAttempt,
     const std::function<void()>& registrationAccepted,
-    const std::function<void(const tailgate::control::RegistrationResult&)>& registrationPending,
+    const std::function<void(const tailgate::control::client::RegistrationResult&)>&
+        registrationPending,
     const std::string& reauthorizationKey)
 {
     const std::string underlayInterface = DefaultRouteInterface();
     const RelayEndpoint endpoint =
         ResolveRelayEndpoint(ParseRelayEndpoint(url), underlayInterface, addressAttempt);
     const std::vector<std::string> originalResolvers = ReadResolverAddresses();
-    std::unique_ptr<tailgate::control::ControlClient> dialedControl;
+    std::unique_ptr<tailgate::control::client::ControlClient> dialedControl;
     tailgate::linux_frontend::DialedControlStream controlStream =
         tailgate::linux_frontend::DialControl(
             underlayInterface,
-            [&](tailgate::IByteStream& stream)
+            [&](tailgate::base::IByteStream& stream)
             {
-                dialedControl = std::make_unique<tailgate::control::ControlClient>(
+                dialedControl = std::make_unique<tailgate::control::client::ControlClient>(
                     stream, machinePrivateKey, nodePrivateKey, host);
             });
-    tailgate::control::ControlClient& control = *dialedControl;
+    tailgate::control::client::ControlClient& control = *dialedControl;
     control.SetDiscoPrivateKey(discoPrivateKey);
-    const tailgate::control::RegistrationOptions registrationOptions =
+    const tailgate::control::client::RegistrationOptions registrationOptions =
         BuildRegistrationOptions(followupUrl, reauthorizationKey, registrationPending);
-    tailgate::control::RegistrationResult registration =
+    tailgate::control::client::RegistrationResult registration =
         control.RegisterUntilAuthorized(authKey, registrationOptions);
     if (!registration.Network)
     {
         throw std::runtime_error("control registration completed without a network map");
     }
-    tailgate::control::NetworkConfig config = std::move(*registration.Network);
+    tailgate::types::netmap::NetworkConfig config = std::move(*registration.Network);
     registrationAccepted();
     control.UpdateHostInfo(config.DerpRegion);
     if (!registration.NetworkMapStreaming)
@@ -3185,14 +3199,14 @@ void RunRelayConnection(
         endpoint.Port,
         underlayInterface,
         tailgate::linux_frontend::TcpStream::ControlIoTimeoutSeconds);
-    tailgate::protocol::TlsStream tls(
+    tailgate::net::tls::TlsStream tls(
         transport, endpoint.Host, tailgate::linux_frontend::SystemCaBundle(), true);
-    tailgate::relay::Decoder decoder;
-    decoder.Feed(tailgate::relay::RequestHttpUpgrade(
+    tailgate::hosted::Decoder decoder;
+    decoder.Feed(tailgate::hosted::RequestHttpUpgrade(
         tls, std::format("{}:{}", endpoint.Host, endpoint.Port)));
     const std::optional<tailgate::linux_frontend::RelaySessionState> savedSession =
         tailgate::linux_frontend::ReadRelaySession();
-    const auto hasKey = [](const tailgate::protocol::Bytes32& key)
+    const auto hasKey = [](const tailgate::crypto::Bytes32& key)
     {
         return std::any_of(key.begin(),
                            key.end(),
@@ -3201,51 +3215,52 @@ void RunRelayConnection(
                                return byte != 0;
                            });
     };
-    const tailgate::relay::Frame challengeFrame = tailgate::relay::ReadFrame(tls, decoder);
-    if (challengeFrame.Type != tailgate::relay::MessageType::ServerChallenge)
+    const tailgate::hosted::Frame challengeFrame = tailgate::hosted::ReadFrame(tls, decoder);
+    if (challengeFrame.Type != tailgate::hosted::MessageType::ServerChallenge)
     {
         throw std::runtime_error("tailgate server did not provide an identity challenge");
     }
-    const tailgate::relay::Challenge challenge =
-        tailgate::relay::DecodeChallenge(challengeFrame.Payload);
+    const tailgate::hosted::Challenge challenge =
+        tailgate::hosted::DecodeChallenge(challengeFrame.Payload);
     if (savedSession && savedSession->ServerUrl == url && hasKey(savedSession->RelayPublicKey) &&
         savedSession->RelayPublicKey != challenge.RelayPublicKey)
     {
         // The HTTPS certificate authenticates the server, so a rotated relay node key (for
         // example after the relay recreated its identity) is only worth a notice.
-        tailgate::Log(tailgate::LogLevel::Info,
-                      "relay",
-                      "tailgate server node key changed; trusting the TLS certificate");
+        tailgate::base::Log(tailgate::base::LogLevel::Info,
+                            "relay",
+                            "tailgate server node key changed; trusting the TLS certificate");
     }
 
-    tailgate::relay::Authentication request;
+    tailgate::hosted::Authentication request;
     request.Tailnet = config.Domain;
     request.NodeId = config.SelfNodeId;
     request.Hostname = host.Hostname;
     request.OperatingSystem = host.OperatingSystem;
     request.OperatingSystemVersion = host.OperatingSystemVersion;
     request.NodePublicKey = control.NodePublicKey();
-    request.ClientNonce = tailgate::protocol::GeneratePrivateKey();
-    request.ClientProof = tailgate::relay::CreateClientProof(
+    request.ClientNonce = tailgate::crypto::GeneratePrivateKey();
+    request.ClientProof = tailgate::hosted::CreateClientProof(
         nodePrivateKey, challenge.RelayPublicKey, challenge.ServerNonce, request.ClientNonce);
-    tailgate::relay::WriteFrame(
+    tailgate::hosted::WriteFrame(
         tls,
-        tailgate::relay::Frame{.Type = tailgate::relay::MessageType::Authenticate,
-                               .Payload = tailgate::relay::EncodeAuthentication(request)});
-    const tailgate::relay::Frame authentication = tailgate::relay::ReadFrame(tls, decoder);
-    if (authentication.Type == tailgate::relay::MessageType::Rejected)
+        tailgate::hosted::Frame{.Type = tailgate::hosted::MessageType::Authenticate,
+                                .Payload = tailgate::hosted::EncodeAuthentication(request)});
+    const tailgate::hosted::Frame authentication = tailgate::hosted::ReadFrame(tls, decoder);
+    if (authentication.Type == tailgate::hosted::MessageType::Rejected)
     {
         throw std::runtime_error("tailgate server rejected authentication: " +
-                                 tailgate::relay::DecodeRejection(authentication.Payload).Reason);
+                                 tailgate::hosted::DecodeRejection(authentication.Payload).Reason);
     }
-    if (authentication.Type != tailgate::relay::MessageType::Authenticated)
+    if (authentication.Type != tailgate::hosted::MessageType::Authenticated)
     {
         throw std::runtime_error("tailgate server returned an invalid authentication response");
     }
-    const tailgate::relay::Session session = tailgate::relay::DecodeSession(authentication.Payload);
-    const tailgate::protocol::Bytes32 expectedServerProof = tailgate::relay::CreateServerProof(
+    const tailgate::hosted::Session session =
+        tailgate::hosted::DecodeSession(authentication.Payload);
+    const tailgate::crypto::Bytes32 expectedServerProof = tailgate::hosted::CreateServerProof(
         nodePrivateKey, challenge.RelayPublicKey, challenge.ServerNonce, request.ClientNonce);
-    if (!tailgate::relay::ProofMatches(expectedServerProof, session.ServerProof))
+    if (!tailgate::hosted::ProofMatches(expectedServerProof, session.ServerProof))
     {
         throw std::runtime_error("tailgate server identity proof is invalid");
     }
@@ -3258,7 +3273,7 @@ void RunRelayConnection(
     }
     bool relayHostStateKnown = false;
     bool relayHostOnline = false;
-    const auto updateRelayHostState = [&](const tailgate::control::NetworkConfig& next)
+    const auto updateRelayHostState = [&](const tailgate::types::netmap::NetworkConfig& next)
     {
         const auto relayHost = std::find_if(next.Peers.begin(),
                                             next.Peers.end(),
@@ -3275,8 +3290,8 @@ void RunRelayConnection(
         {
             if (!online)
             {
-                tailgate::Log(
-                    tailgate::LogLevel::Warning,
+                tailgate::base::Log(
+                    tailgate::base::LogLevel::Warning,
                     "control",
                     std::format("tailgate server not found or offline; continuing through "
                                 "existing connection: {}",
@@ -3284,9 +3299,9 @@ void RunRelayConnection(
             }
             else if (relayHostStateKnown)
             {
-                tailgate::Log(tailgate::LogLevel::Info,
-                              "control",
-                              "tailgate server is online again: " + relayHostName);
+                tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                    "control",
+                                    "tailgate server is online again: " + relayHostName);
             }
             relayHostStateKnown = true;
             relayHostOnline = online;
@@ -3295,20 +3310,21 @@ void RunRelayConnection(
     updateRelayHostState(config);
     std::string effectiveExitNode = exitNode;
     if (!effectiveExitNode.empty() &&
-        !tailgate::control::FindExitNode(config.Peers, effectiveExitNode, true))
+        !tailgate::types::netmap::FindExitNode(config.Peers, effectiveExitNode, true))
     {
-        tailgate::Log(tailgate::LogLevel::Warning,
-                      "control",
-                      "exit node not found or offline; continuing without it: " +
-                          effectiveExitNode);
+        tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                            "control",
+                            "exit node not found or offline; continuing without it: " +
+                                effectiveExitNode);
         effectiveExitNode.clear();
     }
-    tailgate::relay::WriteFrame(
+    tailgate::hosted::WriteFrame(
         tls,
-        tailgate::relay::Frame{.Type = tailgate::relay::MessageType::NetworkMap,
-                               .Payload = tailgate::relay::EncodeNetworkConfig(config)});
-    tailgate::protocol::WireGuardRouter router(nodePrivateKey, config.Peers, effectiveExitNode);
-    tailgate::protocol::Disco disco(discoPrivateKey, request.NodePublicKey);
+        tailgate::hosted::Frame{.Type = tailgate::hosted::MessageType::NetworkMap,
+                                .Payload = tailgate::hosted::EncodeNetworkConfig(config)});
+    tailgate::wgengine::wireguard::WireGuardRouter router(
+        nodePrivateKey, config.Peers, effectiveExitNode);
+    tailgate::disco::Disco disco(discoPrivateKey, request.NodePublicKey);
 
     const std::string interfaceName = "tailgate0";
     constexpr Ipv4Prefix LowerDefaultRoute{.Network = 0, .PrefixLength = 1};
@@ -3338,7 +3354,7 @@ void RunRelayConnection(
         WriteResolver("127.0.0.1", config.DnsDomains);
     }
 
-    const auto applyNetworkMap = [&](const tailgate::control::NetworkConfig& next)
+    const auto applyNetworkMap = [&](const tailgate::types::netmap::NetworkConfig& next)
     {
         if (next.Domain != session.Tailnet || next.SelfAddress != config.SelfAddress)
         {
@@ -3346,22 +3362,23 @@ void RunRelayConnection(
         }
         config = next;
         const bool wasExitNodeEnabled = !effectiveExitNode.empty();
-        const bool exitNodeAvailable =
-            !exitNode.empty() && tailgate::control::FindExitNode(config.Peers, exitNode, true);
+        const bool exitNodeAvailable = !exitNode.empty() && tailgate::types::netmap::FindExitNode(
+                                                                config.Peers, exitNode, true);
         if (wasExitNodeEnabled && !exitNodeAvailable)
         {
-            tailgate::Log(tailgate::LogLevel::Warning,
-                          "control",
-                          "configured exit node became unavailable; disabling it: " +
-                              effectiveExitNode);
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "control",
+                                "configured exit node became unavailable; disabling it: " +
+                                    effectiveExitNode);
             effectiveExitNode.clear();
         }
         else if (!wasExitNodeEnabled && exitNodeAvailable)
         {
             effectiveExitNode = exitNode;
-            tailgate::Log(tailgate::LogLevel::Info,
-                          "control",
-                          "configured exit node is available; enabling it: " + effectiveExitNode);
+            tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                "control",
+                                "configured exit node is available; enabling it: " +
+                                    effectiveExitNode);
         }
         if (wasExitNodeEnabled != !effectiveExitNode.empty())
         {
@@ -3449,9 +3466,9 @@ void RunRelayConnection(
 
     struct PendingRelayPing
     {
-        tailgate::protocol::TsmpToken TsmpToken{};
-        tailgate::protocol::Disco::TransactionId DiscoTransaction{};
-        tailgate::protocol::Bytes32 Peer{};
+        tailgate::net::packet::TsmpToken TsmpToken{};
+        tailgate::disco::Disco::TransactionId DiscoTransaction{};
+        tailgate::crypto::Bytes32 Peer{};
         sockaddr_un Client{};
         socklen_t ClientLength = 0;
         std::chrono::steady_clock::time_point Started{};
@@ -3478,13 +3495,13 @@ void RunRelayConnection(
     std::vector<PendingRelayDns> pendingDns;
     const auto selectDnsResolver = [&](const std::vector<std::uint8_t>& query)
     {
-        const std::optional<std::string> name = tailgate::network::DnsQueryName(query);
+        const std::optional<std::string> name = tailgate::net::dns::DnsQueryName(query);
         const std::vector<std::string>* selected = nullptr;
         std::size_t selectedSuffixLength = 0;
-        for (const tailgate::control::NetworkConfig::DnsRoute& route : config.DnsRoutes)
+        for (const tailgate::types::netmap::NetworkConfig::DnsRoute& route : config.DnsRoutes)
         {
             if (name && route.Suffix.size() >= selectedSuffixLength &&
-                tailgate::network::DnsNameHasSuffix(*name, route.Suffix))
+                tailgate::net::dns::DnsNameHasSuffix(*name, route.Suffix))
             {
                 selected = &route.Resolvers;
                 selectedSuffixLength = route.Suffix.size();
@@ -3521,9 +3538,9 @@ void RunRelayConnection(
             throw std::runtime_error("relay TUN epoll update failed");
         }
     };
-    const auto queueFrame = [&](tailgate::relay::Frame frame)
+    const auto queueFrame = [&](tailgate::hosted::Frame frame)
     {
-        std::vector<std::uint8_t> encoded = tailgate::relay::Encode(frame);
+        std::vector<std::uint8_t> encoded = tailgate::hosted::Encode(frame);
         socketOutputBytes += encoded.size();
         if (socketOutputBytes > MaximumPendingBytesPerPeer)
         {
@@ -3533,21 +3550,21 @@ void RunRelayConnection(
         updateSocketEvents();
     };
     const auto queueTransportPackets =
-        [&](std::vector<tailgate::protocol::WireGuardRouter::TransportPacket> packets)
+        [&](std::vector<tailgate::wgengine::wireguard::WireGuardRouter::TransportPacket> packets)
     {
-        for (tailgate::protocol::WireGuardRouter::TransportPacket& packet : packets)
+        for (tailgate::wgengine::wireguard::WireGuardRouter::TransportPacket& packet : packets)
         {
-            queueFrame(tailgate::relay::Frame{
-                .Type = tailgate::relay::MessageType::ClientPacket,
-                .Payload = tailgate::relay::EncodePeerPacket(tailgate::relay::PeerPacket{
+            queueFrame(tailgate::hosted::Frame{
+                .Type = tailgate::hosted::MessageType::ClientPacket,
+                .Payload = tailgate::hosted::EncodePeerPacket(tailgate::hosted::PeerPacket{
                     .Peer = packet.Peer, .Payload = packet.Payload, .Control = packet.Control})});
         }
     };
-    const auto peerDiscoKey = [&](const tailgate::protocol::Bytes32& nodeKey)
-        -> std::optional<tailgate::protocol::Bytes32>
+    const auto peerDiscoKey =
+        [&](const tailgate::crypto::Bytes32& nodeKey) -> std::optional<tailgate::crypto::Bytes32>
     {
         const std::string encodedNodeKey =
-            "nodekey:" + tailgate::protocol::BytesToHex(nodeKey.data(), nodeKey.size());
+            "nodekey:" + tailgate::crypto::BytesToHex(nodeKey.data(), nodeKey.size());
         const auto peer = std::find_if(config.Peers.begin(),
                                        config.Peers.end(),
                                        [&](const TailPeer& candidate)
@@ -3560,28 +3577,28 @@ void RunRelayConnection(
             return std::nullopt;
         }
         const std::vector<std::uint8_t> bytes =
-            tailgate::protocol::HexToBytes(peer->DiscoKey.substr(9));
-        if (bytes.size() != tailgate::protocol::Bytes32{}.size())
+            tailgate::crypto::HexToBytes(peer->DiscoKey.substr(9));
+        if (bytes.size() != tailgate::crypto::Bytes32{}.size())
         {
             return std::nullopt;
         }
-        tailgate::protocol::Bytes32 result{};
+        tailgate::crypto::Bytes32 result{};
         std::copy(bytes.begin(), bytes.end(), result.begin());
         return result;
     };
-    const auto queueDisco = [&](const tailgate::protocol::Bytes32& peer,
+    const auto queueDisco = [&](const tailgate::crypto::Bytes32& peer,
                                 std::vector<std::uint8_t> payload,
                                 std::uint32_t address = 0,
                                 std::uint16_t port = 0)
     {
         queueFrame(
-            tailgate::relay::Frame{.Type = tailgate::relay::MessageType::ClientPacket,
-                                   .Payload = tailgate::relay::EncodePeerPacket(
-                                       tailgate::relay::PeerPacket{.Peer = peer,
-                                                                   .Payload = std::move(payload),
-                                                                   .Disco = true,
-                                                                   .EndpointAddress = address,
-                                                                   .EndpointPort = port})});
+            tailgate::hosted::Frame{.Type = tailgate::hosted::MessageType::ClientPacket,
+                                    .Payload = tailgate::hosted::EncodePeerPacket(
+                                        tailgate::hosted::PeerPacket{.Peer = peer,
+                                                                     .Payload = std::move(payload),
+                                                                     .Disco = true,
+                                                                     .EndpointAddress = address,
+                                                                     .EndpointPort = port})});
     };
     const auto completePing =
         [&](PendingRelayPing& pending, bool responded, std::uint16_t peerApiPort)
@@ -3601,19 +3618,18 @@ void RunRelayConnection(
             pingServer.Fd, pending.Client, pending.ClientLength, response);
         pending.ClientLength = 0;
     };
-    const auto handleDisco = [&](const tailgate::relay::PeerPacket& packet)
+    const auto handleDisco = [&](const tailgate::hosted::PeerPacket& packet)
     {
-        const std::optional<tailgate::protocol::Bytes32> expectedSender = peerDiscoKey(packet.Peer);
-        const std::optional<tailgate::protocol::Disco::Message> message =
-            disco.Parse(packet.Payload);
+        const std::optional<tailgate::crypto::Bytes32> expectedSender = peerDiscoKey(packet.Peer);
+        const std::optional<tailgate::disco::Disco::Message> message = disco.Parse(packet.Payload);
         if (!expectedSender || !message || message->Sender != *expectedSender)
         {
-            tailgate::Log(tailgate::LogLevel::Warning,
-                          "relay",
-                          "dropping unauthenticated relayed disco packet");
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "relay",
+                                "dropping unauthenticated relayed disco packet");
             return;
         }
-        if (message->Type == tailgate::protocol::Disco::MessageType::Ping)
+        if (message->Type == tailgate::disco::Disco::MessageType::Ping)
         {
             queueDisco(packet.Peer,
                        disco.BuildPong(*expectedSender,
@@ -3623,16 +3639,16 @@ void RunRelayConnection(
                        packet.EndpointAddress,
                        packet.EndpointPort);
         }
-        else if (message->Type == tailgate::protocol::Disco::MessageType::CallMeMaybe)
+        else if (message->Type == tailgate::disco::Disco::MessageType::CallMeMaybe)
         {
-            const tailgate::protocol::Disco::TransactionId transaction = disco.NewTransactionId();
+            const tailgate::disco::Disco::TransactionId transaction = disco.NewTransactionId();
             const std::vector<std::uint8_t> ping = disco.BuildPing(*expectedSender, transaction);
-            for (const tailgate::protocol::Disco::Endpoint& endpoint : message->Endpoints)
+            for (const tailgate::disco::Disco::Endpoint& endpoint : message->Endpoints)
             {
                 queueDisco(packet.Peer, ping, endpoint.Address, endpoint.Port);
             }
         }
-        else if (message->Type == tailgate::protocol::Disco::MessageType::Pong)
+        else if (message->Type == tailgate::disco::Disco::MessageType::Pong)
         {
             const auto pending =
                 std::find_if(pendingPings.begin(),
@@ -3657,29 +3673,29 @@ void RunRelayConnection(
             [&](const PendingRelayDns& pending)
             {
                 const auto payload =
-                    tailgate::network::ExtractUdpPayload(packet,
-                                                         pending.Resolver,
-                                                         Ipv4ToHostOrder(config.SelfAddress),
-                                                         53,
-                                                         pending.SourcePort);
+                    tailgate::net::packet::ExtractUdpPayload(packet,
+                                                             pending.Resolver,
+                                                             Ipv4ToHostOrder(config.SelfAddress),
+                                                             53,
+                                                             pending.SourcePort);
                 return payload && payload->size() >= 2 &&
                        (((static_cast<std::uint16_t>((*payload)[0]) << 8U) | (*payload)[1]) ==
                         pending.Id);
             });
         if (dns != pendingDns.end())
         {
-            const auto payload = tailgate::network::ExtractUdpPayload(
+            const auto payload = tailgate::net::packet::ExtractUdpPayload(
                 packet, dns->Resolver, Ipv4ToHostOrder(config.SelfAddress), 53, dns->SourcePort);
             SendUdp(localDns.Fd, dns->Client, *payload);
             pendingDns.erase(dns);
             return;
         }
-        if (const auto pong = tailgate::protocol::BuildTsmpPong(packet, 0))
+        if (const auto pong = tailgate::net::packet::BuildTsmpPong(packet, 0))
         {
             queueTransportPackets(router.Send(*pong));
             return;
         }
-        if (const auto pong = tailgate::protocol::ParseTsmpPong(packet))
+        if (const auto pong = tailgate::net::packet::ParseTsmpPong(packet))
         {
             const auto pending = std::find_if(pendingPings.begin(),
                                               pendingPings.end(),
@@ -3727,13 +3743,13 @@ void RunRelayConnection(
             if (event.Kind == DataplaneEventKind::RelayControl &&
                 (events[index].events & EPOLLIN) != 0)
             {
-                while (std::optional<tailgate::control::NetworkConfig> update =
+                while (std::optional<tailgate::types::netmap::NetworkConfig> update =
                            control.PollNetworkMap())
                 {
                     applyNetworkMap(*update);
-                    queueFrame(tailgate::relay::Frame{
-                        .Type = tailgate::relay::MessageType::NetworkMap,
-                        .Payload = tailgate::relay::EncodeNetworkConfig(*update)});
+                    queueFrame(tailgate::hosted::Frame{
+                        .Type = tailgate::hosted::MessageType::NetworkMap,
+                        .Payload = tailgate::hosted::EncodeNetworkConfig(*update)});
                 }
             }
             if (event.Kind == DataplaneEventKind::Tun && (events[index].events & EPOLLIN) != 0)
@@ -3773,12 +3789,12 @@ void RunRelayConnection(
                                                                name == target ||
                                                                name.substr(0, dot) == target;
                                                     });
-                    tailgate::protocol::Bytes32 nodeKey{};
+                    tailgate::crypto::Bytes32 nodeKey{};
                     bool hasNodeKey = false;
                     if (found != config.Peers.end() && found->Key.rfind("nodekey:", 0) == 0)
                     {
                         const std::vector<std::uint8_t> bytes =
-                            tailgate::protocol::HexToBytes(found->Key.substr(8));
+                            tailgate::crypto::HexToBytes(found->Key.substr(8));
                         if (bytes.size() == nodeKey.size())
                         {
                             std::copy(bytes.begin(), bytes.end(), nodeKey.begin());
@@ -3786,7 +3802,7 @@ void RunRelayConnection(
                         }
                     }
                     const bool tsmp = pingRequest.Tsmp;
-                    const std::optional<tailgate::protocol::Bytes32> discoKey =
+                    const std::optional<tailgate::crypto::Bytes32> discoKey =
                         hasNodeKey ? peerDiscoKey(nodeKey) : std::nullopt;
                     if (found == config.Peers.end() || !hasNodeKey || (!tsmp && !discoKey))
                     {
@@ -3808,8 +3824,8 @@ void RunRelayConnection(
                         pending.Relay = relayHostName;
                         if (tsmp)
                         {
-                            const tailgate::protocol::Bytes32 random =
-                                tailgate::protocol::GeneratePrivateKey();
+                            const tailgate::crypto::Bytes32 random =
+                                tailgate::crypto::GeneratePrivateKey();
                             std::copy_n(random.begin(),
                                         pending.TsmpToken.size(),
                                         pending.TsmpToken.begin());
@@ -3822,7 +3838,7 @@ void RunRelayConnection(
                         const PendingRelayPing& queued = pendingPings.back();
                         if (tsmp)
                         {
-                            queueTransportPackets(router.Send(tailgate::protocol::BuildTsmpPing(
+                            queueTransportPackets(router.Send(tailgate::net::packet::BuildTsmpPing(
                                 Ipv4ToHostOrder(config.SelfAddress),
                                 Ipv4ToHostOrder(found->Address),
                                 queued.TsmpToken)));
@@ -3862,12 +3878,12 @@ void RunRelayConnection(
                                         .Started = std::chrono::steady_clock::now()});
                     if (throughTailnet)
                     {
-                        queueTransportPackets(router.Send(
-                            tailgate::network::BuildUdpPacket(Ipv4ToHostOrder(config.SelfAddress),
-                                                              resolver,
-                                                              sourcePort,
-                                                              53,
-                                                              dnsPayload)));
+                        queueTransportPackets(router.Send(tailgate::net::packet::BuildUdpPacket(
+                            Ipv4ToHostOrder(config.SelfAddress),
+                            resolver,
+                            sourcePort,
+                            53,
+                            dnsPayload)));
                     }
                     else
                     {
@@ -3921,18 +3937,18 @@ void RunRelayConnection(
                         throw std::runtime_error("tailgate relay closed");
                     }
                     decoder.Feed(*input);
-                    while (std::optional<tailgate::relay::Frame> frame = decoder.Next())
+                    while (std::optional<tailgate::hosted::Frame> frame = decoder.Next())
                     {
-                        if (frame->Type == tailgate::relay::MessageType::ServerPacket)
+                        if (frame->Type == tailgate::hosted::MessageType::ServerPacket)
                         {
-                            const tailgate::relay::PeerPacket transportPacket =
-                                tailgate::relay::DecodePeerPacket(frame->Payload);
+                            const tailgate::hosted::PeerPacket transportPacket =
+                                tailgate::hosted::DecodePeerPacket(frame->Payload);
                             if (transportPacket.Disco)
                             {
                                 handleDisco(transportPacket);
                                 continue;
                             }
-                            tailgate::protocol::WireGuardRouter::ReceiveResult received =
+                            tailgate::wgengine::wireguard::WireGuardRouter::ReceiveResult received =
                                 router.Receive(transportPacket.Peer, transportPacket.Payload);
                             queueTransportPackets(std::move(received.Outbound));
                             for (std::vector<std::uint8_t>& plaintext : received.Plaintext)
@@ -3940,33 +3956,32 @@ void RunRelayConnection(
                                 handlePlaintext(std::move(plaintext));
                             }
                         }
-                        else if (frame->Type == tailgate::relay::MessageType::NetworkMap)
+                        else if (frame->Type == tailgate::hosted::MessageType::NetworkMap)
                         {
-                            applyNetworkMap(tailgate::relay::DecodeNetworkConfig(frame->Payload));
+                            applyNetworkMap(tailgate::hosted::DecodeNetworkConfig(frame->Payload));
                         }
-                        else if (frame->Type == tailgate::relay::MessageType::DerpChallenge)
+                        else if (frame->Type == tailgate::hosted::MessageType::DerpChallenge)
                         {
-                            const tailgate::relay::DerpAuthenticationChallenge challenge =
-                                tailgate::relay::DecodeDerpChallenge(frame->Payload);
-                            queueFrame(tailgate::relay::Frame{
-                                .Type = tailgate::relay::MessageType::DerpResponse,
-                                .Payload = tailgate::relay::EncodeDerpResponse(
-                                    tailgate::relay::DerpAuthenticationResponse{
+                            const tailgate::hosted::DerpAuthenticationChallenge challenge =
+                                tailgate::hosted::DecodeDerpChallenge(frame->Payload);
+                            queueFrame(tailgate::hosted::Frame{
+                                .Type = tailgate::hosted::MessageType::DerpResponse,
+                                .Payload = tailgate::hosted::EncodeDerpResponse(
+                                    tailgate::hosted::DerpAuthenticationResponse{
                                         .RequestId = challenge.RequestId,
-                                        .ClientInfo =
-                                            tailgate::protocol::DerpClient::BuildClientInfo(
-                                                nodePrivateKey,
-                                                request.NodePublicKey,
-                                                challenge.ServerKey)})});
+                                        .ClientInfo = tailgate::derp::DerpClient::BuildClientInfo(
+                                            nodePrivateKey,
+                                            request.NodePublicKey,
+                                            challenge.ServerKey)})});
                         }
-                        else if (frame->Type == tailgate::relay::MessageType::Heartbeat)
+                        else if (frame->Type == tailgate::hosted::MessageType::Heartbeat)
                         {
                             // The server drives the heartbeat; answering proves this side of
                             // the Funnel stream is alive. DERP liveness is maintained by this
                             // client's own timers, so fold the reply into the next scheduled
                             // heartbeat slot instead of doubling the cadence.
-                            queueFrame(tailgate::relay::Frame{
-                                .Type = tailgate::relay::MessageType::Heartbeat, .Payload = {}});
+                            queueFrame(tailgate::hosted::Frame{
+                                .Type = tailgate::hosted::MessageType::Heartbeat, .Payload = {}});
                             nextHeartbeat =
                                 std::chrono::steady_clock::now() + RelayHeartbeatInterval;
                         }
@@ -3982,14 +3997,14 @@ void RunRelayConnection(
                 const auto now = std::chrono::steady_clock::now();
                 if (now >= nextHeartbeat)
                 {
-                    queueFrame(tailgate::relay::Frame{
-                        .Type = tailgate::relay::MessageType::Heartbeat, .Payload = {}});
+                    queueFrame(tailgate::hosted::Frame{
+                        .Type = tailgate::hosted::MessageType::Heartbeat, .Payload = {}});
                     nextHeartbeat = now + RelayHeartbeatInterval;
                 }
                 if (now >= nextDiscoProbe)
                 {
-                    for (const tailgate::relay::PeerPacket& probe :
-                         tailgate::relay::BuildDiscoProbes(disco, config.Peers))
+                    for (const tailgate::hosted::PeerPacket& probe :
+                         tailgate::hosted::BuildDiscoProbes(disco, config.Peers))
                     {
                         queueDisco(probe.Peer, probe.Payload);
                     }
@@ -4056,35 +4071,38 @@ void RunRelayConnection(
     if (StopRequested)
     {
         transport.SetNonBlocking(false);
-        tailgate::relay::WriteFrame(
+        tailgate::hosted::WriteFrame(
             tls,
-            tailgate::relay::Frame{.Type = tailgate::relay::MessageType::Shutdown, .Payload = {}});
+            tailgate::hosted::Frame{.Type = tailgate::hosted::MessageType::Shutdown,
+                                    .Payload = {}});
     }
     unlink(tailgate::linux_frontend::PingSocketPath().c_str());
 }
 
-class ControlDnsPublisher final : public tailgate::acme::IChallengePublisher
+class ControlDnsPublisher final : public tailgate::serve::acme::IChallengePublisher
 {
 public:
-    explicit ControlDnsPublisher(tailgate::control::ControlClient& control) : m_control(control)
+    explicit ControlDnsPublisher(tailgate::control::client::ControlClient& control)
+        : m_control(control)
     {
     }
 
     void PublishDnsTxt(const std::string& name, const std::string& value) override
     {
-        tailgate::Log(tailgate::LogLevel::Info, "acme", "publishing DNS-01 record " + name);
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Info, "acme", "publishing DNS-01 record " + name);
         m_control.SetDnsTxt(name, value);
     }
 
 private:
-    tailgate::control::ControlClient& m_control;
+    tailgate::control::client::ControlClient& m_control;
 };
 
 void RunConnection(
     const std::string& authKey,
-    tailgate::protocol::HostInfo host,
-    const tailgate::protocol::Bytes32& machineKey,
-    const tailgate::protocol::Bytes32& nodePrivateKey,
+    tailgate::control::client::HostInfo host,
+    const tailgate::crypto::Bytes32& machineKey,
+    const tailgate::crypto::Bytes32& nodePrivateKey,
     bool acceptDns,
     const std::string& exitNode,
     int funnelPort,
@@ -4093,16 +4111,17 @@ void RunConnection(
     tailgate::linux_frontend::DaemonStatus& status,
     int& readyFd,
     int packetFd = -1,
-    const tailgate::protocol::Bytes32* discoPrivateKey = nullptr,
-    const tailgate::protocol::Bytes32* nodePublicKey = nullptr,
+    const tailgate::crypto::Bytes32* discoPrivateKey = nullptr,
+    const tailgate::crypto::Bytes32* nodePublicKey = nullptr,
     bool configureHost = true,
     bool persistStatus = true,
-    std::function<void(const tailgate::control::NetworkConfig&)> registered = {},
-    std::function<void(const tailgate::control::NetworkConfig&)> updated = {},
-    tailgate::protocol::DerpClient::Authenticator derpAuthenticator = {},
+    std::function<void(const tailgate::types::netmap::NetworkConfig&)> registered = {},
+    std::function<void(const tailgate::types::netmap::NetworkConfig&)> updated = {},
+    tailgate::derp::DerpClient::Authenticator derpAuthenticator = {},
     std::function<void()> registrationAccepted = {},
     const std::string& followupUrl = {},
-    std::function<void(const tailgate::control::RegistrationResult&)> registrationPending = {},
+    std::function<void(const tailgate::control::client::RegistrationResult&)> registrationPending =
+        {},
     const std::string& reauthorizationKey = {})
 {
     const tailgate::serve::FunnelConfig funnel =
@@ -4110,37 +4129,37 @@ void RunConnection(
     tailgate::serve::ApplyToHostInfo(funnel, host);
     if (tailgate::serve::IsEnabled(funnel))
     {
+        host.Services.push_back(tailgate::control::client::HostService{.Protocol = "peerapi4",
+                                                                       .Port = FunnelPeerApiPort});
+        host.Services.push_back(tailgate::control::client::HostService{.Protocol = "peerapi6",
+                                                                       .Port = FunnelPeerApiPort});
         host.Services.push_back(
-            tailgate::protocol::HostService{.Protocol = "peerapi4", .Port = FunnelPeerApiPort});
-        host.Services.push_back(
-            tailgate::protocol::HostService{.Protocol = "peerapi6", .Port = FunnelPeerApiPort});
-        host.Services.push_back(
-            tailgate::protocol::HostService{.Protocol = "peerapi-dns-proxy", .Port = 1});
-        tailgate::Log(
-            tailgate::LogLevel::Info,
+            tailgate::control::client::HostService{.Protocol = "peerapi-dns-proxy", .Port = 1});
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Info,
             "control",
             std::format("advertising funnel hostinfo: ingress={} wire-ingress={} peerapi-port={}",
                         host.IngressEnabled ? 1 : 0,
                         host.WireIngress ? 1 : 0,
                         FunnelPeerApiPort));
     }
-    std::unique_ptr<tailgate::control::ControlClient> dialedControl;
+    std::unique_ptr<tailgate::control::client::ControlClient> dialedControl;
     tailgate::linux_frontend::DialedControlStream controlStream =
         tailgate::linux_frontend::DialControl(
             DefaultRouteInterface(),
-            [&](tailgate::IByteStream& dialedStream)
+            [&](tailgate::base::IByteStream& dialedStream)
             {
-                dialedControl =
-                    nodePublicKey != nullptr
-                        ? std::make_unique<tailgate::control::ControlClient>(
-                              dialedStream,
-                              machineKey,
-                              tailgate::control::ExternalNodePublicKey{.Value = *nodePublicKey},
-                              host)
-                        : std::make_unique<tailgate::control::ControlClient>(
-                              dialedStream, machineKey, nodePrivateKey, host);
+                dialedControl = nodePublicKey != nullptr
+                                    ? std::make_unique<tailgate::control::client::ControlClient>(
+                                          dialedStream,
+                                          machineKey,
+                                          tailgate::control::client::ExternalNodePublicKey{
+                                              .Value = *nodePublicKey},
+                                          host)
+                                    : std::make_unique<tailgate::control::client::ControlClient>(
+                                          dialedStream, machineKey, nodePrivateKey, host);
             });
-    tailgate::control::ControlClient& control = *dialedControl;
+    tailgate::control::client::ControlClient& control = *dialedControl;
     if (discoPrivateKey != nullptr)
     {
         control.SetDiscoPrivateKey(*discoPrivateKey);
@@ -4149,24 +4168,25 @@ void RunConnection(
     UniqueFd advertisedUdp = OpenUdpSocket(underlayInterface);
     const std::string localEndpoint =
         std::format("{}:{}",
-                    tailgate::network::FormatIpv4(InterfaceIpv4Address(underlayInterface)),
+                    tailgate::net::packet::FormatIpv4(InterfaceIpv4Address(underlayInterface)),
                     SocketPort(advertisedUdp.Fd));
-    std::vector<tailgate::protocol::MapEndpoint> advertisedEndpoints{
-        tailgate::protocol::MapEndpoint{.AddressPort = localEndpoint,
-                                        .Type = tailgate::protocol::EndpointType::Local}};
+    std::vector<tailgate::control::client::MapEndpoint> advertisedEndpoints{
+        tailgate::control::client::MapEndpoint{
+            .AddressPort = localEndpoint, .Type = tailgate::control::client::EndpointType::Local}};
     control.SetEndpoints(advertisedEndpoints);
-    tailgate::Log(tailgate::LogLevel::Info,
-                  "control",
-                  std::format("advertising endpoint {} on {}", localEndpoint, underlayInterface));
-    const tailgate::control::RegistrationOptions registrationOptions =
+    tailgate::base::Log(
+        tailgate::base::LogLevel::Info,
+        "control",
+        std::format("advertising endpoint {} on {}", localEndpoint, underlayInterface));
+    const tailgate::control::client::RegistrationOptions registrationOptions =
         BuildRegistrationOptions(followupUrl, reauthorizationKey, registrationPending);
-    tailgate::control::RegistrationResult registration =
+    tailgate::control::client::RegistrationResult registration =
         control.RegisterUntilAuthorized(authKey, registrationOptions);
     if (!registration.Network)
     {
         throw std::runtime_error("control registration completed without a network map");
     }
-    tailgate::control::NetworkConfig config = std::move(*registration.Network);
+    tailgate::types::netmap::NetworkConfig config = std::move(*registration.Network);
     if (registrationAccepted)
     {
         registrationAccepted();
@@ -4181,13 +4201,14 @@ void RunConnection(
     }
     if (tailgate::serve::IsEnabled(funnel))
     {
-        tailgate::Log(tailgate::LogLevel::Info,
-                      "control",
-                      "node capabilities=" + CapabilitySummary(config.Capabilities));
-        if (!tailgate::control::HasCapability(config, "https") ||
-            !tailgate::control::HasCapability(config, "funnel"))
+        tailgate::base::Log(tailgate::base::LogLevel::Info,
+                            "control",
+                            "node capabilities=" + CapabilitySummary(config.Capabilities));
+        if (!tailgate::types::netmap::HasCapability(config, "https") ||
+            !tailgate::types::netmap::HasCapability(config, "funnel"))
         {
-            const tailgate::control::FeatureEnablement enablement = control.QueryFeature("funnel");
+            const tailgate::control::client::FeatureEnablement enablement =
+                control.QueryFeature("funnel");
             if (!enablement.Complete)
             {
                 throw std::runtime_error(std::format("{}\ncapabilities={}",
@@ -4195,24 +4216,24 @@ void RunConnection(
                                                      CapabilitySummary(config.Capabilities)));
             }
             config = control.RequestNetworkMap();
-            tailgate::Log(tailgate::LogLevel::Info,
-                          "control",
-                          "node capabilities after Funnel enablement=" +
-                              CapabilitySummary(config.Capabilities));
+            tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                "control",
+                                "node capabilities after Funnel enablement=" +
+                                    CapabilitySummary(config.Capabilities));
         }
-        if (!tailgate::control::HasCapability(config, "https"))
+        if (!tailgate::types::netmap::HasCapability(config, "https"))
         {
             throw std::runtime_error("Funnel not available; HTTPS capability is not enabled; "
                                      "capabilities=" +
                                      CapabilitySummary(config.Capabilities));
         }
-        if (!tailgate::control::HasCapability(config, "funnel"))
+        if (!tailgate::types::netmap::HasCapability(config, "funnel"))
         {
             throw std::runtime_error("Funnel not available; node does not have funnel capability; "
                                      "capabilities=" +
                                      CapabilitySummary(config.Capabilities));
         }
-        if (!tailgate::control::AllowsFunnelPort(config, funnel.Port))
+        if (!tailgate::types::netmap::AllowsFunnelPort(config, funnel.Port))
         {
             throw std::runtime_error(
                 std::format("Funnel not available; port {} is not allowed by control; "
@@ -4237,7 +4258,7 @@ void RunConnection(
                                      certificateDomain);
         }
         constexpr std::chrono::hours RenewalWindow = std::chrono::hours(24 * 30);
-        tailgate::acme::MbedTlsCrypto crypto;
+        tailgate::serve::acme::MbedTlsCrypto crypto;
         std::optional<tailgate::linux_frontend::AcmeState> cached =
             tailgate::linux_frontend::ReadAcmeState();
         if (cached && cached->Domain == certificateDomain &&
@@ -4245,24 +4266,25 @@ void RunConnection(
         {
             funnelCertificatePem = cached->CertificatePem;
             funnelPrivateKeyPem = cached->PrivateKeyPem;
-            tailgate::Log(tailgate::LogLevel::Info,
-                          "acme",
-                          "using cached certificate for " + certificateDomain);
+            tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                "acme",
+                                "using cached certificate for " + certificateDomain);
         }
         else
         {
             tailgate::linux_frontend::LinuxAcmeHttpClient http;
             tailgate::linux_frontend::LinuxAcmeWaiter waiter;
             ControlDnsPublisher publisher(control);
-            tailgate::acme::AcmeClient acme(http, crypto, publisher, waiter);
+            tailgate::serve::acme::AcmeClient acme(http, crypto, publisher, waiter);
             const std::optional<std::string> accountKey =
                 cached && !cached->AccountPrivateKey.empty()
                     ? std::optional<std::string>(cached->AccountPrivateKey)
                     : std::nullopt;
-            tailgate::Log(tailgate::LogLevel::Info,
-                          "acme",
-                          "requesting certificate for " + certificateDomain);
-            const tailgate::acme::Certificate issued = acme.Issue(certificateDomain, accountKey);
+            tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                "acme",
+                                "requesting certificate for " + certificateDomain);
+            const tailgate::serve::acme::Certificate issued =
+                acme.Issue(certificateDomain, accountKey);
             funnelCertificatePem = issued.CertificatePem;
             funnelPrivateKeyPem = issued.PrivateKeyPem;
             tailgate::linux_frontend::WriteAcmeState(
@@ -4276,12 +4298,13 @@ void RunConnection(
     std::string derpHost = config.DerpHost;
     if (!exitNode.empty())
     {
-        const auto selectedExitNode = tailgate::control::FindExitNode(config.Peers, exitNode, true);
+        const auto selectedExitNode =
+            tailgate::types::netmap::FindExitNode(config.Peers, exitNode, true);
         if (!selectedExitNode)
         {
             throw std::runtime_error("exit node was not found in the network map: " + exitNode);
         }
-        const tailgate::control::PeerConfig& peer = config.Peers[*selectedExitNode];
+        const tailgate::types::netmap::PeerConfig& peer = config.Peers[*selectedExitNode];
         if (peer.DerpRegion == 0 || peer.DerpHost.empty())
         {
             throw std::runtime_error("exit node has no usable DERP region: " + exitNode);
@@ -4298,22 +4321,23 @@ void RunConnection(
                                       config.StunHost.empty() ? derpHost : config.StunHost,
                                       config.StunPort))
             {
-                advertisedEndpoints.insert(advertisedEndpoints.begin(),
-                                           tailgate::protocol::MapEndpoint{
-                                               .AddressPort = *stunEndpoint,
-                                               .Type = tailgate::protocol::EndpointType::Stun});
+                advertisedEndpoints.insert(
+                    advertisedEndpoints.begin(),
+                    tailgate::control::client::MapEndpoint{
+                        .AddressPort = *stunEndpoint,
+                        .Type = tailgate::control::client::EndpointType::Stun});
                 control.SetEndpoints(advertisedEndpoints);
-                tailgate::Log(
-                    tailgate::LogLevel::Info,
+                tailgate::base::Log(
+                    tailgate::base::LogLevel::Info,
                     "control",
                     std::format("advertising STUN endpoint {} via {}", *stunEndpoint, derpHost));
             }
         }
         catch (const std::exception& error)
         {
-            tailgate::Log(tailgate::LogLevel::Warning,
-                          "control",
-                          "failed to discover STUN endpoint: " + std::string(error.what()));
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "control",
+                                "failed to discover STUN endpoint: " + std::string(error.what()));
         }
     }
     // Streaming map requests are read-only at modern capability versions, so control may ignore
@@ -4334,7 +4358,7 @@ void RunConnection(
              relayHostAddress = config.SelfAddress,
              relayPrivateKey = nodePrivateKey,
              relayPublicKey =
-                 control.NodePublicKey()](tailgate::IByteStream& relay,
+                 control.NodePublicKey()](tailgate::base::IByteStream& relay,
                                           const std::function<void()>& closeConnection,
                                           const std::function<void()>& markIdentityVerified)
             {
@@ -4348,8 +4372,8 @@ void RunConnection(
                                markIdentityVerified);
             });
     }
-    const auto handleUpdate =
-        [configureHost, updated = std::move(updated)](const tailgate::control::NetworkConfig& next)
+    const auto handleUpdate = [configureHost, updated = std::move(updated)](
+                                  const tailgate::types::netmap::NetworkConfig& next)
     {
         if (configureHost)
         {
@@ -4360,10 +4384,10 @@ void RunConnection(
             updated(next);
         }
     };
-    const std::optional<tailgate::protocol::Bytes32> externalNodePublicKey =
+    const std::optional<tailgate::crypto::Bytes32> externalNodePublicKey =
         nodePublicKey == nullptr ? std::nullopt
-                                 : std::optional<tailgate::protocol::Bytes32>(*nodePublicKey);
-    const tailgate::protocol::Bytes32 reconnectDiscoPrivateKey = control.DiscoPrivateKey();
+                                 : std::optional<tailgate::crypto::Bytes32>(*nodePublicKey);
+    const tailgate::crypto::Bytes32 reconnectDiscoPrivateKey = control.DiscoPrivateKey();
     const auto reconnectControl = [host,
                                    machineKey,
                                    nodePrivateKey,
@@ -4376,17 +4400,18 @@ void RunConnection(
         tailgate::linux_frontend::DialedControlStream dialed =
             tailgate::linux_frontend::DialControl(
                 DefaultRouteInterface(),
-                [&](tailgate::IByteStream& stream)
+                [&](tailgate::base::IByteStream& stream)
                 {
-                    session->Control = externalNodePublicKey
-                                           ? std::make_unique<tailgate::control::ControlClient>(
-                                                 stream,
-                                                 machineKey,
-                                                 tailgate::control::ExternalNodePublicKey{
-                                                     .Value = *externalNodePublicKey},
-                                                 host)
-                                           : std::make_unique<tailgate::control::ControlClient>(
-                                                 stream, machineKey, nodePrivateKey, host);
+                    session->Control =
+                        externalNodePublicKey
+                            ? std::make_unique<tailgate::control::client::ControlClient>(
+                                  stream,
+                                  machineKey,
+                                  tailgate::control::client::ExternalNodePublicKey{
+                                      .Value = *externalNodePublicKey},
+                                  host)
+                            : std::make_unique<tailgate::control::client::ControlClient>(
+                                  stream, machineKey, nodePrivateKey, host);
                 });
         session->Stream = std::move(dialed.Stream);
         session->Control->SetDiscoPrivateKey(reconnectDiscoPrivateKey);
@@ -4497,7 +4522,7 @@ struct VisibleRelayNode
 std::vector<VisibleRelayNode> RelayHostVisibleNodes;
 std::uint64_t RelayHostMapGeneration = 0;
 
-void UpdateRelayHostNetworkMap(const tailgate::control::NetworkConfig& config)
+void UpdateRelayHostNetworkMap(const tailgate::types::netmap::NetworkConfig& config)
 {
     std::vector<VisibleRelayNode> visible;
     visible.reserve(config.Peers.size());
@@ -4543,14 +4568,14 @@ std::optional<std::string> HostedPathForNode(std::uint64_t nodeId)
 
 bool WaitForHostedNodeVisibility(const std::string& tailnet,
                                  std::uint64_t nodeId,
-                                 const tailgate::protocol::Bytes32& nodePublicKey)
+                                 const tailgate::crypto::Bytes32& nodePublicKey)
 {
     constexpr std::chrono::seconds VisibilityTimeout(30);
     std::unique_lock lock(RelayHostMapMutex);
     const auto visible = [&]()
     {
         const std::string key =
-            "nodekey:" + tailgate::protocol::BytesToHex(nodePublicKey.data(), nodePublicKey.size());
+            "nodekey:" + tailgate::crypto::BytesToHex(nodePublicKey.data(), nodePublicKey.size());
         return RelayHostTailnet == tailnet && std::any_of(RelayHostVisibleNodes.begin(),
                                                           RelayHostVisibleNodes.end(),
                                                           [&](const VisibleRelayNode& node)
@@ -4567,49 +4592,51 @@ bool WaitForHostedNodeVisibility(const std::string& tailnet,
     const int controlFd = RelayHostControlFd.load();
     if (controlFd >= 0)
     {
-        tailgate::Log(tailgate::LogLevel::Info,
-                      "relay",
-                      "hosted node is absent from the live map; requesting a full control map");
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Info,
+            "relay",
+            "hosted node is absent from the live map; requesting a full control map");
         shutdown(controlFd, SHUT_RDWR);
     }
     const bool found = RelayHostMapChanged.wait_for(lock, VisibilityTimeout, visible);
     if (!found && RelayHostMapGeneration == generation)
     {
-        tailgate::Log(tailgate::LogLevel::Warning,
-                      "relay",
-                      "control map did not refresh while checking hosted node visibility");
+        tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                            "relay",
+                            "control map did not refresh while checking hosted node visibility");
     }
     return found;
 }
 
-void RunHostedRelay(tailgate::IByteStream& stream,
+void RunHostedRelay(tailgate::base::IByteStream& stream,
                     const std::string& expectedDomain,
                     const std::string& relayHostName,
                     const std::string& relayHostAddress,
-                    const tailgate::protocol::Bytes32& relayPrivateKey,
-                    const tailgate::protocol::Bytes32& relayPublicKey,
+                    const tailgate::crypto::Bytes32& relayPrivateKey,
+                    const tailgate::crypto::Bytes32& relayPublicKey,
                     const std::function<void()>& closeConnection,
                     const std::function<void()>& markIdentityVerified)
 {
-    tailgate::relay::Decoder decoder;
-    const tailgate::protocol::Bytes32 serverNonce = tailgate::protocol::GeneratePrivateKey();
-    tailgate::relay::WriteFrame(
+    tailgate::hosted::Decoder decoder;
+    const tailgate::crypto::Bytes32 serverNonce = tailgate::crypto::GeneratePrivateKey();
+    tailgate::hosted::WriteFrame(
         stream,
-        tailgate::relay::Frame{
-            .Type = tailgate::relay::MessageType::ServerChallenge,
-            .Payload = tailgate::relay::EncodeChallenge(tailgate::relay::Challenge{
+        tailgate::hosted::Frame{
+            .Type = tailgate::hosted::MessageType::ServerChallenge,
+            .Payload = tailgate::hosted::EncodeChallenge(tailgate::hosted::Challenge{
                 .RelayPublicKey = relayPublicKey, .ServerNonce = serverNonce})});
-    const tailgate::relay::Frame authenticationFrame = tailgate::relay::ReadFrame(stream, decoder);
-    if (authenticationFrame.Type != tailgate::relay::MessageType::Authenticate)
+    const tailgate::hosted::Frame authenticationFrame =
+        tailgate::hosted::ReadFrame(stream, decoder);
+    if (authenticationFrame.Type != tailgate::hosted::MessageType::Authenticate)
     {
         throw std::runtime_error("relay client did not authenticate first");
     }
-    const tailgate::relay::Authentication authentication =
-        tailgate::relay::DecodeAuthentication(authenticationFrame.Payload);
-    const tailgate::protocol::Bytes32 expectedProof = tailgate::relay::CreateClientProof(
+    const tailgate::hosted::Authentication authentication =
+        tailgate::hosted::DecodeAuthentication(authenticationFrame.Payload);
+    const tailgate::crypto::Bytes32 expectedProof = tailgate::hosted::CreateClientProof(
         relayPrivateKey, authentication.NodePublicKey, serverNonce, authentication.ClientNonce);
     const bool proofValid =
-        tailgate::relay::ProofMatches(expectedProof, authentication.ClientProof);
+        tailgate::hosted::ProofMatches(expectedProof, authentication.ClientProof);
     const bool tailnetMatches = authentication.Tailnet == expectedDomain;
     const bool nodeVisible = proofValid && tailnetMatches &&
                              WaitForHostedNodeVisibility(authentication.Tailnet,
@@ -4617,53 +4644,54 @@ void RunHostedRelay(tailgate::IByteStream& stream,
                                                          authentication.NodePublicKey);
     if (!proofValid || !tailnetMatches || !nodeVisible)
     {
-        tailgate::Log(tailgate::LogLevel::Warning,
-                      "relay",
-                      std::format("rejecting hosted authentication node-id={} proof={} tailnet={} "
-                                  "visibility={}",
-                                  authentication.NodeId,
-                                  proofValid ? "valid" : "invalid",
-                                  tailnetMatches ? "match" : "mismatch",
-                                  nodeVisible ? "visible" : "missing"));
-        tailgate::relay::WriteFrame(
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Warning,
+            "relay",
+            std::format("rejecting hosted authentication node-id={} proof={} tailnet={} "
+                        "visibility={}",
+                        authentication.NodeId,
+                        proofValid ? "valid" : "invalid",
+                        tailnetMatches ? "match" : "mismatch",
+                        nodeVisible ? "visible" : "missing"));
+        tailgate::hosted::WriteFrame(
             stream,
-            tailgate::relay::Frame{
-                .Type = tailgate::relay::MessageType::Rejected,
-                .Payload = tailgate::relay::EncodeRejection(tailgate::relay::Rejection{
+            tailgate::hosted::Frame{
+                .Type = tailgate::hosted::MessageType::Rejected,
+                .Payload = tailgate::hosted::EncodeRejection(tailgate::hosted::Rejection{
                     .Reason = "node authentication or tailnet visibility check failed"})});
         return;
     }
 
     std::mutex writeMutex;
-    const auto writeFrame = [&](tailgate::relay::Frame frame)
+    const auto writeFrame = [&](tailgate::hosted::Frame frame)
     {
         std::lock_guard lock(writeMutex);
-        tailgate::relay::WriteFrame(stream, frame);
+        tailgate::hosted::WriteFrame(stream, frame);
     };
     writeFrame(
-        {.Type = tailgate::relay::MessageType::Authenticated,
-         .Payload = tailgate::relay::EncodeSession(tailgate::relay::Session{
+        {.Type = tailgate::hosted::MessageType::Authenticated,
+         .Payload = tailgate::hosted::EncodeSession(tailgate::hosted::Session{
              .Tailnet = authentication.Tailnet,
              .RelayHostName = relayHostName,
              .RelayHostAddress = relayHostAddress,
-             .ServerProof = tailgate::relay::CreateServerProof(relayPrivateKey,
-                                                               authentication.NodePublicKey,
-                                                               serverNonce,
-                                                               authentication.ClientNonce)})});
+             .ServerProof = tailgate::hosted::CreateServerProof(relayPrivateKey,
+                                                                authentication.NodePublicKey,
+                                                                serverNonce,
+                                                                authentication.ClientNonce)})});
 
-    const tailgate::relay::Frame mapFrame = tailgate::relay::ReadFrame(stream, decoder);
-    if (mapFrame.Type != tailgate::relay::MessageType::NetworkMap)
+    const tailgate::hosted::Frame mapFrame = tailgate::hosted::ReadFrame(stream, decoder);
+    if (mapFrame.Type != tailgate::hosted::MessageType::NetworkMap)
     {
         throw std::runtime_error("relay client did not provide its network map");
     }
-    tailgate::control::NetworkConfig config =
-        tailgate::relay::DecodeNetworkConfig(mapFrame.Payload);
-    tailgate::control::NetworkConfig dnsConfig = config;
+    tailgate::types::netmap::NetworkConfig config =
+        tailgate::hosted::DecodeNetworkConfig(mapFrame.Payload);
+    tailgate::types::netmap::NetworkConfig dnsConfig = config;
     std::mutex dnsConfigMutex;
     const std::string expectedNodeKey =
-        "nodekey:" + tailgate::protocol::BytesToHex(authentication.NodePublicKey.data(),
-                                                    authentication.NodePublicKey.size());
-    const auto validateMap = [&](const tailgate::control::NetworkConfig& candidate)
+        "nodekey:" + tailgate::crypto::BytesToHex(authentication.NodePublicKey.data(),
+                                                  authentication.NodePublicKey.size());
+    const auto validateMap = [&](const tailgate::types::netmap::NetworkConfig& candidate)
     {
         return candidate.Domain == authentication.Tailnet &&
                candidate.SelfNodeId == authentication.NodeId &&
@@ -4675,7 +4703,7 @@ void RunHostedRelay(tailgate::IByteStream& stream,
     }
     markIdentityVerified();
 
-    const std::string profileKey = tailgate::protocol::BytesToHex(
+    const std::string profileKey = tailgate::crypto::BytesToHex(
         authentication.NodePublicKey.data(), authentication.NodePublicKey.size());
     const auto active = std::make_shared<ActiveRelayConnection>();
     RelayConnectionCompletionGuard completionGuard(active);
@@ -4727,8 +4755,8 @@ void RunHostedRelay(tailgate::IByteStream& stream,
     bool clientReady = false;
     std::uint64_t nextDerpRequestId = 1;
     std::map<std::uint64_t, std::optional<std::vector<std::uint8_t>>> derpResponses;
-    const tailgate::protocol::DerpClient::Authenticator derpAuthenticator =
-        [&](const tailgate::protocol::DerpClient::Key& serverKey)
+    const tailgate::derp::DerpClient::Authenticator derpAuthenticator =
+        [&](const tailgate::derp::DerpClient::Key& serverKey)
     {
         std::uint64_t requestId = 0;
         {
@@ -4736,10 +4764,10 @@ void RunHostedRelay(tailgate::IByteStream& stream,
             requestId = nextDerpRequestId++;
             derpResponses.emplace(requestId, std::nullopt);
         }
-        writeFrame({.Type = tailgate::relay::MessageType::DerpChallenge,
-                    .Payload = tailgate::relay::EncodeDerpChallenge(
-                        tailgate::relay::DerpAuthenticationChallenge{.RequestId = requestId,
-                                                                     .ServerKey = serverKey})});
+        writeFrame({.Type = tailgate::hosted::MessageType::DerpChallenge,
+                    .Payload = tailgate::hosted::EncodeDerpChallenge(
+                        tailgate::hosted::DerpAuthenticationChallenge{.RequestId = requestId,
+                                                                      .ServerKey = serverKey})});
         constexpr std::chrono::seconds AuthenticationTimeout(30);
         std::unique_lock lock(derpMutex);
         const bool completed = derpChanged.wait_for(
@@ -4768,9 +4796,9 @@ void RunHostedRelay(tailgate::IByteStream& stream,
             {
                 while (!stopping)
                 {
-                    const tailgate::relay::Frame frame =
-                        tailgate::relay::ReadFrame(stream, decoder);
-                    if (frame.Type == tailgate::relay::MessageType::ClientPacket)
+                    const tailgate::hosted::Frame frame =
+                        tailgate::hosted::ReadFrame(stream, decoder);
+                    if (frame.Type == tailgate::hosted::MessageType::ClientPacket)
                     {
                         if (send(relayPackets.Fd,
                                  frame.Payload.data(),
@@ -4780,10 +4808,10 @@ void RunHostedRelay(tailgate::IByteStream& stream,
                             throw std::runtime_error("relay packet forwarding failed");
                         }
                     }
-                    else if (frame.Type == tailgate::relay::MessageType::NetworkMap)
+                    else if (frame.Type == tailgate::hosted::MessageType::NetworkMap)
                     {
-                        const tailgate::control::NetworkConfig next =
-                            tailgate::relay::DecodeNetworkConfig(frame.Payload);
+                        const tailgate::types::netmap::NetworkConfig next =
+                            tailgate::hosted::DecodeNetworkConfig(frame.Payload);
                         if (!validateMap(next))
                         {
                             throw std::runtime_error("relay network-map identity changed");
@@ -4800,44 +4828,44 @@ void RunHostedRelay(tailgate::IByteStream& stream,
                             dnsConfig = next;
                         }
                     }
-                    else if (frame.Type == tailgate::relay::MessageType::TailnetDnsQuery)
+                    else if (frame.Type == tailgate::hosted::MessageType::TailnetDnsQuery)
                     {
                         std::optional<std::vector<std::uint8_t>> response;
                         {
                             std::lock_guard lock(dnsConfigMutex);
                             const std::optional<std::uint32_t> expectedSource =
-                                tailgate::network::ParseIpv4(dnsConfig.SelfAddress);
-                            const std::optional<tailgate::network::Ipv4UdpDatagram> query =
-                                tailgate::network::ParseIpv4UdpDatagram(frame.Payload);
+                                tailgate::net::packet::ParseIpv4(dnsConfig.SelfAddress);
+                            const std::optional<tailgate::net::packet::Ipv4UdpDatagram> query =
+                                tailgate::net::packet::ParseIpv4UdpDatagram(frame.Payload);
                             if (!expectedSource || !query || query->Source != *expectedSource)
                             {
                                 throw std::runtime_error(
                                     "relay Tailnet DNS query has an invalid source");
                             }
-                            response = tailgate::network::BuildTailnetDnsResponse(dnsConfig,
-                                                                                  frame.Payload);
+                            response = tailgate::net::dns::BuildTailnetDnsResponse(dnsConfig,
+                                                                                   frame.Payload);
                         }
                         if (!response)
                         {
                             throw std::runtime_error("relay Tailnet DNS query is malformed");
                         }
-                        const std::optional<tailgate::network::Ipv4UdpDatagram> query =
-                            tailgate::network::ParseIpv4UdpDatagram(frame.Payload);
+                        const std::optional<tailgate::net::packet::Ipv4UdpDatagram> query =
+                            tailgate::net::packet::ParseIpv4UdpDatagram(frame.Payload);
                         const std::optional<std::string> name =
-                            query ? tailgate::network::DnsQueryName(query->Payload) : std::nullopt;
-                        tailgate::Log(
-                            tailgate::LogLevel::Info,
+                            query ? tailgate::net::dns::DnsQueryName(query->Payload) : std::nullopt;
+                        tailgate::base::Log(
+                            tailgate::base::LogLevel::Info,
                             "dns",
                             std::format("answered hosted Tailnet DNS query name={} node-id={}",
                                         name.value_or("<invalid>"),
                                         authentication.NodeId));
-                        writeFrame({.Type = tailgate::relay::MessageType::TailnetDnsResponse,
+                        writeFrame({.Type = tailgate::hosted::MessageType::TailnetDnsResponse,
                                     .Payload = std::move(*response)});
                     }
-                    else if (frame.Type == tailgate::relay::MessageType::DerpResponse)
+                    else if (frame.Type == tailgate::hosted::MessageType::DerpResponse)
                     {
-                        tailgate::relay::DerpAuthenticationResponse response =
-                            tailgate::relay::DecodeDerpResponse(frame.Payload);
+                        tailgate::hosted::DerpAuthenticationResponse response =
+                            tailgate::hosted::DecodeDerpResponse(frame.Payload);
                         {
                             std::lock_guard lock(derpMutex);
                             const auto found = derpResponses.find(response.RequestId);
@@ -4849,7 +4877,7 @@ void RunHostedRelay(tailgate::IByteStream& stream,
                         }
                         derpChanged.notify_all();
                     }
-                    else if (frame.Type == tailgate::relay::MessageType::Heartbeat)
+                    else if (frame.Type == tailgate::hosted::MessageType::Heartbeat)
                     {
                         // The server drives the heartbeat cadence from the writer thread;
                         // a client heartbeat only proves the client side is alive. Replying
@@ -4860,7 +4888,7 @@ void RunHostedRelay(tailgate::IByteStream& stream,
                         }
                         clientReadyChanged.notify_all();
                     }
-                    else if (frame.Type == tailgate::relay::MessageType::Shutdown)
+                    else if (frame.Type == tailgate::hosted::MessageType::Shutdown)
                     {
                         break;
                     }
@@ -4868,9 +4896,9 @@ void RunHostedRelay(tailgate::IByteStream& stream,
             }
             catch (const std::exception& error)
             {
-                tailgate::Log(tailgate::LogLevel::Info,
-                              "relay",
-                              "hosted client reader stopped: " + std::string(error.what()));
+                tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                    "relay",
+                                    "hosted client reader stopped: " + std::string(error.what()));
             }
             stopping = true;
             derpChanged.notify_all();
@@ -4906,7 +4934,7 @@ void RunHostedRelay(tailgate::IByteStream& stream,
                         // timers (UWP) get a periodic opportunity to run WireGuard timers
                         // and send DERP-bound packets.
                         writeFrame(
-                            {.Type = tailgate::relay::MessageType::Heartbeat, .Payload = {}});
+                            {.Type = tailgate::hosted::MessageType::Heartbeat, .Payload = {}});
                     }
                     if ((pollers[0].revents & (POLLIN | POLLERR | POLLHUP)) == 0)
                     {
@@ -4917,16 +4945,16 @@ void RunHostedRelay(tailgate::IByteStream& stream,
                     {
                         break;
                     }
-                    writeFrame({.Type = tailgate::relay::MessageType::ServerPacket,
+                    writeFrame({.Type = tailgate::hosted::MessageType::ServerPacket,
                                 .Payload = std::vector<std::uint8_t>(packet.begin(),
                                                                      packet.begin() + received)});
                 }
             }
             catch (const std::exception& error)
             {
-                tailgate::Log(tailgate::LogLevel::Info,
-                              "relay",
-                              "hosted server writer stopped: " + std::string(error.what()));
+                tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                    "relay",
+                                    "hosted server writer stopped: " + std::string(error.what()));
             }
             stopping = true;
             shutdown(relayPackets.Fd, SHUT_RDWR);
@@ -4948,8 +4976,8 @@ void RunHostedRelay(tailgate::IByteStream& stream,
             throw std::runtime_error("relay client data path did not become ready");
         }
         readyLock.unlock();
-        tailgate::Log(
-            tailgate::LogLevel::Info,
+        tailgate::base::Log(
+            tailgate::base::LogLevel::Info,
             "relay",
             std::format("hosted client data path ready node-id={}", authentication.NodeId));
         UniqueFd advertisedUdp = OpenUdpSocket(DefaultRouteInterface());
@@ -5051,7 +5079,7 @@ void PrintAuthorizationPrompt(const std::string& authorizationUrl,
     {
         return;
     }
-    const tailgate::QrCode code = tailgate::EncodeQrCode(authorizationUrl);
+    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode(authorizationUrl);
     const tailgate::linux_frontend::QrTextFormat format =
         tailgate::linux_frontend::ResolveQrTextFormat(options.QrFormat, CurrentLocale());
     std::cerr << tailgate::linux_frontend::RenderQrCode(code, format) << '\n';
@@ -5096,20 +5124,20 @@ int RunLogout()
         return 0;
     }
 
-    tailgate::protocol::HostInfo host = tailgate::linux_frontend::CollectHostInfo();
+    tailgate::control::client::HostInfo host = tailgate::linux_frontend::CollectHostInfo();
     if (!identity->Hostname.empty())
     {
         host.Hostname = identity->Hostname;
     }
     tailgate::linux_frontend::TcpStream stream(
-        tailgate::protocol::ControlHandshake::DefaultHost,
+        tailgate::control::base::ControlHandshake::DefaultHost,
         "443",
         DefaultRouteInterface(),
         tailgate::linux_frontend::TcpStream::ControlIoTimeoutSeconds);
-    tailgate::protocol::TlsStream tls(stream,
-                                      tailgate::protocol::ControlHandshake::DefaultHost,
+    tailgate::net::tls::TlsStream tls(stream,
+                                      tailgate::control::base::ControlHandshake::DefaultHost,
                                       tailgate::linux_frontend::SystemCaBundle());
-    tailgate::control::ControlClient control(
+    tailgate::control::client::ControlClient control(
         tls, identity->MachinePrivateKey, identity->NodePrivateKey, host);
     control.Logout();
     tailgate::linux_frontend::RemoveProfileState();
@@ -5139,9 +5167,9 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
         tailgate::linux_frontend::WriteSettings(requestedSettings);
         if (restartWithAuth)
         {
-            tailgate::Log(tailgate::LogLevel::Info,
-                          "daemon",
-                          "restarting failed connection with a supplied auth key");
+            tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                "daemon",
+                                "restarting failed connection with a supplied auth key");
             if (kill(existing->ProcessId, SIGTERM) != 0)
             {
                 throw std::runtime_error("failed to restart the Tailgate daemon");
@@ -5172,9 +5200,9 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
                 (void)WaitForDaemonReload(static_cast<pid_t>(existing->ProcessId), existing->Error);
                 return tailgate::platform::UpResult{.Ready = true};
             }
-            tailgate::Log(tailgate::LogLevel::Warning,
-                          "daemon",
-                          "stale Tailgate status; starting a new daemon");
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "daemon",
+                                "stale Tailgate status; starting a new daemon");
             tailgate::linux_frontend::RemoveDaemonStatus();
         }
     }
@@ -5182,7 +5210,7 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
     tailgate::linux_frontend::RestoreResolverConfiguration();
     tailgate::linux_frontend::SaveResolverConfiguration();
 
-    tailgate::protocol::HostInfo host = tailgate::linux_frontend::CollectHostInfo();
+    tailgate::control::client::HostInfo host = tailgate::linux_frontend::CollectHostInfo();
     if (!requestedSettings.Hostname.empty())
     {
         host.Hostname = requestedSettings.Hostname;
@@ -5197,9 +5225,9 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
     if (!identity)
     {
         identity = tailgate::linux_frontend::IdentityState{
-            .MachinePrivateKey = tailgate::protocol::GeneratePrivateKey(),
-            .NodePrivateKey = tailgate::protocol::GeneratePrivateKey(),
-            .DiscoPrivateKey = tailgate::protocol::GeneratePrivateKey(),
+            .MachinePrivateKey = tailgate::crypto::GeneratePrivateKey(),
+            .NodePrivateKey = tailgate::crypto::GeneratePrivateKey(),
+            .DiscoPrivateKey = tailgate::crypto::GeneratePrivateKey(),
             .Hostname = host.Hostname};
         tailgate::linux_frontend::WriteIdentity(*identity);
     }
@@ -5213,7 +5241,7 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
                             return byte == 0;
                         }))
         {
-            identity->DiscoPrivateKey = tailgate::protocol::GeneratePrivateKey();
+            identity->DiscoPrivateKey = tailgate::crypto::GeneratePrivateKey();
             identityChanged = true;
         }
         if (!requestedSettings.Hostname.empty() && identity->Hostname != host.Hostname)
@@ -5324,8 +5352,8 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
         close(nullFd);
     }
 
-    tailgate::SetLogSink(
-        [](tailgate::LogLevel level, const std::string& component, const std::string& message)
+    tailgate::base::SetLogSink(
+        [](tailgate::base::LogLevel level, const std::string& component, const std::string& message)
         {
             const auto now = std::chrono::system_clock::now();
             const auto seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
@@ -5334,18 +5362,18 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
             std::osyncstream(std::cerr) << std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}Z [{}] {}: {}\n",
                                                        seconds,
                                                        milliseconds,
-                                                       tailgate::LogLevelName(level),
+                                                       tailgate::base::LogLevelName(level),
                                                        component,
                                                        message)
                                         << std::flush;
         });
 
-    tailgate::Log(tailgate::LogLevel::Info,
-                  "daemon",
-                  std::format("started pid={} hostname={} state={}",
-                              getpid(),
-                              host.Hostname,
-                              tailgate::linux_frontend::StateDirectory()));
+    tailgate::base::Log(tailgate::base::LogLevel::Info,
+                        "daemon",
+                        std::format("started pid={} hostname={} state={}",
+                                    getpid(),
+                                    host.Hostname,
+                                    tailgate::linux_frontend::StateDirectory()));
 
     std::signal(SIGTERM, HandleStopSignal);
     std::signal(SIGINT, HandleStopSignal);
@@ -5362,12 +5390,13 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
     status.ClientVersion = host.ClientVersion;
     tailgate::linux_frontend::WriteDaemonStatus(status);
 
-    tailgate::control::RetryBackoff retryBackoff(std::chrono::seconds(1), std::chrono::seconds(30));
+    tailgate::control::client::RetryBackoff retryBackoff(std::chrono::seconds(1),
+                                                         std::chrono::seconds(30));
     std::size_t relayAddressAttempt = 0;
     int readyFd = readyPipe[1];
-    tailgate::protocol::Bytes32 machineKey = identity->MachinePrivateKey;
-    tailgate::protocol::Bytes32 nodePrivateKey = identity->NodePrivateKey;
-    tailgate::protocol::Bytes32 discoPrivateKey = identity->DiscoPrivateKey;
+    tailgate::crypto::Bytes32 machineKey = identity->MachinePrivateKey;
+    tailgate::crypto::Bytes32 nodePrivateKey = identity->NodePrivateKey;
+    tailgate::crypto::Bytes32 discoPrivateKey = identity->DiscoPrivateKey;
     std::string pendingAuthKey = identity->RegistrationComplete ? std::string{} : authKey;
     std::string fallbackAuthKey = identity->RegistrationComplete ? authKey : std::string{};
     std::string pendingAuthorizationUrl;
@@ -5387,10 +5416,11 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
             tailgate::linux_frontend::WriteIdentity(completed);
         }
     };
-    const auto registrationPending = [&](const tailgate::control::RegistrationResult& registration)
+    const auto registrationPending =
+        [&](const tailgate::control::client::RegistrationResult& registration)
     {
         const bool loginRequired =
-            registration.State == tailgate::control::RegistrationState::LoginRequired;
+            registration.State == tailgate::control::client::RegistrationState::LoginRequired;
         pendingAuthorizationUrl = loginRequired ? registration.AuthorizationUrl : std::string{};
         status.BackendState = loginRequired ? "NeedsLogin" : "NeedsMachineAuth";
         status.Online = false;
@@ -5398,14 +5428,14 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
             loginRequired ? registration.AuthorizationUrl : registration.ApprovalUrl;
         status.Error.clear();
         tailgate::linux_frontend::WriteDaemonStatus(status);
-        tailgate::Log(tailgate::LogLevel::Info,
-                      "control",
-                      loginRequired ? std::format("waiting for interactive login code={}",
-                                                  registration.AuthorizationCode.empty()
-                                                      ? "unavailable"
-                                                      : registration.AuthorizationCode)
-                                    : std::format("waiting for machine approval url={}",
-                                                  registration.ApprovalUrl));
+        tailgate::base::Log(tailgate::base::LogLevel::Info,
+                            "control",
+                            loginRequired ? std::format("waiting for interactive login code={}",
+                                                        registration.AuthorizationCode.empty()
+                                                            ? "unavailable"
+                                                            : registration.AuthorizationCode)
+                                          : std::format("waiting for machine approval url={}",
+                                                        registration.ApprovalUrl));
     };
     const auto recordConnectionFailure = [&](const std::exception& error)
     {
@@ -5421,9 +5451,9 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
         status.Online = false;
         status.Error = error.what();
         tailgate::linux_frontend::WriteDaemonStatus(status);
-        tailgate::Log(tailgate::LogLevel::Error,
-                      "daemon",
-                      std::format("{}; retrying in {} seconds", error.what(), retrySeconds));
+        tailgate::base::Log(tailgate::base::LogLevel::Error,
+                            "daemon",
+                            std::format("{}; retrying in {} seconds", error.what(), retrySeconds));
         for (int elapsed = 0; elapsed < retrySeconds && !StopRequested && !ReloadRequested;
              ++elapsed)
         {
@@ -5453,8 +5483,8 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
             status.Online = false;
             status.Error.clear();
             tailgate::linux_frontend::WriteDaemonStatus(status);
-            tailgate::Log(
-                tailgate::LogLevel::Info,
+            tailgate::base::Log(
+                tailgate::base::LogLevel::Info,
                 "daemon",
                 std::format("connecting hostname={} accept-dns={} exit-node={}",
                             host.Hostname,
@@ -5507,9 +5537,9 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
             }
             if (ReloadRequested)
             {
-                tailgate::Log(tailgate::LogLevel::Info,
-                              "daemon",
-                              "settings changed; reconnecting data plane");
+                tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                    "daemon",
+                                    "settings changed; reconnecting data plane");
             }
             retryBackoff.Reset();
         }
@@ -5519,7 +5549,7 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
         }
     }
 
-    tailgate::Log(tailgate::LogLevel::Info, "daemon", "shutdown requested");
+    tailgate::base::Log(tailgate::base::LogLevel::Info, "daemon", "shutdown requested");
     tailgate::linux_frontend::RestoreResolverConfiguration();
 
     if (readyFd >= 0)
@@ -5527,7 +5557,7 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
         close(readyFd);
     }
     tailgate::linux_frontend::RemoveResolverBackup();
-    tailgate::Log(tailgate::LogLevel::Info, "daemon", "shutdown complete");
+    tailgate::base::Log(tailgate::base::LogLevel::Info, "daemon", "shutdown complete");
     _exit(0);
 }
 
@@ -5601,10 +5631,10 @@ public:
             }
             catch (const std::exception& rollbackError)
             {
-                tailgate::Log(tailgate::LogLevel::Error,
-                              "settings",
-                              "failed to restore previous settings: " +
-                                  std::string(rollbackError.what()));
+                tailgate::base::Log(tailgate::base::LogLevel::Error,
+                                    "settings",
+                                    "failed to restore previous settings: " +
+                                        std::string(rollbackError.what()));
             }
             std::rethrow_exception(failure);
         }
@@ -5651,10 +5681,10 @@ public:
             }
             catch (const std::exception& rollbackError)
             {
-                tailgate::Log(tailgate::LogLevel::Error,
-                              "funnel",
-                              "failed to restore previous settings: " +
-                                  std::string(rollbackError.what()));
+                tailgate::base::Log(tailgate::base::LogLevel::Error,
+                                    "funnel",
+                                    "failed to restore previous settings: " +
+                                        std::string(rollbackError.what()));
             }
             throw;
         }

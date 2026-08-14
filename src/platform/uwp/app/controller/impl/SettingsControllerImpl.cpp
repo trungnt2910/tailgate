@@ -76,7 +76,7 @@ void AddDevices(std::vector<UwpDevice>& devices,
     }
 }
 
-std::optional<protocol::Bytes32> ReadPrivateKey(const auto& values, const wchar_t* name)
+std::optional<tailgate::crypto::Bytes32> ReadPrivateKey(const auto& values, const wchar_t* name)
 {
     const std::string hex =
         winrt::to_string(winrt::unbox_value_or<winrt::hstring>(values.TryLookup(name), L""));
@@ -86,12 +86,12 @@ std::optional<protocol::Bytes32> ReadPrivateKey(const auto& values, const wchar_
     }
     try
     {
-        const std::vector<std::uint8_t> bytes = protocol::HexToBytes(hex);
-        if (bytes.size() != protocol::Bytes32{}.size())
+        const std::vector<std::uint8_t> bytes = tailgate::crypto::HexToBytes(hex);
+        if (bytes.size() != tailgate::crypto::Bytes32{}.size())
         {
             return std::nullopt;
         }
-        protocol::Bytes32 key{};
+        tailgate::crypto::Bytes32 key{};
         std::copy(bytes.begin(), bytes.end(), key.begin());
         return key;
     }
@@ -186,8 +186,8 @@ void SettingsControllerImpl::Reload()
     winrt::hstring exitNodeSelection;
     winrt::hstring cachedProfilePictureUrl;
     winrt::hstring authKey;
-    std::optional<protocol::Bytes32> machinePrivateKey;
-    std::optional<protocol::Bytes32> nodePrivateKey;
+    std::optional<tailgate::crypto::Bytes32> machinePrivateKey;
+    std::optional<tailgate::crypto::Bytes32> nodePrivateKey;
     ConnectionSettingsSnapshot connectionSettings;
     bool registrationComplete = false;
     bool profileValidated = false;

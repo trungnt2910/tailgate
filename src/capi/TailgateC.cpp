@@ -1,14 +1,4 @@
-#include "tailgate/c/tailgate.h"
-
-#include "tailgate/ByteStream.h"
-#include "tailgate/Logging.h"
-#include "tailgate/control/ControlClient.h"
-#include "tailgate/network/Ipv4.h"
-#include "tailgate/protocol/DerpClient.h"
-#include "tailgate/protocol/Disco.h"
-#include "tailgate/protocol/WireGuardTunnel.h"
-
-#include <nlohmann/json.hpp>
+#include <tailgate/c/tailgate.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -18,12 +8,22 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
+#include <tailgate/base/ByteStream.h>
+#include <tailgate/base/Logging.h>
+#include <tailgate/control/client/ControlClient.h>
+#include <tailgate/derp/Client.h>
+#include <tailgate/disco/Disco.h>
+#include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/wgengine/wireguard/Tunnel.h>
+
 namespace
 {
 
 thread_local std::string LastError;
 
-class CallbackStream final : public tailgate::IByteStream
+class CallbackStream final : public tailgate::base::IByteStream
 {
 public:
     explicit CallbackStream(tg_stream stream) : Stream(stream)
@@ -104,9 +104,9 @@ int Guard(Function function)
     }
 }
 
-tailgate::protocol::WireGuardTunnel::Key Key(const std::uint8_t* source)
+tailgate::wgengine::wireguard::WireGuardTunnel::Key Key(const std::uint8_t* source)
 {
-    tailgate::protocol::WireGuardTunnel::Key result{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key result{};
     if (source != nullptr)
     {
         std::copy_n(source, result.size(), result.begin());
@@ -114,15 +114,15 @@ tailgate::protocol::WireGuardTunnel::Key Key(const std::uint8_t* source)
     return result;
 }
 
-tailgate::control::NetworkConfig CompleteRegistration(tailgate::control::ControlClient& client,
-                                                      const char* authKey)
+tailgate::types::netmap::NetworkConfig
+CompleteRegistration(tailgate::control::client::ControlClient& client, const char* authKey)
 {
-    tailgate::control::RegistrationResult result = client.Register(authKey);
-    if (result.State == tailgate::control::RegistrationState::LoginRequired)
+    tailgate::control::client::RegistrationResult result = client.Register(authKey);
+    if (result.State == tailgate::control::client::RegistrationState::LoginRequired)
     {
         throw std::runtime_error("interactive login is required: " + result.AuthorizationUrl);
     }
-    if (result.State == tailgate::control::RegistrationState::MachineApprovalRequired)
+    if (result.State == tailgate::control::client::RegistrationState::MachineApprovalRequired)
     {
         throw std::runtime_error("machine approval is required: " + result.ApprovalUrl);
     }
@@ -138,12 +138,12 @@ tailgate::control::NetworkConfig CompleteRegistration(tailgate::control::Control
 struct tg_control
 {
     CallbackStream Stream;
-    tailgate::control::ControlClient Client;
+    tailgate::control::client::ControlClient Client;
 
     tg_control(tg_stream stream,
-               const tailgate::protocol::Bytes32& machineKey,
-               const tailgate::protocol::Bytes32& nodeKey,
-               const tailgate::protocol::HostInfo& host)
+               const tailgate::crypto::Bytes32& machineKey,
+               const tailgate::crypto::Bytes32& nodeKey,
+               const tailgate::control::client::HostInfo& host)
         : Stream(stream), Client(Stream, machineKey, nodeKey, host)
     {
     }
@@ -151,26 +151,26 @@ struct tg_control
 
 struct tg_tunnel
 {
-    explicit tg_tunnel(const tailgate::protocol::WireGuardTunnel::Key& key) : Tunnel(key)
+    explicit tg_tunnel(const tailgate::wgengine::wireguard::WireGuardTunnel::Key& key) : Tunnel(key)
     {
     }
 
-    tailgate::protocol::WireGuardTunnel Tunnel;
+    tailgate::wgengine::wireguard::WireGuardTunnel Tunnel;
 };
 
 struct tg_network_config
 {
-    tailgate::control::NetworkConfig Config;
+    tailgate::types::netmap::NetworkConfig Config;
 };
 
 struct tg_derp
 {
     CallbackStream Stream;
-    tailgate::protocol::DerpClient Client;
+    tailgate::derp::DerpClient Client;
 
     tg_derp(tg_stream stream,
-            const tailgate::protocol::Bytes32& privateKey,
-            const tailgate::protocol::Bytes32& publicKey)
+            const tailgate::crypto::Bytes32& privateKey,
+            const tailgate::crypto::Bytes32& publicKey)
         : Stream(stream), Client(Stream, privateKey, publicKey)
     {
     }
@@ -178,13 +178,13 @@ struct tg_derp
 
 struct tg_disco
 {
-    tg_disco(const tailgate::protocol::Bytes32& privateKey,
-             const tailgate::protocol::Bytes32& nodePublicKey)
+    tg_disco(const tailgate::crypto::Bytes32& privateKey,
+             const tailgate::crypto::Bytes32& nodePublicKey)
         : Client(privateKey, nodePublicKey)
     {
     }
 
-    tailgate::protocol::Disco Client;
+    tailgate::disco::Disco Client;
 };
 
 extern "C"
@@ -204,12 +204,13 @@ extern "C"
     {
         if (callback == nullptr)
         {
-            tailgate::SetLogSink({});
+            tailgate::base::SetLogSink({});
             return;
         }
-        tailgate::SetLogSink(
-            [context, callback](
-                tailgate::LogLevel level, const std::string& component, const std::string& message)
+        tailgate::base::SetLogSink(
+            [context, callback](tailgate::base::LogLevel level,
+                                const std::string& component,
+                                const std::string& message)
             {
                 callback(
                     context, static_cast<tg_log_level>(level), component.c_str(), message.c_str());
@@ -218,7 +219,8 @@ extern "C"
 
     uint16_t tg_internet_checksum(const uint8_t* data, size_t size)
     {
-        return data == nullptr && size != 0 ? 0 : tailgate::network::InternetChecksum(data, size);
+        return data == nullptr && size != 0 ? 0
+                                            : tailgate::net::packet::InternetChecksum(data, size);
     }
 
     int tg_generate_private_key(uint8_t private_key[32])
@@ -230,7 +232,7 @@ extern "C"
                 {
                     throw std::invalid_argument("private key is required");
                 }
-                const auto key = tailgate::protocol::GeneratePrivateKey();
+                const auto key = tailgate::crypto::GeneratePrivateKey();
                 std::copy(key.begin(), key.end(), private_key);
             });
     }
@@ -245,7 +247,7 @@ extern "C"
                 {
                     throw std::invalid_argument("packet arguments are required");
                 }
-                const auto destination = tailgate::network::Ipv4Destination(
+                const auto destination = tailgate::net::packet::Ipv4Destination(
                     std::vector<std::uint8_t>(packet, packet + packet_size));
                 if (!destination)
                 {
@@ -266,11 +268,11 @@ extern "C"
             {
                 throw std::invalid_argument("control arguments are required");
             }
-            tailgate::protocol::Bytes32 machine{};
-            tailgate::protocol::Bytes32 node{};
+            tailgate::crypto::Bytes32 machine{};
+            tailgate::crypto::Bytes32 node{};
             std::copy_n(machine_private_key, machine.size(), machine.begin());
             std::copy_n(node_private_key, node.size(), node.begin());
-            tailgate::protocol::HostInfo info;
+            tailgate::control::client::HostInfo info;
             info.Hostname = host->hostname == nullptr ? "" : host->hostname;
             info.OperatingSystem = host->operating_system == nullptr ? "" : host->operating_system;
             info.OperatingSystemVersion =
@@ -301,7 +303,7 @@ extern "C"
                 {
                     throw std::invalid_argument("control register arguments are required");
                 }
-                const tailgate::control::NetworkConfig config =
+                const tailgate::types::netmap::NetworkConfig config =
                     CompleteRegistration(control->Client, auth_key);
                 nlohmann::json peers = nlohmann::json::array();
                 for (const auto& peer : config.Peers)
@@ -369,7 +371,7 @@ extern "C"
         }
         try
         {
-            std::optional<tailgate::control::NetworkConfig> update =
+            std::optional<tailgate::types::netmap::NetworkConfig> update =
                 control->Client.PollNetworkMap();
             if (!update)
             {
@@ -475,7 +477,7 @@ extern "C"
             return nullptr;
         }
         thread_local std::string code;
-        code = tailgate::control::DerpCode(config->Config, region);
+        code = tailgate::types::netmap::DerpCode(config->Config, region);
         return code.c_str();
     }
 
@@ -523,7 +525,7 @@ extern "C"
                 {
                     throw std::runtime_error("peer has no node key");
                 }
-                const auto key = tailgate::protocol::HexToBytes(text.substr(8));
+                const auto key = tailgate::crypto::HexToBytes(text.substr(8));
                 if (key.size() != 32)
                 {
                     throw std::runtime_error("peer node key is invalid");
@@ -548,7 +550,7 @@ extern "C"
                 {
                     throw std::runtime_error("peer has no disco key");
                 }
-                const auto key = tailgate::protocol::HexToBytes(text.substr(9));
+                const auto key = tailgate::crypto::HexToBytes(text.substr(9));
                 if (key.size() != 32)
                 {
                     throw std::runtime_error("peer disco key is invalid");
@@ -584,7 +586,7 @@ extern "C"
         {
             return -1;
         }
-        const auto found = tailgate::control::FindRoute(config->Config.Peers, destination);
+        const auto found = tailgate::types::netmap::FindRoute(config->Config.Peers, destination);
         if (!found)
         {
             return 1;
@@ -606,7 +608,7 @@ extern "C"
         if (preferences->exit_node != nullptr && preferences->exit_node[0] != '\0')
         {
             exitNode =
-                tailgate::control::FindExitNode(config->Config.Peers, preferences->exit_node);
+                tailgate::types::netmap::FindExitNode(config->Config.Peers, preferences->exit_node);
             if (!exitNode)
             {
                 LastError = "requested exit node is unavailable";
@@ -614,7 +616,7 @@ extern "C"
             }
         }
         const auto routed =
-            tailgate::control::FindRoute(config->Config.Peers, destination, exitNode);
+            tailgate::types::netmap::FindRoute(config->Config.Peers, destination, exitNode);
         if (routed)
         {
             *peerIndex = *routed;
@@ -635,7 +637,7 @@ extern "C"
                     throw std::invalid_argument("exit-node lookup arguments are required");
                 }
                 const auto found =
-                    tailgate::control::FindExitNode(config->Config.Peers, nameOrAddress);
+                    tailgate::types::netmap::FindExitNode(config->Config.Peers, nameOrAddress);
                 if (!found)
                 {
                     throw std::runtime_error("requested exit node is unavailable");
@@ -831,7 +833,7 @@ extern "C"
                 {
                     throw std::invalid_argument("disco ping arguments are required");
                 }
-                tailgate::protocol::Disco::TransactionId transaction{};
+                tailgate::disco::Disco::TransactionId transaction{};
                 std::copy_n(transaction_id, transaction.size(), transaction.begin());
                 *packet =
                     CopyBuffer(disco->Client.BuildPing(Key(recipient_disco_key), transaction));
@@ -853,7 +855,7 @@ extern "C"
                 {
                     throw std::invalid_argument("disco pong arguments are required");
                 }
-                tailgate::protocol::Disco::TransactionId transaction{};
+                tailgate::disco::Disco::TransactionId transaction{};
                 std::copy_n(transaction_id, transaction.size(), transaction.begin());
                 *packet = CopyBuffer(disco->Client.BuildPong(
                     Key(recipient_disco_key), transaction, source_address_host_order, source_port));
@@ -876,7 +878,7 @@ extern "C"
                 {
                     throw std::invalid_argument("disco CallMeMaybe arguments are required");
                 }
-                std::vector<tailgate::protocol::Disco::Endpoint> endpoints;
+                std::vector<tailgate::disco::Disco::Endpoint> endpoints;
                 endpoints.reserve(endpoint_count);
                 for (std::size_t index = 0; index < endpoint_count; ++index)
                 {
@@ -906,9 +908,9 @@ extern "C"
                 {
                     throw std::runtime_error("packet is not a valid disco message");
                 }
-                message->type = parsed->Type == tailgate::protocol::Disco::MessageType::Ping
+                message->type = parsed->Type == tailgate::disco::Disco::MessageType::Ping
                                     ? TG_DISCO_PING
-                                : parsed->Type == tailgate::protocol::Disco::MessageType::Pong
+                                : parsed->Type == tailgate::disco::Disco::MessageType::Pong
                                     ? TG_DISCO_PONG
                                     : TG_DISCO_CALL_ME_MAYBE;
                 std::copy(parsed->Sender.begin(), parsed->Sender.end(), message->sender);

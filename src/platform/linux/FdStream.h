@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tailgate/ByteStream.h"
+#include <tailgate/base/ByteStream.h>
 
 #include <chrono>
 #include <optional>
@@ -8,7 +8,7 @@
 namespace tailgate::linux_frontend
 {
 
-class FdStream final : public IByteStream
+class FdStream final : public tailgate::base::IByteStream
 {
 public:
     explicit FdStream(int fd);

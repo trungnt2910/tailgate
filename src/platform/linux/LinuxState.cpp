@@ -1,10 +1,5 @@
 #include "LinuxState.h"
 
-#include "tailgate/network/ResolverConfig.h"
-#include "tailgate/protocol/Crypto.h"
-
-#include <nlohmann/json.hpp>
-
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -14,11 +9,16 @@
 #include <format>
 #include <fstream>
 #include <mutex>
-#include <pwd.h>
 #include <stdexcept>
 
+#include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <nlohmann/json.hpp>
+
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/net/dns/ResolverConfig.h>
 
 namespace tailgate::linux_frontend
 {
@@ -65,14 +65,14 @@ std::string LegacyHostedProfilesPath()
     return StateDirectory() + "/hosted-profiles.json";
 }
 
-protocol::Bytes32 DecodeStoredKey(const nlohmann::json& json, const char* name)
+tailgate::crypto::Bytes32 DecodeStoredKey(const nlohmann::json& json, const char* name)
 {
-    const std::vector<std::uint8_t> bytes = protocol::HexToBytes(json.value(name, ""));
-    if (bytes.size() != protocol::Bytes32{}.size())
+    const std::vector<std::uint8_t> bytes = tailgate::crypto::HexToBytes(json.value(name, ""));
+    if (bytes.size() != tailgate::crypto::Bytes32{}.size())
     {
         throw std::runtime_error(std::string("invalid stored key ") + name);
     }
-    protocol::Bytes32 result{};
+    tailgate::crypto::Bytes32 result{};
     std::copy(bytes.begin(), bytes.end(), result.begin());
     return result;
 }
@@ -245,17 +245,20 @@ std::optional<IdentityState> ReadIdentity()
         throw std::runtime_error("Tailgate identity state is not valid JSON");
     }
     const std::vector<std::uint8_t> machine =
-        protocol::HexToBytes(json.value("MachinePrivateKey", ""));
-    const std::vector<std::uint8_t> node = protocol::HexToBytes(json.value("NodePrivateKey", ""));
-    const std::vector<std::uint8_t> disco = protocol::HexToBytes(json.value("DiscoPrivateKey", ""));
-    if (machine.size() != protocol::Bytes32{}.size() || node.size() != protocol::Bytes32{}.size())
+        tailgate::crypto::HexToBytes(json.value("MachinePrivateKey", ""));
+    const std::vector<std::uint8_t> node =
+        tailgate::crypto::HexToBytes(json.value("NodePrivateKey", ""));
+    const std::vector<std::uint8_t> disco =
+        tailgate::crypto::HexToBytes(json.value("DiscoPrivateKey", ""));
+    if (machine.size() != tailgate::crypto::Bytes32{}.size() ||
+        node.size() != tailgate::crypto::Bytes32{}.size())
     {
         throw std::runtime_error("Tailgate identity state contains invalid keys");
     }
     IdentityState result;
     std::copy(machine.begin(), machine.end(), result.MachinePrivateKey.begin());
     std::copy(node.begin(), node.end(), result.NodePrivateKey.begin());
-    if (disco.size() == protocol::Bytes32{}.size())
+    if (disco.size() == tailgate::crypto::Bytes32{}.size())
     {
         std::copy(disco.begin(), disco.end(), result.DiscoPrivateKey.begin());
     }
@@ -269,12 +272,14 @@ void WriteIdentity(const IdentityState& identity)
     EnsureStateDirectory();
     const nlohmann::json json = {
         {"MachinePrivateKey",
-         protocol::BytesToHex(identity.MachinePrivateKey.data(),
-                              identity.MachinePrivateKey.size())},
+         tailgate::crypto::BytesToHex(identity.MachinePrivateKey.data(),
+                                      identity.MachinePrivateKey.size())},
         {"NodePrivateKey",
-         protocol::BytesToHex(identity.NodePrivateKey.data(), identity.NodePrivateKey.size())},
+         tailgate::crypto::BytesToHex(identity.NodePrivateKey.data(),
+                                      identity.NodePrivateKey.size())},
         {"DiscoPrivateKey",
-         protocol::BytesToHex(identity.DiscoPrivateKey.data(), identity.DiscoPrivateKey.size())},
+         tailgate::crypto::BytesToHex(identity.DiscoPrivateKey.data(),
+                                      identity.DiscoPrivateKey.size())},
         {"Hostname", identity.Hostname},
         {"RegistrationComplete", identity.RegistrationComplete},
     };
@@ -399,7 +404,7 @@ std::optional<RelaySessionState> ReadRelaySession()
                              .Tailnet = json.value("Tailnet", ""),
                              .RelayPublicKey = json.contains("RelayPublicKey")
                                                    ? DecodeStoredKey(json, "RelayPublicKey")
-                                                   : protocol::Bytes32{}};
+                                                   : tailgate::crypto::Bytes32{}};
 }
 
 void WriteRelaySession(const RelaySessionState& state)
@@ -409,8 +414,8 @@ void WriteRelaySession(const RelaySessionState& state)
               nlohmann::json({{"ServerUrl", state.ServerUrl},
                               {"Tailnet", state.Tailnet},
                               {"RelayPublicKey",
-                               protocol::BytesToHex(state.RelayPublicKey.data(),
-                                                    state.RelayPublicKey.size())}})
+                               tailgate::crypto::BytesToHex(state.RelayPublicKey.data(),
+                                                            state.RelayPublicKey.size())}})
                       .dump(2) +
                   "\n");
     std::filesystem::permissions(RelaySessionPath(),
@@ -460,7 +465,7 @@ void SaveResolverConfiguration()
 void RestoreResolverConfiguration()
 {
     const std::string current = ReadFile("/etc/resolv.conf");
-    const std::string restored = network::RemoveResolverSection(current);
+    const std::string restored = tailgate::net::dns::RemoveResolverSection(current);
     if (restored != current)
     {
         WriteFile("/etc/resolv.conf", restored);

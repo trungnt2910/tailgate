@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tailgate/ByteStream.h"
+#include <tailgate/base/ByteStream.h>
 
 #include <memory>
 #include <string>
@@ -34,8 +34,9 @@ public:
     PeerApiIngressHandler(const PeerApiIngressHandler&) = delete;
     PeerApiIngressHandler& operator=(const PeerApiIngressHandler&) = delete;
 
-    [[nodiscard]] PeerApiIngressRequest ReadRequestAndRespond(IByteStream& peer);
-    [[nodiscard]] std::unique_ptr<IByteStream> OpenTlsStream(IByteStream& peer);
+    [[nodiscard]] PeerApiIngressRequest ReadRequestAndRespond(tailgate::base::IByteStream& peer);
+    [[nodiscard]] std::unique_ptr<tailgate::base::IByteStream>
+    OpenTlsStream(tailgate::base::IByteStream& peer);
 
 private:
     class Impl;

@@ -8,8 +8,8 @@
 #include <winrt/Windows.Networking.Sockets.h>
 #include <winrt/Windows.Storage.Streams.h>
 
-#include <tailgate/ByteStream.h>
-#include <tailgate/Logger.h>
+#include <tailgate/base/ByteStream.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -19,7 +19,7 @@ namespace tailgate::uwp
 // TCP stream over a WinRT StreamSocket. TLS always uses a plain TCP connect followed by an
 // explicit UpgradeToSslAsync handshake: connecting with a TLS protection level directly defers
 // the handshake to the first I/O, which hangs inside the VPN background process.
-class UwpTcpStream final : public IByteStream
+class UwpTcpStream final : public tailgate::base::IByteStream
 {
 public:
     // An unset connect timeout uses the I/O timeout. A short connect timeout lets dial-with-
@@ -58,7 +58,7 @@ private:
         IAsyncOperationWithProgress<winrt::Windows::Storage::Streams::IBuffer, std::uint32_t>
             m_pendingRead{nullptr};
     bool m_nonBlockingReads = false;
-    Logger m_logger{"uwp-tcp"};
+    tailgate::base::Logger m_logger{"uwp-tcp"};
 };
 
 } // namespace tailgate::uwp

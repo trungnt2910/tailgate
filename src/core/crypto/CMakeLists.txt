@@ -1,0 +1,17 @@
+tailgate_add_library(
+    tailgate_core_crypto
+    STATIC
+    Base64.cpp
+    Crypto.cpp
+    Keys.cpp
+    PsaCryptoContext.cpp
+    PsaCryptoContext.h
+)
+target_link_libraries(
+    tailgate_core_crypto
+    PRIVATE
+        Boost::algorithm
+        sodium
+        MbedTLS::mbedtls
+        tailgate_wireguard_crypto
+)

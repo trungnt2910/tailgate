@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tailgate/ByteStream.h"
+#include <tailgate/base/ByteStream.h>
 
 #include <functional>
 #include <memory>
@@ -11,7 +11,7 @@ namespace tailgate::linux_frontend
 class LinuxRelayServer final
 {
 public:
-    using Handler = std::function<void(IByteStream&,
+    using Handler = std::function<void(tailgate::base::IByteStream&,
                                        const std::function<void()>& closeConnection,
                                        const std::function<void()>& markIdentityVerified)>;
 

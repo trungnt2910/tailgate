@@ -10,7 +10,7 @@
 namespace
 {
 
-class MemoryStream final : public tailgate::IByteStream
+class MemoryStream final : public tailgate::base::IByteStream
 {
 public:
     explicit MemoryStream(std::string input) : m_input(input.begin(), input.end())

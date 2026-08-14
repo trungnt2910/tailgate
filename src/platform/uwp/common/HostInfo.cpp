@@ -29,7 +29,7 @@ std::string HostVersion()
 
 } // namespace
 
-tailgate::protocol::HostInfo BuildHostInfo()
+tailgate::control::client::HostInfo BuildHostInfo()
 {
     std::string hostname = CollectComputerHostname();
     const std::string hostnameOverride = winrt::to_string(Settings::GetString(L"Hostname"));
@@ -38,7 +38,7 @@ tailgate::protocol::HostInfo BuildHostInfo()
         hostname = hostnameOverride;
     }
 
-    tailgate::protocol::HostInfo host;
+    tailgate::control::client::HostInfo host;
     host.Hostname = hostname;
     host.OperatingSystem = "UWP";
     host.OperatingSystemVersion = HostVersion();

@@ -1,12 +1,12 @@
-#include "tailgate/cli/Arguments.h"
-
-#include <CLI/CLI.hpp>
+#include <tailgate/cli/Arguments.h>
 
 #include <algorithm>
 #include <format>
 #include <memory>
 #include <string>
 #include <string_view>
+
+#include <CLI/CLI.hpp>
 
 namespace tailgate::cli
 {

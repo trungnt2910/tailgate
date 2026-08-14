@@ -5,11 +5,12 @@
 #include <string>
 #include <vector>
 
-#include <boost/algorithm/string/case_conv.hpp>
 #include <sys/utsname.h>
 #include <unistd.h>
 
-#include <tailgate/protocol/Crypto.h>
+#include <boost/algorithm/string/case_conv.hpp>
+
+#include <tailgate/crypto/Crypto.h>
 
 namespace tailgate::linux_frontend
 {
@@ -27,12 +28,12 @@ std::string GenerateLogId()
     {
         byte = static_cast<std::uint8_t>(random());
     }
-    return protocol::BytesToHex(bytes.data(), bytes.size());
+    return tailgate::crypto::BytesToHex(bytes.data(), bytes.size());
 }
 
 } // namespace
 
-tailgate::protocol::HostInfo CollectHostInfo()
+tailgate::control::client::HostInfo CollectHostInfo()
 {
     const long maximumHostnameLength = sysconf(_SC_HOST_NAME_MAX);
     const std::size_t hostnameCapacity =
@@ -62,7 +63,7 @@ tailgate::protocol::HostInfo CollectHostInfo()
     std::string operatingSystem = system.sysname;
     boost::algorithm::to_lower(operatingSystem);
 
-    tailgate::protocol::HostInfo result;
+    tailgate::control::client::HostInfo result;
     result.Hostname = hostname.data();
     result.OperatingSystem = std::move(operatingSystem);
     result.OperatingSystemVersion = system.release;

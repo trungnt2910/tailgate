@@ -9,8 +9,8 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/protocol/DerpClient.h>
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/derp/Client.h>
 
 #include "support/ScriptedByteStream.h"
 
@@ -48,7 +48,7 @@ std::vector<std::uint8_t> Frame(std::uint8_t type, const std::vector<std::uint8_
     return result;
 }
 
-std::vector<std::uint8_t> PacketPayload(const tailgate::protocol::DerpClient::Key& source,
+std::vector<std::uint8_t> PacketPayload(const tailgate::derp::DerpClient::Key& source,
                                         const std::vector<std::uint8_t>& packet)
 {
     std::vector<std::uint8_t> result(source.begin(), source.end());
@@ -56,7 +56,7 @@ std::vector<std::uint8_t> PacketPayload(const tailgate::protocol::DerpClient::Ke
     return result;
 }
 
-std::vector<std::uint8_t> Greeting(const tailgate::protocol::DerpClient::Key& serverKey)
+std::vector<std::uint8_t> Greeting(const tailgate::derp::DerpClient::Key& serverKey)
 {
     std::vector<std::uint8_t> result(DerpMagic.begin(), DerpMagic.end());
     result.insert(result.end(), serverKey.begin(), serverKey.end());
@@ -67,16 +67,16 @@ std::vector<std::uint8_t> Greeting(const tailgate::protocol::DerpClient::Key& se
 
 TEST(Given_DerpClient, When_BuildingClientInfo_Then_EnvelopeContainsNodeKeyAndFreshNonce)
 {
-    const tailgate::protocol::Bytes32 clientPrivate = tailgate::protocol::GeneratePrivateKey();
-    const tailgate::protocol::Bytes32 clientPublic =
-        tailgate::protocol::X25519PublicFromPrivate(clientPrivate);
-    const tailgate::protocol::Bytes32 serverPublic =
-        tailgate::protocol::X25519PublicFromPrivate(tailgate::protocol::GeneratePrivateKey());
+    const tailgate::crypto::Bytes32 clientPrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 clientPublic =
+        tailgate::crypto::X25519PublicFromPrivate(clientPrivate);
+    const tailgate::crypto::Bytes32 serverPublic =
+        tailgate::crypto::X25519PublicFromPrivate(tailgate::crypto::GeneratePrivateKey());
 
     const std::vector<std::uint8_t> first =
-        tailgate::protocol::DerpClient::BuildClientInfo(clientPrivate, clientPublic, serverPublic);
+        tailgate::derp::DerpClient::BuildClientInfo(clientPrivate, clientPublic, serverPublic);
     const std::vector<std::uint8_t> second =
-        tailgate::protocol::DerpClient::BuildClientInfo(clientPrivate, clientPublic, serverPublic);
+        tailgate::derp::DerpClient::BuildClientInfo(clientPrivate, clientPublic, serverPublic);
 
     EXPECT_GT(first.size(), clientPublic.size());
     EXPECT_EQ(first.size(), second.size());
@@ -88,7 +88,7 @@ TEST(Given_DerpClient, When_BuildingClientInfo_Then_EnvelopeContainsNodeKeyAndFr
 TEST(Given_DerpClient, When_ConnectingWithAuthenticator_Then_UpgradeAndIdentityAreExchanged)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::DerpClient::Key serverKey{};
+    tailgate::derp::DerpClient::Key serverKey{};
     serverKey[0] = 42;
     std::vector<std::uint8_t> input{'H', 'T', 'T', 'P', '/',  '1',  '.',  '1', ' ',
                                     '1', '0', '1', ' ', 'S',  'w',  'i',  't', 'c',
@@ -99,13 +99,13 @@ TEST(Given_DerpClient, When_ConnectingWithAuthenticator_Then_UpgradeAndIdentityA
     input.insert(input.end(), greeting.begin(), greeting.end());
     input.insert(input.end(), serverInfo.begin(), serverInfo.end());
     stream.QueueRead(std::move(input));
-    std::optional<tailgate::protocol::DerpClient::Key> authenticatedServer;
-    const auto authenticate = [&](const tailgate::protocol::DerpClient::Key& key)
+    std::optional<tailgate::derp::DerpClient::Key> authenticatedServer;
+    const auto authenticate = [&](const tailgate::derp::DerpClient::Key& key)
     {
         authenticatedServer = key;
         return std::vector<std::uint8_t>(DerpKeySize + CryptoBoxNonceSize + CryptoBoxMacSize);
     };
-    tailgate::protocol::DerpClient client(stream, authenticate);
+    tailgate::derp::DerpClient client(stream, authenticate);
 
     client.Connect("derp.example.com");
 
@@ -121,12 +121,12 @@ TEST(Given_DerpClient, When_ConnectingWithAuthenticator_Then_UpgradeAndIdentityA
 TEST(Given_DerpClient, When_SendingPacket_Then_DestinationAndPayloadAreFramed)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::DerpClient::Key destination{};
+    tailgate::derp::DerpClient::Key destination{};
     destination[0] = 42;
     const std::vector<std::uint8_t> packet{1, 2, 3, 4};
     const std::vector<std::uint8_t> expected =
         Frame(SendPacketFrame, PacketPayload(destination, packet));
-    tailgate::protocol::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient client(stream, {}, {});
 
     client.Send(destination, packet);
 
@@ -137,19 +137,17 @@ TEST(Given_DerpClient, When_SendingPacket_Then_DestinationAndPayloadAreFramed)
 TEST(Given_DerpClient, When_ReceivePacketIsFragmented_Then_ItIsReturnedAfterFinalFragment)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::DerpClient::Key source{};
+    tailgate::derp::DerpClient::Key source{};
     source[0] = 42;
     const std::vector<std::uint8_t> packet{1, 2, 3, 4};
     const std::vector<std::uint8_t> frame =
         Frame(ReceivePacketFrame, PacketPayload(source, packet));
     stream.QueueRead({frame.begin(), frame.begin() + 3});
     stream.QueueRead({frame.begin() + 3, frame.end()});
-    tailgate::protocol::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient client(stream, {}, {});
 
-    const std::optional<tailgate::protocol::DerpClient::Packet> beforeFinal =
-        client.ReceiveAvailable();
-    const std::optional<tailgate::protocol::DerpClient::Packet> afterFinal =
-        client.ReceiveAvailable();
+    const std::optional<tailgate::derp::DerpClient::Packet> beforeFinal = client.ReceiveAvailable();
+    const std::optional<tailgate::derp::DerpClient::Packet> afterFinal = client.ReceiveAvailable();
 
     EXPECT_FALSE(beforeFinal.has_value());
     EXPECT_TRUE(afterFinal.has_value());
@@ -160,8 +158,8 @@ TEST(Given_DerpClient, When_ReceivePacketIsFragmented_Then_ItIsReturnedAfterFina
 TEST(Given_DerpClient, When_ReceivePacketsAreCoalesced_Then_BufferedPacketNeedsNoAdditionalRead)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::DerpClient::Key firstSource{};
-    tailgate::protocol::DerpClient::Key secondSource{};
+    tailgate::derp::DerpClient::Key firstSource{};
+    tailgate::derp::DerpClient::Key secondSource{};
     firstSource[0] = 1;
     secondSource[0] = 2;
     std::vector<std::uint8_t> input = Frame(ReceivePacketFrame, PacketPayload(firstSource, {3}));
@@ -169,11 +167,11 @@ TEST(Given_DerpClient, When_ReceivePacketsAreCoalesced_Then_BufferedPacketNeedsN
         Frame(ReceivePacketFrame, PacketPayload(secondSource, {4}));
     input.insert(input.end(), second.begin(), second.end());
     stream.QueueRead(std::move(input));
-    tailgate::protocol::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient client(stream, {}, {});
 
-    const std::optional<tailgate::protocol::DerpClient::Packet> first = client.ReceiveAvailable();
+    const std::optional<tailgate::derp::DerpClient::Packet> first = client.ReceiveAvailable();
     const std::size_t readsAfterFirst = stream.ReadCalls;
-    const std::optional<tailgate::protocol::DerpClient::Packet> secondPacket =
+    const std::optional<tailgate::derp::DerpClient::Packet> secondPacket =
         client.ReceiveAvailable();
 
     EXPECT_TRUE(first.has_value());
@@ -188,7 +186,7 @@ TEST(Given_DerpClient, When_ReceivePacketsAreCoalesced_Then_BufferedPacketNeedsN
 TEST(Given_DerpClient, When_ControlAndDataFramesAreBatched_Then_OnlyDataIsReturnedAndPingIsAcked)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::DerpClient::Key source{};
+    tailgate::derp::DerpClient::Key source{};
     source[0] = 42;
     std::vector<std::uint8_t> input = Frame(KeepAliveFrame, {});
     const std::vector<std::vector<std::uint8_t>> remaining{
@@ -202,11 +200,10 @@ TEST(Given_DerpClient, When_ControlAndDataFramesAreBatched_Then_OnlyDataIsReturn
         input.insert(input.end(), frame.begin(), frame.end());
     }
     stream.QueueRead(std::move(input));
-    tailgate::protocol::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient client(stream, {}, {});
     const std::vector<std::uint8_t> expectedPong = Frame(PongFrame, {1, 2, 3});
 
-    const std::vector<tailgate::protocol::DerpClient::Packet> packets =
-        client.ReceiveAvailableBatch();
+    const std::vector<tailgate::derp::DerpClient::Packet> packets = client.ReceiveAvailableBatch();
 
     EXPECT_EQ(packets.size(), 1U);
     EXPECT_EQ(packets.at(0).Source, source);
@@ -218,8 +215,8 @@ TEST(Given_DerpClient, When_WriteWouldBlock_Then_FlushResumesPendingFrame)
 {
     tailgate::test::ScriptedByteStream stream;
     stream.BlockedWrites = 1;
-    tailgate::protocol::DerpClient client(stream, {}, {});
-    tailgate::protocol::DerpClient::Key destination{};
+    tailgate::derp::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient::Key destination{};
     const std::vector<std::uint8_t> expected =
         Frame(SendPacketFrame, PacketPayload(destination, {1}));
 
@@ -241,7 +238,7 @@ TEST(Given_DerpClient, When_FrameExceedsProtocolLimit_Then_ReceiveRejectsIt)
                       static_cast<std::uint8_t>(oversized >> 16U),
                       static_cast<std::uint8_t>(oversized >> 8U),
                       static_cast<std::uint8_t>(oversized)});
-    tailgate::protocol::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient client(stream, {}, {});
     const auto receive = [&]()
     {
         (void)client.ReceiveAvailable();
@@ -253,7 +250,7 @@ TEST(Given_DerpClient, When_FrameExceedsProtocolLimit_Then_ReceiveRejectsIt)
 TEST(Given_DerpClient, When_SettingPreference_Then_BooleanFrameIsSent)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient client(stream, {}, {});
     const std::vector<std::uint8_t> expected = Frame(PreferredFrame, {1});
 
     client.SetPreferred(true);

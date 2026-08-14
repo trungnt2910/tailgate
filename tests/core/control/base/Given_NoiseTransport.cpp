@@ -5,9 +5,9 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/protocol/ControlHandshake.h>
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/protocol/NoiseTransport.h>
+#include <tailgate/control/base/ControlHandshake.h>
+#include <tailgate/control/base/NoiseTransport.h>
+#include <tailgate/crypto/Crypto.h>
 
 #include "support/ScriptedByteStream.h"
 
@@ -18,12 +18,12 @@ constexpr std::uint8_t NoiseTransportFrameType = 0x04;
 constexpr std::size_t NoiseTransportFrameHeaderSize = 3;
 constexpr std::size_t MaximumNoiseCiphertextSize = 0xffff;
 
-std::vector<std::uint8_t> BuildTransportFrame(const tailgate::protocol::Bytes32& key,
+std::vector<std::uint8_t> BuildTransportFrame(const tailgate::crypto::Bytes32& key,
                                               std::uint64_t nonce,
                                               const std::vector<std::uint8_t>& plaintext)
 {
     const std::vector<std::uint8_t> ciphertext =
-        tailgate::protocol::ChaCha20Poly1305EncryptBigNonce(key, nonce, {}, plaintext);
+        tailgate::crypto::ChaCha20Poly1305EncryptBigNonce(key, nonce, {}, plaintext);
     std::vector<std::uint8_t> frame;
     frame.reserve(NoiseTransportFrameHeaderSize + ciphertext.size());
     frame.push_back(NoiseTransportFrameType);
@@ -38,16 +38,16 @@ std::vector<std::uint8_t> BuildTransportFrame(const tailgate::protocol::Bytes32&
 TEST(Given_NoiseTransport, When_ProactiveFramePrecedesStreamData_Then_NonceOrderIsPreserved)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::NoiseKeys keys;
+    tailgate::control::base::NoiseKeys keys;
     keys.RxKey[0] = 42;
     const std::vector<std::uint8_t> proactivePlaintext{1, 2, 3, 4};
     const std::vector<std::uint8_t> streamPlaintext{5, 6, 7, 8};
     stream.QueueRead(BuildTransportFrame(keys.RxKey, 1, streamPlaintext));
-    tailgate::protocol::ControlHandshakeResult handshake{
+    tailgate::control::base::ControlHandshakeResult handshake{
         .Keys = keys,
         .ProactiveFrames = BuildTransportFrame(keys.RxKey, 0, proactivePlaintext),
     };
-    tailgate::protocol::NoiseTransport transport(stream, std::move(handshake));
+    tailgate::control::base::NoiseTransport transport(stream, std::move(handshake));
 
     const std::vector<std::uint8_t> proactiveReceived = transport.Receive();
     const std::size_t readsAfterProactive = stream.ReadCalls;
@@ -62,13 +62,13 @@ TEST(Given_NoiseTransport, When_ProactiveFramePrecedesStreamData_Then_NonceOrder
 TEST(Given_NoiseTransport, When_FrameIsFragmented_Then_TryReceiveWaitsForCompletion)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::NoiseKeys keys;
+    tailgate::control::base::NoiseKeys keys;
     keys.RxKey[0] = 42;
     const std::vector<std::uint8_t> plaintext{1, 2, 3, 4};
     const std::vector<std::uint8_t> frame = BuildTransportFrame(keys.RxKey, 0, plaintext);
     stream.QueueRead({frame.begin(), frame.begin() + 2});
     stream.QueueRead({frame.begin() + 2, frame.end()});
-    tailgate::protocol::NoiseTransport transport(stream, keys);
+    tailgate::control::base::NoiseTransport transport(stream, keys);
 
     const std::optional<std::vector<std::uint8_t>> partial = transport.TryReceive();
     const std::optional<std::vector<std::uint8_t>> complete = transport.TryReceive();
@@ -81,7 +81,7 @@ TEST(Given_NoiseTransport, When_FrameIsFragmented_Then_TryReceiveWaitsForComplet
 TEST(Given_NoiseTransport, When_FramesAreCoalesced_Then_SecondFrameUsesBufferedInput)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::NoiseKeys keys;
+    tailgate::control::base::NoiseKeys keys;
     keys.RxKey[0] = 42;
     const std::vector<std::uint8_t> firstPlaintext{1, 2};
     const std::vector<std::uint8_t> secondPlaintext{3, 4};
@@ -90,7 +90,7 @@ TEST(Given_NoiseTransport, When_FramesAreCoalesced_Then_SecondFrameUsesBufferedI
         BuildTransportFrame(keys.RxKey, 1, secondPlaintext);
     input.insert(input.end(), secondFrame.begin(), secondFrame.end());
     stream.QueueRead(std::move(input));
-    tailgate::protocol::NoiseTransport transport(stream, keys);
+    tailgate::control::base::NoiseTransport transport(stream, keys);
 
     const std::optional<std::vector<std::uint8_t>> first = transport.TryReceive();
     const std::size_t readsAfterFirst = stream.ReadCalls;
@@ -107,11 +107,11 @@ TEST(Given_NoiseTransport, When_WriteWouldBlock_Then_FlushResumesEncryptedFrame)
 {
     tailgate::test::ScriptedByteStream stream;
     stream.BlockedWrites = 1;
-    tailgate::protocol::NoiseKeys keys;
+    tailgate::control::base::NoiseKeys keys;
     keys.TxKey[0] = 42;
     const std::vector<std::uint8_t> plaintext{1, 2, 3, 4};
     const std::vector<std::uint8_t> expected = BuildTransportFrame(keys.TxKey, 0, plaintext);
-    tailgate::protocol::NoiseTransport transport(stream, keys);
+    tailgate::control::base::NoiseTransport transport(stream, keys);
 
     transport.Send(plaintext);
     const bool pendingBeforeFlush = transport.HasPendingOutput();
@@ -126,8 +126,8 @@ TEST(Given_NoiseTransport, When_FrameTypeIsUnexpected_Then_ReceiveRejectsIt)
 {
     tailgate::test::ScriptedByteStream stream;
     stream.QueueRead({0xff, 0, 0});
-    tailgate::protocol::NoiseKeys keys;
-    tailgate::protocol::NoiseTransport transport(stream, keys);
+    tailgate::control::base::NoiseKeys keys;
+    tailgate::control::base::NoiseTransport transport(stream, keys);
     const auto receive = [&]()
     {
         (void)transport.TryReceive();
@@ -139,8 +139,8 @@ TEST(Given_NoiseTransport, When_FrameTypeIsUnexpected_Then_ReceiveRejectsIt)
 TEST(Given_NoiseTransport, When_PlaintextExceedsFrameLimit_Then_SendRejectsIt)
 {
     tailgate::test::ScriptedByteStream stream;
-    tailgate::protocol::NoiseKeys keys;
-    tailgate::protocol::NoiseTransport transport(stream, keys);
+    tailgate::control::base::NoiseKeys keys;
+    tailgate::control::base::NoiseTransport transport(stream, keys);
     const std::vector<std::uint8_t> oversized(MaximumNoiseCiphertextSize);
     const auto send = [&]()
     {

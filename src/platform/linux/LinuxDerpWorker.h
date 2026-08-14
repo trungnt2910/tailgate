@@ -1,13 +1,13 @@
 #pragma once
 
-#include "tailgate/protocol/Crypto.h"
-#include "tailgate/protocol/DerpClient.h"
-#include "tailgate/protocol/DerpSendQueue.h"
-
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/derp/Client.h>
+#include <tailgate/derp/SendQueue.h>
 
 namespace tailgate::linux_frontend
 {
@@ -15,17 +15,17 @@ namespace tailgate::linux_frontend
 class DerpWorker
 {
 public:
-    using Key = protocol::DerpClient::Key;
-    using Packet = protocol::DerpClient::Packet;
+    using Key = tailgate::derp::DerpClient::Key;
+    using Packet = tailgate::derp::DerpClient::Packet;
 
-    using Priority = protocol::DerpSendQueue::Priority;
+    using Priority = tailgate::derp::DerpSendQueue::Priority;
 
     DerpWorker(const std::string& host,
                const std::string& interfaceName,
-               const protocol::Bytes32& privateKey,
-               const protocol::Bytes32& publicKey,
+               const tailgate::crypto::Bytes32& privateKey,
+               const tailgate::crypto::Bytes32& publicKey,
                bool preferred,
-               protocol::DerpClient::Authenticator authenticator = {});
+               tailgate::derp::DerpClient::Authenticator authenticator = {});
     ~DerpWorker();
 
     DerpWorker(const DerpWorker&) = delete;

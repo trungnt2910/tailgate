@@ -3,7 +3,7 @@
 #include <chrono>
 #include <string>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -30,7 +30,7 @@ private:
     std::string m_service;
     std::string m_connectAddress;
     bool m_usingCachedEndpoint = false;
-    Logger m_logger{"uwp-relay"};
+    tailgate::base::Logger m_logger{"uwp-relay"};
 };
 
 } // namespace tailgate::uwp

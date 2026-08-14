@@ -1,0 +1,20 @@
+tailgate_add_library(
+    tailgate_core_wgengine_wireguard
+    STATIC
+    ReplayWindow.cpp
+    Router.cpp
+    Tunnel.cpp
+    WireguardPlatform.cpp
+)
+target_link_libraries(
+    tailgate_core_wgengine_wireguard
+    PUBLIC
+        tailgate_core_crypto
+        tailgate_core_net_dns
+        tailgate_core_types_netmap
+    PRIVATE
+        sodium
+        tailgate_core_base
+        tailgate_core_net_packet
+        tailgate_wireguard_crypto
+)

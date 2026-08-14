@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -28,7 +28,7 @@ private:
     SessionController& m_sessionController;
     SettingsController& m_settingsController;
     SetOptionsState m_state;
-    Logger m_logger{"uwp-set-options-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-set-options-ctrl"};
 };
 
 } // namespace tailgate::uwp

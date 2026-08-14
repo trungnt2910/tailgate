@@ -59,7 +59,7 @@ std::uint64_t NextExitNodeSequence()
     return static_cast<std::uint64_t>(now) + ++sequence;
 }
 
-void HandleExitNodeResponse(const Logger& logger,
+void HandleExitNodeResponse(const tailgate::base::Logger& logger,
                             const std::weak_ptr<ExitNodeChangeState>& weakState,
                             const sockets::DatagramSocketMessageReceivedEventArgs& arguments)
 {

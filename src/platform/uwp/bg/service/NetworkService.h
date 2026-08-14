@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "manager/DataPlaneManager.h"
 #include "manager/SessionManager.h"
@@ -26,11 +26,12 @@ public:
     void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
 
 private:
-    void ProcessDiscoPacket(const relay::PeerPacket& packet, DecapsulationContext& context);
+    void ProcessDiscoPacket(const tailgate::hosted::PeerPacket& packet,
+                            DecapsulationContext& context);
 
     PingService& m_pingService;
     manager::SessionManager& m_sessionManager;
-    Logger m_logger{"uwp-network-service"};
+    tailgate::base::Logger m_logger{"uwp-network-service"};
 };
 
 } // namespace tailgate::uwp::bg::service

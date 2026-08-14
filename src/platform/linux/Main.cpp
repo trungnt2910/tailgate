@@ -1,5 +1,5 @@
-#include "tailgate/Application.h"
-#include "tailgate/PlatformFrontend.h"
+#include <tailgate/Application.h>
+#include <tailgate/PlatformFrontend.h>
 
 int main(int argc, char** argv)
 {

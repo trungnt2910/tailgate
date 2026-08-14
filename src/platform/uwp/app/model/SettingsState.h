@@ -5,7 +5,7 @@
 
 #include <winrt/base.h>
 
-#include <tailgate/protocol/Crypto.h>
+#include <tailgate/crypto/Crypto.h>
 
 #include "app/model/ObservableState.h"
 
@@ -60,8 +60,8 @@ public:
     TAILGATE_PROPERTY(CachedProfilePictureUrl, winrt::hstring);
     TAILGATE_PROPERTY(AuthKey, winrt::hstring);
     TAILGATE_PROPERTY(SelfAddress, winrt::hstring);
-    TAILGATE_PROPERTY(MachinePrivateKey, std::optional<protocol::Bytes32>);
-    TAILGATE_PROPERTY(NodePrivateKey, std::optional<protocol::Bytes32>);
+    TAILGATE_PROPERTY(MachinePrivateKey, std::optional<tailgate::crypto::Bytes32>);
+    TAILGATE_PROPERTY(NodePrivateKey, std::optional<tailgate::crypto::Bytes32>);
     TAILGATE_PROPERTY(Devices, std::vector<UwpDevice>);
     TAILGATE_PROPERTY(ConnectionSettings, ConnectionSettingsSnapshot);
     TAILGATE_PROPERTY(RegistrationComplete, bool);

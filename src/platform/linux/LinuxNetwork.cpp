@@ -1,21 +1,16 @@
 #include "LinuxNetwork.h"
 
-#include "tailgate/network/ResolverConfig.h"
-
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
-#include <fcntl.h>
 #include <fstream>
 #include <optional>
 #include <stdexcept>
 #include <vector>
 
 #include <arpa/inet.h>
-#include <boost/algorithm/hex.hpp>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/split.hpp>
+#include <fcntl.h>
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include <linux/ipv6.h>
@@ -23,6 +18,12 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <boost/algorithm/hex.hpp>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
+
+#include <tailgate/net/dns/ResolverConfig.h>
 
 namespace tailgate::linux_frontend
 {
@@ -154,7 +155,7 @@ void SetInterfaceMtu(const std::string& name, int mtu)
     }
 }
 
-void AddRoute(const std::string& interfaceName, const network::Ipv4Prefix& prefix)
+void AddRoute(const std::string& interfaceName, const tailgate::net::packet::Ipv4Prefix& prefix)
 {
     UniqueFd fd(socket(AF_INET, SOCK_DGRAM, 0));
     if (fd.Fd < 0)
@@ -167,7 +168,7 @@ void AddRoute(const std::string& interfaceName, const network::Ipv4Prefix& prefi
     destination.sin_addr.s_addr = htonl(prefix.Network);
     sockaddr_in mask{};
     mask.sin_family = AF_INET;
-    mask.sin_addr.s_addr = htonl(network::PrefixMask(prefix.PrefixLength));
+    mask.sin_addr.s_addr = htonl(tailgate::net::packet::PrefixMask(prefix.PrefixLength));
     std::memcpy(&route.rt_dst, &destination, sizeof(destination));
     std::memcpy(&route.rt_genmask, &mask, sizeof(mask));
     route.rt_flags = RTF_UP;
@@ -178,7 +179,7 @@ void AddRoute(const std::string& interfaceName, const network::Ipv4Prefix& prefi
     }
 }
 
-void RemoveRoute(const std::string& interfaceName, const network::Ipv4Prefix& prefix)
+void RemoveRoute(const std::string& interfaceName, const tailgate::net::packet::Ipv4Prefix& prefix)
 {
     UniqueFd fd(socket(AF_INET, SOCK_DGRAM, 0));
     if (fd.Fd < 0)
@@ -191,7 +192,7 @@ void RemoveRoute(const std::string& interfaceName, const network::Ipv4Prefix& pr
     destination.sin_addr.s_addr = htonl(prefix.Network);
     sockaddr_in mask{};
     mask.sin_family = AF_INET;
-    mask.sin_addr.s_addr = htonl(network::PrefixMask(prefix.PrefixLength));
+    mask.sin_addr.s_addr = htonl(tailgate::net::packet::PrefixMask(prefix.PrefixLength));
     std::memcpy(&route.rt_dst, &destination, sizeof(destination));
     std::memcpy(&route.rt_genmask, &mask, sizeof(mask));
     route.rt_flags = RTF_UP;
@@ -216,7 +217,7 @@ void WriteResolver(const std::string& dnsResolver, const std::vector<std::string
     {
         throw std::runtime_error("failed to write /etc/resolv.conf");
     }
-    resolv << network::ApplyResolverSection(contents, dnsResolver, domains);
+    resolv << tailgate::net::dns::ApplyResolverSection(contents, dnsResolver, domains);
 }
 
 std::vector<std::string> ReadResolverAddresses()
@@ -224,7 +225,7 @@ std::vector<std::string> ReadResolverAddresses()
     std::ifstream resolv("/etc/resolv.conf", std::ios::binary);
     const std::string contents{std::istreambuf_iterator<char>(resolv),
                                std::istreambuf_iterator<char>()};
-    return network::ResolverAddresses(contents);
+    return tailgate::net::dns::ResolverAddresses(contents);
 }
 
 UniqueFd OpenUdpSocket()

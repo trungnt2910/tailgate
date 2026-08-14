@@ -1,0 +1,15 @@
+tailgate_add_library(
+    tailgate_core_net_dns
+    STATIC
+    Dns.cpp
+    ResolverConfig.cpp
+    TailnetDns.cpp
+)
+target_link_libraries(
+    tailgate_core_net_dns
+    PUBLIC
+        tailgate_core_types_netmap
+    PRIVATE
+        Boost::algorithm
+        tailgate_core_net_packet
+)

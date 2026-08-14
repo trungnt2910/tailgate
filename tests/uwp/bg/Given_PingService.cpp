@@ -7,10 +7,10 @@
 #include <boost/di.hpp>
 #include <gtest/gtest.h>
 
-#include <tailgate/network/Ipv4.h>
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/protocol/Disco.h>
-#include <tailgate/relay/RelayProtocol.h>
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/disco/Disco.h>
+#include <tailgate/hosted/Protocol.h>
+#include <tailgate/net/packet/Ipv4.h>
 
 #include "common/UwpAppServiceProtocol.h"
 
@@ -36,7 +36,7 @@ DecodeResponse(const std::vector<std::vector<std::uint8_t>>& packets)
     {
         return std::nullopt;
     }
-    const auto datagram = network::ParseIpv4UdpDatagram(packets.front());
+    const auto datagram = tailgate::net::packet::ParseIpv4UdpDatagram(packets.front());
     if (!datagram)
     {
         return std::nullopt;
@@ -65,14 +65,14 @@ protected:
 
 TEST_F(Given_PingService, When_PeerDoesNotExist_Then_TypedErrorIsReturned)
 {
-    network::Ipv4UdpDatagram datagram;
+    tailgate::net::packet::Ipv4UdpDatagram datagram;
     datagram.Source = AppAddress;
     datagram.SourcePort = AppPort;
     const app_service::PingRequest request{
         .Sequence = RequestSequence,
         .Target = "missing.example.ts.net",
     };
-    const control::NetworkConfig config;
+    const tailgate::types::netmap::NetworkConfig config;
     std::vector<std::uint8_t> relayOutput;
     std::vector<std::vector<std::uint8_t>> appResponses;
 
@@ -90,17 +90,17 @@ TEST_F(Given_PingService, When_PeerDoesNotExist_Then_TypedErrorIsReturned)
 
 TEST_F(Given_PingService, When_PeerHasNoUsableDiscoState_Then_TypedErrorIsReturned)
 {
-    network::Ipv4UdpDatagram datagram;
+    tailgate::net::packet::Ipv4UdpDatagram datagram;
     datagram.Source = AppAddress;
     datagram.SourcePort = AppPort;
     const app_service::PingRequest request{
         .Sequence = RequestSequence,
         .Target = "peer.example.ts.net",
     };
-    control::PeerConfig peer;
+    tailgate::types::netmap::PeerConfig peer;
     peer.Name = "peer.example.ts.net";
     peer.Address = "100.64.0.2";
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     config.Peers.push_back(peer);
     std::vector<std::uint8_t> relayOutput;
     std::vector<std::vector<std::uint8_t>> appResponses;
@@ -116,44 +116,46 @@ TEST_F(Given_PingService, When_PeerHasNoUsableDiscoState_Then_TypedErrorIsReturn
 
 TEST_F(Given_PingService, When_PeerReturnsPong_Then_SuccessfulResponseIsFlushed)
 {
-    const protocol::Bytes32 localNodeKey = protocol::GeneratePrivateKey();
-    const protocol::Bytes32 remoteNodeKey = protocol::GeneratePrivateKey();
-    const protocol::Bytes32 localDiscoPrivate = protocol::GeneratePrivateKey();
-    const protocol::Bytes32 remoteDiscoPrivate = protocol::GeneratePrivateKey();
-    protocol::Disco localDisco(localDiscoPrivate, localNodeKey);
-    protocol::Disco remoteDisco(remoteDiscoPrivate, remoteNodeKey);
-    network::Ipv4UdpDatagram datagram;
+    const tailgate::crypto::Bytes32 localNodeKey = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 remoteNodeKey = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 localDiscoPrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 remoteDiscoPrivate = tailgate::crypto::GeneratePrivateKey();
+    tailgate::disco::Disco localDisco(localDiscoPrivate, localNodeKey);
+    tailgate::disco::Disco remoteDisco(remoteDiscoPrivate, remoteNodeKey);
+    tailgate::net::packet::Ipv4UdpDatagram datagram;
     datagram.Source = AppAddress;
     datagram.SourcePort = AppPort;
     const app_service::PingRequest request{
         .Sequence = RequestSequence,
         .Target = "peer.example.ts.net",
     };
-    control::PeerConfig peer;
+    tailgate::types::netmap::PeerConfig peer;
     peer.Name = "peer.example.ts.net";
     peer.Address = "100.64.0.2";
-    peer.Key = "nodekey:" + protocol::BytesToHex(remoteNodeKey.data(), remoteNodeKey.size());
-    peer.DiscoKey = "discokey:" + protocol::BytesToHex(remoteDisco.PublicKey().data(),
-                                                       remoteDisco.PublicKey().size());
-    control::NetworkConfig config;
+    peer.Key =
+        "nodekey:" + tailgate::crypto::BytesToHex(remoteNodeKey.data(), remoteNodeKey.size());
+    peer.DiscoKey = "discokey:" + tailgate::crypto::BytesToHex(remoteDisco.PublicKey().data(),
+                                                               remoteDisco.PublicKey().size());
+    tailgate::types::netmap::NetworkConfig config;
     config.Peers.push_back(peer);
     std::vector<std::uint8_t> relayOutput;
     std::vector<std::vector<std::uint8_t>> immediateResponses;
     m_subject->Handle(
         datagram, request, config, &localDisco, "DERP-1", relayOutput, immediateResponses);
-    relay::Decoder decoder;
+    tailgate::hosted::Decoder decoder;
     decoder.Feed(relayOutput);
     const auto frame = decoder.Next();
     ASSERT_TRUE(frame.has_value());
-    const relay::PeerPacket sentPacket = relay::DecodePeerPacket(frame->Payload);
+    const tailgate::hosted::PeerPacket sentPacket =
+        tailgate::hosted::DecodePeerPacket(frame->Payload);
     const auto ping = remoteDisco.Parse(sentPacket.Payload);
     ASSERT_TRUE(ping.has_value());
-    const protocol::Bytes32 localDiscoPublic = localDisco.PublicKey();
+    const tailgate::crypto::Bytes32 localDiscoPublic = localDisco.PublicKey();
     const std::vector<std::uint8_t> pongPayload =
         remoteDisco.BuildPong(localDiscoPublic, ping->Transaction, 0, 0);
     const auto pong = localDisco.Parse(pongPayload);
     ASSERT_TRUE(pong.has_value());
-    relay::PeerPacket receivedPacket;
+    tailgate::hosted::PeerPacket receivedPacket;
     receivedPacket.Peer = remoteNodeKey;
     receivedPacket.Payload = pongPayload;
     receivedPacket.Disco = true;

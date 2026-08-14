@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "manager/DataPlaneManager.h"
 #include "service/ServiceBase.h"
@@ -21,7 +21,7 @@ public:
     void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
 
 private:
-    Logger m_logger{"uwp-hosted-dns-service"};
+    tailgate::base::Logger m_logger{"uwp-hosted-dns-service"};
 };
 
 } // namespace tailgate::uwp::bg::service

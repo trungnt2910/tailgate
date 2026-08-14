@@ -24,7 +24,7 @@ public:
     void StartForegroundMonitor(const std::string& tailgateServer,
                                 ForegroundCancellationHandler cancelled) override;
     void StopForegroundMonitor() override;
-    void WriteState(const control::NetworkConfig& config) override;
+    void WriteState(const tailgate::types::netmap::NetworkConfig& config) override;
     void SignalStateChanged() override;
     void BeginStop() override;
     void CompleteStop() override;

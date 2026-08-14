@@ -12,7 +12,7 @@
 
 #include <winrt/base.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 #include <tailgate/cli/Arguments.h>
 
 #include "common/Arguments.h"
@@ -127,7 +127,7 @@ private:
     std::shared_ptr<tailgate::uwp::MainWindowController> m_controller;
     std::shared_ptr<tailgate::uwp::AppResources> m_resources;
     std::unique_ptr<tailgate::uwp::MainWindowView> m_view;
-    tailgate::Logger m_logger{"uwp-app"};
+    tailgate::base::Logger m_logger{"uwp-app"};
 };
 
 } // namespace winrt::Tailgate::implementation

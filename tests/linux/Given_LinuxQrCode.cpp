@@ -21,7 +21,7 @@ TEST(Given_LegacyLocale, When_ResolvingAutomaticQrFormat_Then_AsciiIsUsed)
 
 TEST(Given_QrCode, When_RenderingAscii_Then_QuietZoneAndFinderPatternArePresent)
 {
-    const tailgate::QrCode code = tailgate::EncodeQrCode("Tailgate");
+    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode("Tailgate");
 
     const std::string rendered =
         tailgate::linux_frontend::RenderQrCode(code, tailgate::linux_frontend::QrTextFormat::Ascii);
@@ -34,7 +34,7 @@ TEST(Given_QrCode, When_RenderingAscii_Then_QuietZoneAndFinderPatternArePresent)
 
 TEST(Given_QrCode, When_RenderingSmall_Then_RowsArePacked)
 {
-    const tailgate::QrCode code = tailgate::EncodeQrCode("Tailgate");
+    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode("Tailgate");
 
     const std::string rendered =
         tailgate::linux_frontend::RenderQrCode(code, tailgate::linux_frontend::QrTextFormat::Small);

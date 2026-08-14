@@ -25,5 +25,6 @@ target_link_libraries(
         Tailgate.Uwp.Common
         tailgate_core
     PRIVATE
+        Boost::algorithm
         nlohmann_json::nlohmann_json
 )

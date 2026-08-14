@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFireAndForget.h"
 #include "common/UwpFormat.h"
@@ -14,15 +14,15 @@ class ControlPlaneControllerImpl final : public ControlPlaneController
 {
 public:
     [[nodiscard]] const ControlPlaneState& GetState() const noexcept override;
-    void Logout(std::optional<protocol::Bytes32> machineKey,
-                std::optional<protocol::Bytes32> nodeKey) override;
+    void Logout(std::optional<tailgate::crypto::Bytes32> machineKey,
+                std::optional<tailgate::crypto::Bytes32> nodeKey) override;
 
 private:
-    FireAndForget LogoutInBackground(std::optional<protocol::Bytes32> machineKey,
-                                     std::optional<protocol::Bytes32> nodeKey);
+    FireAndForget LogoutInBackground(std::optional<tailgate::crypto::Bytes32> machineKey,
+                                     std::optional<tailgate::crypto::Bytes32> nodeKey);
 
     ControlPlaneState m_state;
-    Logger m_logger{"uwp-control-plane-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-control-plane-ctrl"};
 };
 
 } // namespace tailgate::uwp

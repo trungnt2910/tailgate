@@ -8,13 +8,13 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/protocol/H2.h>
+#include <tailgate/control/base/H2.h>
 
 TEST(Given_HuffmanEncoded410Status, When_DecodingH2Headers_Then_StatusIsReturned)
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x82, 0x68, 0x20};
 
-    const auto status = tailgate::protocol::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
 
     EXPECT_EQ(status, 410);
 }
@@ -23,7 +23,7 @@ TEST(Given_HuffmanEncoded429Status, When_DecodingH2Headers_Then_StatusIsReturned
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x83, 0x68, 0x4f, 0xff};
 
-    const auto status = tailgate::protocol::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
 
     EXPECT_EQ(status, 429);
 }
@@ -42,7 +42,7 @@ TEST(Given_HuffmanEncodedRetryAfter, When_DecodingH2Headers_Then_HeaderIsReturne
         0x1f,
     };
 
-    const auto headers = tailgate::protocol::DecodeH2Headers(headerBlock);
+    const auto headers = tailgate::control::base::DecodeH2Headers(headerBlock);
     ASSERT_TRUE(headers.has_value());
     const auto retryAfter = headers->find("retry-after");
 
@@ -52,7 +52,7 @@ TEST(Given_HuffmanEncodedRetryAfter, When_DecodingH2Headers_Then_HeaderIsReturne
 
 TEST(Given_IndexedDynamicResponseHeaders, When_DecodingNextBlock_Then_HeadersAreReturned)
 {
-    tailgate::protocol::H2HeaderDecoder decoder;
+    tailgate::control::base::H2HeaderDecoder decoder;
     const std::vector<std::uint8_t> literalHeaderBlock{
         0x4e,
         0x83,
@@ -82,7 +82,7 @@ TEST(Given_LiteralMaximumHttpStatus, When_DecodingH2Headers_Then_StatusIsReturne
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x03, '5', '9', '9'};
 
-    const auto status = tailgate::protocol::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
 
     EXPECT_EQ(status, 599);
 }
@@ -102,7 +102,7 @@ TEST(Given_EveryValidHttpStatus, When_DecodingH2Headers_Then_StatusIsReturned)
     decodedStatuses.reserve(headerBlocks.size());
     for (const auto& headerBlock : headerBlocks)
     {
-        decodedStatuses.push_back(tailgate::protocol::DecodeH2Status(headerBlock));
+        decodedStatuses.push_back(tailgate::control::base::DecodeH2Status(headerBlock));
     }
 
     const bool allStatusesMatch =
@@ -119,7 +119,7 @@ TEST(Given_OutOfRangeHttpStatus, When_DecodingH2Headers_Then_StatusIsRejected)
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x03, '6', '0', '0'};
 
-    const auto status = tailgate::protocol::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
 
     EXPECT_FALSE(status.has_value());
 }

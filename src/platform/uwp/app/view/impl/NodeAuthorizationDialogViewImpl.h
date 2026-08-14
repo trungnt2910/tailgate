@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -44,7 +44,7 @@ private:
     UiFactory& m_uiFactory;
     winrt::hstring m_renderedUrl;
     bool m_renderedMachineApproval = false;
-    Logger m_logger{"uwp-node-auth-dialog-view"};
+    tailgate::base::Logger m_logger{"uwp-node-auth-dialog-view"};
 };
 
 } // namespace tailgate::uwp

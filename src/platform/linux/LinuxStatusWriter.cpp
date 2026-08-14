@@ -1,11 +1,11 @@
 #include "LinuxStatusWriter.h"
 
-#include "tailgate/Logging.h"
-
 #include <condition_variable>
 #include <mutex>
 #include <optional>
 #include <thread>
+
+#include <tailgate/base/Logging.h>
 
 namespace tailgate::linux_frontend
 {
@@ -47,9 +47,10 @@ LinuxStatusWriter::LinuxStatusWriter() : m_state(std::make_shared<State>())
                 }
                 catch (const std::exception& error)
                 {
-                    Log(LogLevel::Error,
-                        "status",
-                        "failed to persist daemon status: " + std::string(error.what()));
+                    tailgate::base::Log(tailgate::base::LogLevel::Error,
+                                        "status",
+                                        "failed to persist daemon status: " +
+                                            std::string(error.what()));
                 }
             }
         })

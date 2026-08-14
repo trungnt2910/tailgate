@@ -3,11 +3,12 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/control/RetryBackoff.h>
+#include <tailgate/control/client/RetryBackoff.h>
 
 TEST(Given_RetryBackoff, When_AdvancingPastMaximum_Then_DelayIsCapped)
 {
-    tailgate::control::RetryBackoff backoff(std::chrono::seconds(1), std::chrono::seconds(30));
+    tailgate::control::client::RetryBackoff backoff(std::chrono::seconds(1),
+                                                    std::chrono::seconds(30));
 
     const std::vector<std::chrono::milliseconds> delays{
         backoff.NextDelay(),
@@ -31,7 +32,8 @@ TEST(Given_RetryBackoff, When_AdvancingPastMaximum_Then_DelayIsCapped)
 
 TEST(Given_AdvancedRetryBackoff, When_Resetting_Then_InitialDelayIsRestored)
 {
-    tailgate::control::RetryBackoff backoff(std::chrono::seconds(1), std::chrono::seconds(30));
+    tailgate::control::client::RetryBackoff backoff(std::chrono::seconds(1),
+                                                    std::chrono::seconds(30));
     (void)backoff.NextDelay();
     (void)backoff.NextDelay();
 
@@ -45,7 +47,8 @@ TEST(Given_InvalidRetryBackoffRange, When_Constructing_Then_ItIsRejected)
 {
     const auto construct = []
     {
-        tailgate::control::RetryBackoff backoff(std::chrono::seconds(2), std::chrono::seconds(1));
+        tailgate::control::client::RetryBackoff backoff(std::chrono::seconds(2),
+                                                        std::chrono::seconds(1));
     };
 
     EXPECT_THROW(construct(), std::invalid_argument);

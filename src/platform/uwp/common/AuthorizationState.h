@@ -5,7 +5,7 @@
 
 #include <winrt/base.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -61,7 +61,7 @@ private:
     winrt::handle m_event;
     winrt::handle m_cancelEvent;
     long m_nextSequence = 0;
-    Logger m_logger{"uwp-auth-receiver"};
+    tailgate::base::Logger m_logger{"uwp-auth-receiver"};
 };
 
 class ConnectionCancellationMonitor final
@@ -83,7 +83,7 @@ private:
     MappedView m_view;
     winrt::handle m_cancelEvent;
     winrt::handle m_foregroundProcess;
-    Logger m_logger{"uwp-connection-cancel"};
+    tailgate::base::Logger m_logger{"uwp-connection-cancel"};
 };
 
 [[nodiscard]] bool PublishConnectionMessage(const ConnectionMessage& message);

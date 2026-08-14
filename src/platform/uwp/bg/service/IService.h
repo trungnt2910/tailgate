@@ -4,10 +4,10 @@
 #include <string>
 #include <vector>
 
-#include <tailgate/control/NetworkMap.h>
-#include <tailgate/protocol/Disco.h>
-#include <tailgate/protocol/WireGuardRouter.h>
-#include <tailgate/relay/RelayProtocol.h>
+#include <tailgate/disco/Disco.h>
+#include <tailgate/hosted/Protocol.h>
+#include <tailgate/types/netmap/NetworkMap.h>
+#include <tailgate/wgengine/wireguard/Router.h>
 
 #include "manager/SessionManager.h"
 
@@ -19,9 +19,9 @@ using manager::SessionGeneration;
 struct EncapsulationContext
 {
     const std::vector<std::uint8_t>& Original;
-    const control::NetworkConfig& Config;
-    protocol::Disco* Disco = nullptr;
-    protocol::WireGuardRouter* Router = nullptr;
+    const tailgate::types::netmap::NetworkConfig& Config;
+    tailgate::disco::Disco* Disco = nullptr;
+    tailgate::wgengine::wireguard::WireGuardRouter* Router = nullptr;
     const std::string& ExitNode;
     const std::string& RelayName;
     std::vector<std::uint8_t>& RemoteOutput;
@@ -30,12 +30,12 @@ struct EncapsulationContext
 
 struct DecapsulationContext
 {
-    const relay::Frame& Message;
-    control::NetworkConfig& Config;
-    protocol::Disco* Disco = nullptr;
-    protocol::WireGuardRouter* Router = nullptr;
-    const protocol::Bytes32& NodePrivateKey;
-    const protocol::Bytes32& NodePublicKey;
+    const tailgate::hosted::Frame& Message;
+    tailgate::types::netmap::NetworkConfig& Config;
+    tailgate::disco::Disco* Disco = nullptr;
+    tailgate::wgengine::wireguard::WireGuardRouter* Router = nullptr;
+    const tailgate::crypto::Bytes32& NodePrivateKey;
+    const tailgate::crypto::Bytes32& NodePublicKey;
     const std::string& ExitNode;
     std::vector<std::vector<std::uint8_t>>& LocalOutput;
     std::vector<std::uint8_t>& RemoteOutput;

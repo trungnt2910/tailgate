@@ -1,13 +1,5 @@
 #include "LinuxDerpWorker.h"
 
-#include "LinuxCaBundle.h"
-#include "LinuxFiles.h"
-#include "TcpStream.h"
-#include "UniqueFd.h"
-#include "tailgate/Logging.h"
-#include "tailgate/protocol/DerpSendQueue.h"
-#include "tailgate/protocol/TlsStream.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -22,6 +14,15 @@
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
+
+#include <tailgate/base/Logging.h>
+#include <tailgate/derp/SendQueue.h>
+#include <tailgate/net/tls/TlsStream.h>
+
+#include "LinuxCaBundle.h"
+#include "LinuxFiles.h"
+#include "TcpStream.h"
+#include "UniqueFd.h"
 
 namespace tailgate::linux_frontend
 {
@@ -123,10 +124,10 @@ class DerpWorker::Impl
 public:
     Impl(const std::string& host,
          const std::string& interfaceName,
-         const protocol::Bytes32& privateKey,
-         const protocol::Bytes32& publicKey,
+         const tailgate::crypto::Bytes32& privateKey,
+         const tailgate::crypto::Bytes32& publicKey,
          bool preferred,
-         protocol::DerpClient::Authenticator authenticator)
+         tailgate::derp::DerpClient::Authenticator authenticator)
         : m_host(host),
           m_interfaceName(interfaceName),
           m_privateKey(privateKey),
@@ -164,24 +165,28 @@ public:
 
     void Send(const Key& destination, std::vector<std::uint8_t> packet, Priority priority)
     {
-        protocol::DerpSendQueue::PushResult pushed;
+        tailgate::derp::DerpSendQueue::PushResult pushed;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            pushed = m_outgoing.Push(protocol::DerpSendQueue::Packet{.Destination = destination,
-                                                                     .Payload = std::move(packet)},
-                                     priority);
+            pushed =
+                m_outgoing.Push(tailgate::derp::DerpSendQueue::Packet{.Destination = destination,
+                                                                      .Payload = std::move(packet)},
+                                priority);
         }
         if (!pushed.Accepted)
         {
-            Log(LogLevel::Warning, "derp", "dropping oversized queued packet for " + m_host);
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "derp",
+                                "dropping oversized queued packet for " + m_host);
             return;
         }
         if (pushed.DroppedPackets != 0)
         {
-            Log(LogLevel::Warning,
-                "derp",
-                std::format(
-                    "queue limit reached for {}; dropped={}", m_host, pushed.DroppedPackets));
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "derp",
+                                std::format("queue limit reached for {}; dropped={}",
+                                            m_host,
+                                            pushed.DroppedPackets));
         }
         m_command.Notify();
     }
@@ -203,7 +208,8 @@ private:
         UniqueFd epollFd(epoll_create1(EPOLL_CLOEXEC));
         if (epollFd.Fd < 0)
         {
-            Log(LogLevel::Error,
+            tailgate::base::Log(
+                tailgate::base::LogLevel::Error,
                 "derp",
                 std::format("epoll_create1 failed for {}: {}", m_host, std::strerror(errno)));
             return;
@@ -214,7 +220,8 @@ private:
         }
         catch (const std::exception& error)
         {
-            Log(LogLevel::Error,
+            tailgate::base::Log(
+                tailgate::base::LogLevel::Error,
                 "derp",
                 std::format("worker setup failed for {}: {}", m_host, error.what()));
             return;
@@ -233,7 +240,8 @@ private:
             {
                 if (!m_stopping)
                 {
-                    Log(LogLevel::Warning,
+                    tailgate::base::Log(
+                        tailgate::base::LogLevel::Warning,
                         "derp",
                         std::format("connection to {} failed: {}; retrying in {} seconds",
                                     m_host,
@@ -250,10 +258,11 @@ private:
                 }
                 catch (const std::exception& error)
                 {
-                    Log(LogLevel::Error,
-                        "derp",
-                        std::format(
-                            "reconnect scheduling failed for {}: {}", m_host, error.what()));
+                    tailgate::base::Log(tailgate::base::LogLevel::Error,
+                                        "derp",
+                                        std::format("reconnect scheduling failed for {}: {}",
+                                                    m_host,
+                                                    error.what()));
                     return;
                 }
                 reconnectDelay = std::min(reconnectDelay * 2, MaximumReconnectDelay);
@@ -264,10 +273,12 @@ private:
     void Connect()
     {
         m_transport = std::make_unique<TcpStream>(m_host, "443", m_interfaceName);
-        m_tls = std::make_unique<protocol::TlsStream>(*m_transport, m_host, SystemCaBundle());
-        m_derp = m_authenticator
-                     ? std::make_unique<protocol::DerpClient>(*m_tls, m_authenticator)
-                     : std::make_unique<protocol::DerpClient>(*m_tls, m_privateKey, m_publicKey);
+        m_tls =
+            std::make_unique<tailgate::net::tls::TlsStream>(*m_transport, m_host, SystemCaBundle());
+        m_derp =
+            m_authenticator
+                ? std::make_unique<tailgate::derp::DerpClient>(*m_tls, m_authenticator)
+                : std::make_unique<tailgate::derp::DerpClient>(*m_tls, m_privateKey, m_publicKey);
         m_derp->Connect(m_host);
         m_derp->SetPreferred(m_preferred);
         m_transport->SetNonBlocking(true);
@@ -407,7 +418,7 @@ private:
         for (std::size_t frame = 0; frame < MaximumFramesPerFlush && !m_derp->HasPendingOutput();
              ++frame)
         {
-            std::optional<protocol::DerpSendQueue::Packet> outgoing;
+            std::optional<tailgate::derp::DerpSendQueue::Packet> outgoing;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 outgoing = m_outgoing.Pop();
@@ -438,28 +449,28 @@ private:
 
     std::string m_host;
     std::string m_interfaceName;
-    protocol::Bytes32 m_privateKey{};
-    protocol::Bytes32 m_publicKey{};
+    tailgate::crypto::Bytes32 m_privateKey{};
+    tailgate::crypto::Bytes32 m_publicKey{};
     bool m_preferred = false;
-    protocol::DerpClient::Authenticator m_authenticator;
+    tailgate::derp::DerpClient::Authenticator m_authenticator;
     std::unique_ptr<TcpStream> m_transport;
-    std::unique_ptr<protocol::TlsStream> m_tls;
-    std::unique_ptr<protocol::DerpClient> m_derp;
+    std::unique_ptr<tailgate::net::tls::TlsStream> m_tls;
+    std::unique_ptr<tailgate::derp::DerpClient> m_derp;
     EventCounter m_command;
     EventCounter m_notify;
     std::atomic_bool m_stopping = false;
     std::thread m_thread;
     std::mutex m_mutex;
-    protocol::DerpSendQueue m_outgoing{MaximumQueuedPackets, MaximumQueuedBytes};
+    tailgate::derp::DerpSendQueue m_outgoing{MaximumQueuedPackets, MaximumQueuedBytes};
     std::vector<Packet> m_incoming;
 };
 
 DerpWorker::DerpWorker(const std::string& host,
                        const std::string& interfaceName,
-                       const protocol::Bytes32& privateKey,
-                       const protocol::Bytes32& publicKey,
+                       const tailgate::crypto::Bytes32& privateKey,
+                       const tailgate::crypto::Bytes32& publicKey,
                        bool preferred,
-                       protocol::DerpClient::Authenticator authenticator)
+                       tailgate::derp::DerpClient::Authenticator authenticator)
     : m_impl(std::make_unique<Impl>(
           host, interfaceName, privateKey, publicKey, preferred, std::move(authenticator)))
 {

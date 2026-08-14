@@ -1,0 +1,19 @@
+tailgate_add_library(
+    tailgate_core_control_client
+    STATIC
+    ControlClient.cpp
+    ControlRequests.cpp
+    RetryBackoff.cpp
+)
+target_link_libraries(
+    tailgate_core_control_client
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_control_base
+        tailgate_core_crypto
+        tailgate_core_types_netmap
+    PRIVATE
+        Boost::algorithm
+        sodium
+        nlohmann_json::nlohmann_json
+)

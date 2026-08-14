@@ -1,17 +1,20 @@
 #pragma once
-#include "tailgate/acme/AcmeClient.h"
+
 #include <chrono>
+
+#include <tailgate/serve/acme/Client.h>
 
 namespace tailgate::linux_frontend
 {
 
-class LinuxAcmeHttpClient final : public acme::IHttpClient
+class LinuxAcmeHttpClient final : public tailgate::serve::acme::IHttpClient
 {
 public:
-    [[nodiscard]] acme::HttpResponse Send(const acme::HttpRequest& request) override;
+    [[nodiscard]] tailgate::serve::acme::HttpResponse
+    Send(const tailgate::serve::acme::HttpRequest& request) override;
 };
 
-class LinuxAcmeWaiter final : public acme::IWaiter
+class LinuxAcmeWaiter final : public tailgate::serve::acme::IWaiter
 {
 public:
     void Wait(std::chrono::seconds duration) override;

@@ -1,0 +1,16 @@
+tailgate_add_library(
+    tailgate_core_hosted
+    STATIC
+    Protocol.cpp
+)
+target_link_libraries(
+    tailgate_core_hosted
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_crypto
+        tailgate_core_disco
+        tailgate_core_types_netmap
+    PRIVATE
+        sodium
+        nlohmann_json::nlohmann_json
+)

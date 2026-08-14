@@ -14,7 +14,7 @@ namespace tailgate::uwp
 namespace
 {
 
-void Observe(const foundation::IAsyncAction& operation, Logger logger)
+void Observe(const foundation::IAsyncAction& operation, tailgate::base::Logger logger)
 {
     operation.Completed(
         [logger = std::move(logger)](const foundation::IAsyncAction& completed,

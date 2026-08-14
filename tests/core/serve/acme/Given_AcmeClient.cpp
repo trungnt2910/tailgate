@@ -2,12 +2,12 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/acme/AcmeClient.h>
+#include <tailgate/serve/acme/Client.h>
 
 namespace
 {
 
-using namespace tailgate::acme;
+using namespace tailgate::serve::acme;
 
 class Http final : public IHttpClient
 {

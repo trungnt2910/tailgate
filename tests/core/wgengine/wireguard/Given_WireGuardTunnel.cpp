@@ -1,17 +1,17 @@
 #include <gtest/gtest.h>
 
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/protocol/WireGuardTunnel.h>
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/wgengine/wireguard/Tunnel.h>
 
 TEST(Given_WireGuardHandshake, When_TimerRunsImmediately_Then_InitiationIsNotReplaced)
 {
-    tailgate::protocol::WireGuardTunnel::Key privateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key privateKey{};
     privateKey[1] = 1;
-    tailgate::protocol::WireGuardTunnel::Key peerPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key peerPrivateKey{};
     peerPrivateKey[1] = 2;
-    const auto peerPublicKey = tailgate::protocol::X25519PublicFromPrivate(peerPrivateKey);
+    const auto peerPublicKey = tailgate::crypto::X25519PublicFromPrivate(peerPrivateKey);
 
-    tailgate::protocol::WireGuardTunnel tunnel(privateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel tunnel(privateKey);
     const auto peer = tunnel.AddPeer(peerPublicKey, {}, 10, true);
     const bool initiallySessionless = !tunnel.HasSession(peer);
     const auto initialTimerAction = tunnel.UpdateTimers(peer);
@@ -19,24 +19,26 @@ TEST(Given_WireGuardHandshake, When_TimerRunsImmediately_Then_InitiationIsNotRep
     const auto subsequentTimerAction = tunnel.UpdateTimers(peer);
 
     EXPECT_TRUE(initiallySessionless);
-    EXPECT_EQ(initialTimerAction, tailgate::protocol::WireGuardTunnel::TimerAction::SendHandshake);
+    EXPECT_EQ(initialTimerAction,
+              tailgate::wgengine::wireguard::WireGuardTunnel::TimerAction::SendHandshake);
     EXPECT_EQ(initiation.size(), 148U);
-    EXPECT_EQ(subsequentTimerAction, tailgate::protocol::WireGuardTunnel::TimerAction::None);
+    EXPECT_EQ(subsequentTimerAction,
+              tailgate::wgengine::wireguard::WireGuardTunnel::TimerAction::None);
 }
 
 TEST(Given_WireGuardPeerInitiates, When_PacketIsProcessed_Then_ResponderCanExchangeData)
 {
-    tailgate::protocol::WireGuardTunnel::Key firstPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key firstPrivateKey{};
     firstPrivateKey[1] = 1;
-    tailgate::protocol::WireGuardTunnel::Key secondPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key secondPrivateKey{};
     secondPrivateKey[1] = 2;
 
-    tailgate::protocol::WireGuardTunnel first(firstPrivateKey);
-    tailgate::protocol::WireGuardTunnel second(secondPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel first(firstPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel second(secondPrivateKey);
     const auto firstPeer =
-        first.AddPeer(tailgate::protocol::X25519PublicFromPrivate(secondPrivateKey));
+        first.AddPeer(tailgate::crypto::X25519PublicFromPrivate(secondPrivateKey));
     const auto secondPeer =
-        second.AddPeer(tailgate::protocol::X25519PublicFromPrivate(firstPrivateKey));
+        second.AddPeer(tailgate::crypto::X25519PublicFromPrivate(firstPrivateKey));
 
     const auto initiation = first.CreateHandshake(firstPeer);
     const auto accepted = second.ProcessPacket(secondPeer, initiation);
@@ -59,16 +61,16 @@ TEST(Given_WireGuardPeerInitiates, When_PacketIsProcessed_Then_ResponderCanExcha
 
 TEST(Given_EstablishedWireGuardSession, When_SendingKeepalive_Then_EmptyPayloadRoundTrips)
 {
-    tailgate::protocol::WireGuardTunnel::Key firstPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key firstPrivateKey{};
     firstPrivateKey[1] = 1;
-    tailgate::protocol::WireGuardTunnel::Key secondPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key secondPrivateKey{};
     secondPrivateKey[1] = 2;
-    tailgate::protocol::WireGuardTunnel first(firstPrivateKey);
-    tailgate::protocol::WireGuardTunnel second(secondPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel first(firstPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel second(secondPrivateKey);
     const auto firstPeer =
-        first.AddPeer(tailgate::protocol::X25519PublicFromPrivate(secondPrivateKey));
+        first.AddPeer(tailgate::crypto::X25519PublicFromPrivate(secondPrivateKey));
     const auto secondPeer =
-        second.AddPeer(tailgate::protocol::X25519PublicFromPrivate(firstPrivateKey));
+        second.AddPeer(tailgate::crypto::X25519PublicFromPrivate(firstPrivateKey));
     const auto initiation = first.CreateHandshake(firstPeer);
     const auto accepted = second.ProcessPacket(secondPeer, initiation);
     ASSERT_TRUE(accepted.has_value());
@@ -86,16 +88,16 @@ TEST(Given_EstablishedWireGuardSession, When_SendingKeepalive_Then_EmptyPayloadR
 
 TEST(Given_EstablishedWireGuardSession, When_Rekeyed_Then_BidirectionalDataUsesNewSession)
 {
-    tailgate::protocol::WireGuardTunnel::Key initiatorPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key initiatorPrivateKey{};
     initiatorPrivateKey[1] = 1;
-    tailgate::protocol::WireGuardTunnel::Key responderPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key responderPrivateKey{};
     responderPrivateKey[1] = 2;
-    tailgate::protocol::WireGuardTunnel initiator(initiatorPrivateKey);
-    tailgate::protocol::WireGuardTunnel responder(responderPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel initiator(initiatorPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel responder(responderPrivateKey);
     const auto initiatorPeer =
-        initiator.AddPeer(tailgate::protocol::X25519PublicFromPrivate(responderPrivateKey));
+        initiator.AddPeer(tailgate::crypto::X25519PublicFromPrivate(responderPrivateKey));
     const auto responderPeer =
-        responder.AddPeer(tailgate::protocol::X25519PublicFromPrivate(initiatorPrivateKey));
+        responder.AddPeer(tailgate::crypto::X25519PublicFromPrivate(initiatorPrivateKey));
     const auto initialInitiation = initiator.CreateHandshake(initiatorPeer);
     const auto initialResponse = responder.ProcessPacket(responderPeer, initialInitiation);
     ASSERT_TRUE(initialResponse.has_value());
@@ -128,16 +130,16 @@ TEST(Given_EstablishedWireGuardSession, When_Rekeyed_Then_BidirectionalDataUsesN
 
 TEST(Given_DuplicateHandshakeInitiation, When_OneResponseIsConfirmed_Then_SessionRemainsUsable)
 {
-    tailgate::protocol::WireGuardTunnel::Key initiatorPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key initiatorPrivateKey{};
     initiatorPrivateKey[1] = 1;
-    tailgate::protocol::WireGuardTunnel::Key responderPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key responderPrivateKey{};
     responderPrivateKey[1] = 2;
-    tailgate::protocol::WireGuardTunnel initiator(initiatorPrivateKey);
-    tailgate::protocol::WireGuardTunnel responder(responderPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel initiator(initiatorPrivateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel responder(responderPrivateKey);
     const auto initiatorPeer =
-        initiator.AddPeer(tailgate::protocol::X25519PublicFromPrivate(responderPrivateKey));
+        initiator.AddPeer(tailgate::crypto::X25519PublicFromPrivate(responderPrivateKey));
     const auto responderPeer =
-        responder.AddPeer(tailgate::protocol::X25519PublicFromPrivate(initiatorPrivateKey));
+        responder.AddPeer(tailgate::crypto::X25519PublicFromPrivate(initiatorPrivateKey));
     const std::vector<std::uint8_t> initiation = initiator.CreateHandshake(initiatorPeer);
 
     const auto firstResponse = responder.ProcessPacket(responderPeer, initiation);
@@ -159,17 +161,16 @@ TEST(Given_DuplicateHandshakeInitiation, When_OneResponseIsConfirmed_Then_Sessio
 
 TEST(Given_MorePeersThanOneUpstreamDevice, When_Added_Then_TunnelShardsThem)
 {
-    tailgate::protocol::WireGuardTunnel::Key privateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key privateKey{};
     privateKey[1] = 1;
-    tailgate::protocol::WireGuardTunnel tunnel(privateKey);
+    tailgate::wgengine::wireguard::WireGuardTunnel tunnel(privateKey);
     bool allPeersSessionless = true;
 
     for (std::uint8_t index = 2; index < 24; ++index)
     {
-        tailgate::protocol::WireGuardTunnel::Key peerPrivateKey{};
+        tailgate::wgengine::wireguard::WireGuardTunnel::Key peerPrivateKey{};
         peerPrivateKey[1] = index;
-        const auto peer =
-            tunnel.AddPeer(tailgate::protocol::X25519PublicFromPrivate(peerPrivateKey));
+        const auto peer = tunnel.AddPeer(tailgate::crypto::X25519PublicFromPrivate(peerPrivateKey));
         allPeersSessionless = allPeersSessionless && !tunnel.HasSession(peer);
     }
 
@@ -178,19 +179,19 @@ TEST(Given_MorePeersThanOneUpstreamDevice, When_Added_Then_TunnelShardsThem)
 
 TEST(Given_SharedTransportWithMultiplePeers, When_InitiationArrives_Then_PeerIsIdentified)
 {
-    tailgate::protocol::WireGuardTunnel::Key receiverPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key receiverPrivateKey{};
     receiverPrivateKey[1] = 1;
-    tailgate::protocol::WireGuardTunnel::Key firstPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key firstPrivateKey{};
     firstPrivateKey[1] = 2;
-    tailgate::protocol::WireGuardTunnel::Key secondPrivateKey{};
+    tailgate::wgengine::wireguard::WireGuardTunnel::Key secondPrivateKey{};
     secondPrivateKey[1] = 3;
-    tailgate::protocol::WireGuardTunnel receiver(receiverPrivateKey);
-    (void)receiver.AddPeer(tailgate::protocol::X25519PublicFromPrivate(firstPrivateKey));
+    tailgate::wgengine::wireguard::WireGuardTunnel receiver(receiverPrivateKey);
+    (void)receiver.AddPeer(tailgate::crypto::X25519PublicFromPrivate(firstPrivateKey));
     const auto secondPeer =
-        receiver.AddPeer(tailgate::protocol::X25519PublicFromPrivate(secondPrivateKey));
-    tailgate::protocol::WireGuardTunnel sender(secondPrivateKey);
+        receiver.AddPeer(tailgate::crypto::X25519PublicFromPrivate(secondPrivateKey));
+    tailgate::wgengine::wireguard::WireGuardTunnel sender(secondPrivateKey);
     const auto receiverPeer =
-        sender.AddPeer(tailgate::protocol::X25519PublicFromPrivate(receiverPrivateKey));
+        sender.AddPeer(tailgate::crypto::X25519PublicFromPrivate(receiverPrivateKey));
     const std::vector<std::uint8_t> initiation = sender.CreateHandshake(receiverPeer);
 
     const auto received = receiver.ProcessPacket(initiation);

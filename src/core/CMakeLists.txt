@@ -1,47 +1,33 @@
-tailgate_add_library(
-    tailgate_core
-    STATIC
-    AcmeClient.cpp
-    AcmeCrypto.cpp
-    Base64.cpp
-    ControlClient.cpp
-    ControlHandshake.cpp
-    ControlRequests.cpp
-    Crypto.cpp
-    DerpClient.cpp
-    DerpSendQueue.cpp
-    Disco.cpp
-    Dns.cpp
-    FunnelConfig.cpp
-    HandshakeLimiter.cpp
-    H2.cpp
-    Ipv4.cpp
-    Keys.cpp
-    Logging.cpp
-    NetworkMap.cpp
-    Noise.cpp
-    NoiseTransport.cpp
-    PeerApiIngress.cpp
-    PsaCryptoContext.cpp
-    QrCode.cpp
-    RelayProtocol.cpp
-    ReplayWindow.cpp
-    RetryBackoff.cpp
-    ResolverConfig.cpp
-    Stun.cpp
-    Strings.cpp
-    TailnetDns.cpp
-    TlsStream.cpp
-    Tsmp.cpp
-    WireGuardTunnel.cpp
-    WireGuardRouter.cpp
-)
-target_link_libraries(tailgate_core PUBLIC Boost::algorithm tailgate_wireguard_crypto)
-target_link_libraries(tailgate_core PRIVATE zint-static)
+add_subdirectory(base)
+add_subdirectory(control)
+add_subdirectory(crypto)
+add_subdirectory(derp)
+add_subdirectory(disco)
+add_subdirectory(hosted)
+add_subdirectory(net)
+add_subdirectory(qr)
+add_subdirectory(serve)
+add_subdirectory(types)
+add_subdirectory(wgengine)
+
+add_library(tailgate_core INTERFACE)
 target_link_libraries(
     tailgate_core
-    PRIVATE
-    sodium
-    MbedTLS::mbedtls
-    nlohmann_json::nlohmann_json
+    INTERFACE
+        tailgate_core_base
+        tailgate_core_control_base
+        tailgate_core_control_client
+        tailgate_core_crypto
+        tailgate_core_derp
+        tailgate_core_disco
+        tailgate_core_hosted
+        tailgate_core_net_dns
+        tailgate_core_net_packet
+        tailgate_core_net_stun
+        tailgate_core_net_tls
+        tailgate_core_qr
+        tailgate_core_serve
+        tailgate_core_serve_acme
+        tailgate_core_types_netmap
+        tailgate_core_wgengine_wireguard
 )

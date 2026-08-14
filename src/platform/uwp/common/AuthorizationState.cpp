@@ -11,7 +11,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 namespace tailgate::uwp
 {
@@ -27,7 +27,7 @@ constexpr std::uint32_t AuthorizationMappingVersion = 4;
 constexpr std::size_t AuthorizationQueueCapacity = 8;
 constexpr std::size_t AuthorizationUrlCapacity = 4096;
 constexpr std::size_t TailgateServerCapacity = 512;
-Logger AuthorizationPublisherLogger{"uwp-auth-publisher"};
+tailgate::base::Logger AuthorizationPublisherLogger{"uwp-auth-publisher"};
 
 // These fixed-capacity fields are part of the versioned cross-process shared-memory layout;
 // dynamic strings cannot be stored in this mapping.
@@ -56,18 +56,19 @@ static_assert(offsetof(AuthorizationMapping, WriteSequence) % alignof(LONG) == 0
 static_assert(offsetof(AuthorizationMapping, CancelRequested) % alignof(LONG) == 0);
 static_assert(offsetof(AuthorizationMessageSlot, Sequence) % alignof(LONG) == 0);
 
-void LogHandleFailure(const Logger& logger,
-                      tailgate::LogLevel level,
+void LogHandleFailure(const tailgate::base::Logger& logger,
+                      tailgate::base::LogLevel level,
                       const char* operation,
                       DWORD error)
 {
     logger.Log(level, "{} failed error={}", operation, error);
 }
 
-[[noreturn]] void ThrowHandleFailure(const Logger& logger, const char* operation, DWORD error)
+[[noreturn]] void
+ThrowHandleFailure(const tailgate::base::Logger& logger, const char* operation, DWORD error)
 {
     const DWORD normalizedError = error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
-    LogHandleFailure(logger, tailgate::LogLevel::Error, operation, normalizedError);
+    LogHandleFailure(logger, tailgate::base::LogLevel::Error, operation, normalizedError);
     winrt::throw_hresult(HRESULT_FROM_WIN32(normalizedError));
 }
 
@@ -238,7 +239,7 @@ void AuthorizationStateReceiver::Signal()
 {
     if (m_event && !SetEvent(m_event.get()))
     {
-        LogHandleFailure(m_logger, tailgate::LogLevel::Warning, "SetEvent", GetLastError());
+        LogHandleFailure(m_logger, tailgate::base::LogLevel::Warning, "SetEvent", GetLastError());
     }
 }
 
@@ -252,7 +253,8 @@ void AuthorizationStateReceiver::Cancel()
     InterlockedExchange(&view->CancelRequested, 1);
     if (!SetEvent(m_cancelEvent.get()))
     {
-        LogHandleFailure(m_logger, tailgate::LogLevel::Warning, "SetEvent(cancel)", GetLastError());
+        LogHandleFailure(
+            m_logger, tailgate::base::LogLevel::Warning, "SetEvent(cancel)", GetLastError());
         return;
     }
     m_logger.LogInfo("foreground cancelled the active connection attempt");
@@ -340,7 +342,7 @@ ConnectionCancellationReason ConnectionCancellationMonitor::Wait(void* stopHandl
         return ConnectionCancellationReason::MonitorStopped;
     }
     LogHandleFailure(m_logger,
-                     tailgate::LogLevel::Warning,
+                     tailgate::base::LogLevel::Warning,
                      "WaitForMultipleObjects(connection cancellation)",
                      GetLastError());
     return ConnectionCancellationReason::Unavailable;
@@ -364,8 +366,8 @@ bool PublishConnectionMessage(const ConnectionMessage& message)
     {
         const DWORD error = GetLastError();
         LogHandleFailure(AuthorizationPublisherLogger,
-                         error == ERROR_FILE_NOT_FOUND ? tailgate::LogLevel::Debug
-                                                       : tailgate::LogLevel::Warning,
+                         error == ERROR_FILE_NOT_FOUND ? tailgate::base::LogLevel::Debug
+                                                       : tailgate::base::LogLevel::Warning,
                          "OpenFileMappingFromApp",
                          error);
         return false;
@@ -376,7 +378,7 @@ bool PublishConnectionMessage(const ConnectionMessage& message)
     {
         const DWORD error = GetLastError();
         LogHandleFailure(AuthorizationPublisherLogger,
-                         tailgate::LogLevel::Warning,
+                         tailgate::base::LogLevel::Warning,
                          "MapViewOfFileFromApp",
                          error);
         return false;
@@ -417,7 +419,7 @@ bool PublishConnectionMessage(const ConnectionMessage& message)
     if (!event)
     {
         LogHandleFailure(AuthorizationPublisherLogger,
-                         tailgate::LogLevel::Warning,
+                         tailgate::base::LogLevel::Warning,
                          "OpenEventW",
                          GetLastError());
         return false;
@@ -425,8 +427,10 @@ bool PublishConnectionMessage(const ConnectionMessage& message)
     const bool signaled = SetEvent(event.get()) != FALSE;
     if (!signaled)
     {
-        LogHandleFailure(
-            AuthorizationPublisherLogger, tailgate::LogLevel::Warning, "SetEvent", GetLastError());
+        LogHandleFailure(AuthorizationPublisherLogger,
+                         tailgate::base::LogLevel::Warning,
+                         "SetEvent",
+                         GetLastError());
     }
     AuthorizationPublisherLogger.LogDebug("background queued connection-attempt message kind={}",
                                           static_cast<std::uint32_t>(message.Kind));

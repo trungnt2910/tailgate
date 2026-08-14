@@ -3,12 +3,12 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/ByteStream.h>
+#include <tailgate/base/ByteStream.h>
 
 namespace
 {
 
-class TryStream final : public tailgate::IByteStream
+class TryStream final : public tailgate::base::IByteStream
 {
 public:
     std::optional<std::size_t> TryWriteSome(const std::uint8_t* data, std::size_t size) override
@@ -63,5 +63,5 @@ TEST(Given_TryReadWouldBlock, When_UsingReadSome_Then_WrapperReportsWouldBlock)
         (void)stream.ReadSome(1);
     };
 
-    EXPECT_THROW(read(), tailgate::StreamWouldBlock);
+    EXPECT_THROW(read(), tailgate::base::StreamWouldBlock);
 }

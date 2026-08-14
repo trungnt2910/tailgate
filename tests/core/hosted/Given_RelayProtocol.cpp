@@ -5,12 +5,12 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/relay/RelayProtocol.h>
+#include <tailgate/hosted/Protocol.h>
 
 namespace
 {
 
-class MemoryStream final : public tailgate::IByteStream
+class MemoryStream final : public tailgate::base::IByteStream
 {
 public:
     explicit MemoryStream(std::string input) : Input(input.begin(), input.end())
@@ -40,18 +40,18 @@ public:
 
 TEST(Given_FragmentedRelayFrame, When_Decoding_Then_PayloadIsReturnedAfterFinalFragment)
 {
-    const tailgate::relay::Frame source{tailgate::relay::MessageType::ClientPacket, {1, 2, 3, 4}};
-    const std::vector<std::uint8_t> encoded = tailgate::relay::Encode(source);
-    tailgate::relay::Decoder decoder;
+    const tailgate::hosted::Frame source{tailgate::hosted::MessageType::ClientPacket, {1, 2, 3, 4}};
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::Encode(source);
+    tailgate::hosted::Decoder decoder;
 
     decoder.Feed(encoded.data(), 5);
-    const std::optional<tailgate::relay::Frame> incomplete = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> incomplete = decoder.Next();
     decoder.Feed(encoded.data() + 5, encoded.size() - 5);
-    const std::optional<tailgate::relay::Frame> complete = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> complete = decoder.Next();
 
     EXPECT_FALSE(incomplete.has_value());
     EXPECT_TRUE(complete.has_value());
-    EXPECT_EQ(tailgate::relay::MessageType::ClientPacket, complete->Type);
+    EXPECT_EQ(tailgate::hosted::MessageType::ClientPacket, complete->Type);
     EXPECT_EQ(source.Payload, complete->Payload);
     EXPECT_EQ(0U, decoder.BufferedBytes());
 }
@@ -59,44 +59,44 @@ TEST(Given_FragmentedRelayFrame, When_Decoding_Then_PayloadIsReturnedAfterFinalF
 TEST(Given_CoalescedRelayFrames, When_Decoding_Then_EachFrameIsReturned)
 {
     std::vector<std::uint8_t> encoded =
-        tailgate::relay::Encode({tailgate::relay::MessageType::Heartbeat, {}});
+        tailgate::hosted::Encode({tailgate::hosted::MessageType::Heartbeat, {}});
     const std::vector<std::uint8_t> second =
-        tailgate::relay::Encode({tailgate::relay::MessageType::ServerPacket, {9, 8}});
+        tailgate::hosted::Encode({tailgate::hosted::MessageType::ServerPacket, {9, 8}});
     encoded.insert(encoded.end(), second.begin(), second.end());
-    tailgate::relay::Decoder decoder;
+    tailgate::hosted::Decoder decoder;
 
     decoder.Feed(encoded);
-    const std::optional<tailgate::relay::Frame> firstFrame = decoder.Next();
-    const std::optional<tailgate::relay::Frame> secondFrame = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> firstFrame = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> secondFrame = decoder.Next();
 
     EXPECT_TRUE(firstFrame.has_value());
-    EXPECT_EQ(tailgate::relay::MessageType::Heartbeat, firstFrame->Type);
+    EXPECT_EQ(tailgate::hosted::MessageType::Heartbeat, firstFrame->Type);
     EXPECT_TRUE(secondFrame.has_value());
-    EXPECT_EQ(tailgate::relay::MessageType::ServerPacket, secondFrame->Type);
+    EXPECT_EQ(tailgate::hosted::MessageType::ServerPacket, secondFrame->Type);
     EXPECT_EQ((std::vector<std::uint8_t>{9, 8}), secondFrame->Payload);
 }
 
 TEST(Given_TailnetDnsRelayFrame, When_RoundTripping_Then_PacketIsPreserved)
 {
-    const tailgate::relay::Frame source{.Type = tailgate::relay::MessageType::TailnetDnsQuery,
-                                        .Payload = {0x45, 0, 0, 28}};
+    const tailgate::hosted::Frame source{.Type = tailgate::hosted::MessageType::TailnetDnsQuery,
+                                         .Payload = {0x45, 0, 0, 28}};
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::Encode(source);
-    tailgate::relay::Decoder decoder;
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::Encode(source);
+    tailgate::hosted::Decoder decoder;
     decoder.Feed(encoded);
-    const std::optional<tailgate::relay::Frame> decoded = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> decoded = decoder.Next();
 
     EXPECT_TRUE(decoded.has_value());
-    EXPECT_EQ(decoded->Type, tailgate::relay::MessageType::TailnetDnsQuery);
+    EXPECT_EQ(decoded->Type, tailgate::hosted::MessageType::TailnetDnsQuery);
     EXPECT_EQ(decoded->Payload, source.Payload);
 }
 
 TEST(Given_InvalidRelayMagic, When_Decoding_Then_FrameIsRejected)
 {
     std::vector<std::uint8_t> encoded =
-        tailgate::relay::Encode({tailgate::relay::MessageType::Heartbeat, {}});
+        tailgate::hosted::Encode({tailgate::hosted::MessageType::Heartbeat, {}});
     encoded[0] = 0;
-    tailgate::relay::Decoder decoder;
+    tailgate::hosted::Decoder decoder;
 
     decoder.Feed(encoded);
 
@@ -105,7 +105,7 @@ TEST(Given_InvalidRelayMagic, When_Decoding_Then_FrameIsRejected)
 
 TEST(Given_EncryptedPeerPacket, When_RoundTripping_Then_PeerAndWireGuardDataArePreserved)
 {
-    tailgate::relay::PeerPacket packet;
+    tailgate::hosted::PeerPacket packet;
     packet.Peer[0] = 42;
     packet.Payload = {4, 0, 0, 0, 9, 8, 7};
     packet.Control = true;
@@ -113,8 +113,8 @@ TEST(Given_EncryptedPeerPacket, When_RoundTripping_Then_PeerAndWireGuardDataAreP
     packet.EndpointAddress = 0x01020304;
     packet.EndpointPort = 41641;
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodePeerPacket(packet);
-    const tailgate::relay::PeerPacket decoded = tailgate::relay::DecodePeerPacket(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodePeerPacket(packet);
+    const tailgate::hosted::PeerPacket decoded = tailgate::hosted::DecodePeerPacket(encoded);
 
     EXPECT_EQ(packet.Peer, decoded.Peer);
     EXPECT_EQ(packet.Payload, decoded.Payload);
@@ -126,11 +126,11 @@ TEST(Given_EncryptedPeerPacket, When_RoundTripping_Then_PeerAndWireGuardDataAreP
 
 TEST(Given_PeerPacketWithoutWireGuardData, When_Decoding_Then_ItIsRejected)
 {
-    const std::vector<std::uint8_t> truncated(tailgate::protocol::Bytes32{}.size());
+    const std::vector<std::uint8_t> truncated(tailgate::crypto::Bytes32{}.size());
 
     const auto decode = [&]()
     {
-        (void)tailgate::relay::DecodePeerPacket(truncated);
+        (void)tailgate::hosted::DecodePeerPacket(truncated);
     };
 
     EXPECT_THROW(decode(), std::runtime_error);
@@ -138,13 +138,13 @@ TEST(Given_PeerPacketWithoutWireGuardData, When_Decoding_Then_ItIsRejected)
 
 TEST(Given_DerpAuthenticationChallenge, When_RoundTripping_Then_RequestIsPreserved)
 {
-    tailgate::relay::DerpAuthenticationChallenge source;
+    tailgate::hosted::DerpAuthenticationChallenge source;
     source.RequestId = 0x1020304050607080ULL;
     source.ServerKey[7] = 42;
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodeDerpChallenge(source);
-    const tailgate::relay::DerpAuthenticationChallenge decoded =
-        tailgate::relay::DecodeDerpChallenge(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodeDerpChallenge(source);
+    const tailgate::hosted::DerpAuthenticationChallenge decoded =
+        tailgate::hosted::DecodeDerpChallenge(encoded);
 
     EXPECT_EQ(source.RequestId, decoded.RequestId);
     EXPECT_EQ(source.ServerKey, decoded.ServerKey);
@@ -152,12 +152,12 @@ TEST(Given_DerpAuthenticationChallenge, When_RoundTripping_Then_RequestIsPreserv
 
 TEST(Given_DerpAuthenticationResponse, When_RoundTripping_Then_EnvelopeIsPreserved)
 {
-    const tailgate::relay::DerpAuthenticationResponse source{.RequestId = 17,
-                                                             .ClientInfo = {1, 2, 3, 4}};
+    const tailgate::hosted::DerpAuthenticationResponse source{.RequestId = 17,
+                                                              .ClientInfo = {1, 2, 3, 4}};
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodeDerpResponse(source);
-    const tailgate::relay::DerpAuthenticationResponse decoded =
-        tailgate::relay::DecodeDerpResponse(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodeDerpResponse(source);
+    const tailgate::hosted::DerpAuthenticationResponse decoded =
+        tailgate::hosted::DecodeDerpResponse(encoded);
 
     EXPECT_EQ(source.RequestId, decoded.RequestId);
     EXPECT_EQ(source.ClientInfo, decoded.ClientInfo);
@@ -165,7 +165,7 @@ TEST(Given_DerpAuthenticationResponse, When_RoundTripping_Then_EnvelopeIsPreserv
 
 TEST(Given_RelayAuthentication, When_RoundTripping_Then_HostIdentityIsPreserved)
 {
-    tailgate::relay::Authentication source;
+    tailgate::hosted::Authentication source;
     source.Tailnet = "example.ts.net";
     source.NodeId = 42;
     source.Hostname = "watch";
@@ -173,8 +173,9 @@ TEST(Given_RelayAuthentication, When_RoundTripping_Then_HostIdentityIsPreserved)
     source.OperatingSystemVersion = "10.0.15063";
     source.NodePublicKey[0] = 42;
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodeAuthentication(source);
-    const tailgate::relay::Authentication decoded = tailgate::relay::DecodeAuthentication(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodeAuthentication(source);
+    const tailgate::hosted::Authentication decoded =
+        tailgate::hosted::DecodeAuthentication(encoded);
 
     const std::string serialized(encoded.begin(), encoded.end());
 
@@ -193,12 +194,12 @@ TEST(Given_RelayAuthentication, When_RoundTripping_Then_HostIdentityIsPreserved)
 
 TEST(Given_RelayChallenge, When_RoundTripping_Then_ServerIdentityIsPreserved)
 {
-    tailgate::relay::Challenge source;
+    tailgate::hosted::Challenge source;
     source.RelayPublicKey[0] = 42;
     source.ServerNonce[31] = 17;
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodeChallenge(source);
-    const tailgate::relay::Challenge decoded = tailgate::relay::DecodeChallenge(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodeChallenge(source);
+    const tailgate::hosted::Challenge decoded = tailgate::hosted::DecodeChallenge(encoded);
 
     EXPECT_EQ(source.RelayPublicKey, decoded.RelayPublicKey);
     EXPECT_EQ(source.ServerNonce, decoded.ServerNonce);
@@ -206,47 +207,47 @@ TEST(Given_RelayChallenge, When_RoundTripping_Then_ServerIdentityIsPreserved)
 
 TEST(Given_ClientAndRelayKeys, When_CreatingProofs_Then_BothSidesAgree)
 {
-    const tailgate::protocol::Bytes32 clientPrivate = tailgate::protocol::GeneratePrivateKey();
-    const tailgate::protocol::Bytes32 relayPrivate = tailgate::protocol::GeneratePrivateKey();
-    const tailgate::protocol::Bytes32 clientPublic =
-        tailgate::protocol::X25519PublicFromPrivate(clientPrivate);
-    const tailgate::protocol::Bytes32 relayPublic =
-        tailgate::protocol::X25519PublicFromPrivate(relayPrivate);
-    const tailgate::protocol::Bytes32 serverNonce = tailgate::protocol::GeneratePrivateKey();
-    const tailgate::protocol::Bytes32 clientNonce = tailgate::protocol::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 clientPrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 relayPrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 clientPublic =
+        tailgate::crypto::X25519PublicFromPrivate(clientPrivate);
+    const tailgate::crypto::Bytes32 relayPublic =
+        tailgate::crypto::X25519PublicFromPrivate(relayPrivate);
+    const tailgate::crypto::Bytes32 serverNonce = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 clientNonce = tailgate::crypto::GeneratePrivateKey();
 
-    const tailgate::protocol::Bytes32 clientProof =
-        tailgate::relay::CreateClientProof(clientPrivate, relayPublic, serverNonce, clientNonce);
-    const tailgate::protocol::Bytes32 expectedClientProof =
-        tailgate::relay::CreateClientProof(relayPrivate, clientPublic, serverNonce, clientNonce);
-    const tailgate::protocol::Bytes32 serverProof =
-        tailgate::relay::CreateServerProof(relayPrivate, clientPublic, serverNonce, clientNonce);
-    const tailgate::protocol::Bytes32 expectedServerProof =
-        tailgate::relay::CreateServerProof(clientPrivate, relayPublic, serverNonce, clientNonce);
+    const tailgate::crypto::Bytes32 clientProof =
+        tailgate::hosted::CreateClientProof(clientPrivate, relayPublic, serverNonce, clientNonce);
+    const tailgate::crypto::Bytes32 expectedClientProof =
+        tailgate::hosted::CreateClientProof(relayPrivate, clientPublic, serverNonce, clientNonce);
+    const tailgate::crypto::Bytes32 serverProof =
+        tailgate::hosted::CreateServerProof(relayPrivate, clientPublic, serverNonce, clientNonce);
+    const tailgate::crypto::Bytes32 expectedServerProof =
+        tailgate::hosted::CreateServerProof(clientPrivate, relayPublic, serverNonce, clientNonce);
 
-    EXPECT_TRUE(tailgate::relay::ProofMatches(expectedClientProof, clientProof));
-    EXPECT_TRUE(tailgate::relay::ProofMatches(expectedServerProof, serverProof));
+    EXPECT_TRUE(tailgate::hosted::ProofMatches(expectedClientProof, clientProof));
+    EXPECT_TRUE(tailgate::hosted::ProofMatches(expectedServerProof, serverProof));
 }
 
 TEST(Given_ChangedRelayNonce, When_VerifyingClientProof_Then_ProofIsRejected)
 {
-    const tailgate::protocol::Bytes32 clientPrivate = tailgate::protocol::GeneratePrivateKey();
-    const tailgate::protocol::Bytes32 relayPrivate = tailgate::protocol::GeneratePrivateKey();
-    const tailgate::protocol::Bytes32 clientPublic =
-        tailgate::protocol::X25519PublicFromPrivate(clientPrivate);
-    const tailgate::protocol::Bytes32 relayPublic =
-        tailgate::protocol::X25519PublicFromPrivate(relayPrivate);
-    const tailgate::protocol::Bytes32 serverNonce = tailgate::protocol::GeneratePrivateKey();
-    tailgate::protocol::Bytes32 changedNonce = serverNonce;
+    const tailgate::crypto::Bytes32 clientPrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 relayPrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 clientPublic =
+        tailgate::crypto::X25519PublicFromPrivate(clientPrivate);
+    const tailgate::crypto::Bytes32 relayPublic =
+        tailgate::crypto::X25519PublicFromPrivate(relayPrivate);
+    const tailgate::crypto::Bytes32 serverNonce = tailgate::crypto::GeneratePrivateKey();
+    tailgate::crypto::Bytes32 changedNonce = serverNonce;
     changedNonce[0] ^= 1U;
-    const tailgate::protocol::Bytes32 clientNonce = tailgate::protocol::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 clientNonce = tailgate::crypto::GeneratePrivateKey();
 
-    const tailgate::protocol::Bytes32 proof =
-        tailgate::relay::CreateClientProof(clientPrivate, relayPublic, serverNonce, clientNonce);
-    const tailgate::protocol::Bytes32 replayed =
-        tailgate::relay::CreateClientProof(relayPrivate, clientPublic, changedNonce, clientNonce);
+    const tailgate::crypto::Bytes32 proof =
+        tailgate::hosted::CreateClientProof(clientPrivate, relayPublic, serverNonce, clientNonce);
+    const tailgate::crypto::Bytes32 replayed =
+        tailgate::hosted::CreateClientProof(relayPrivate, clientPublic, changedNonce, clientNonce);
 
-    EXPECT_FALSE(tailgate::relay::ProofMatches(replayed, proof));
+    EXPECT_FALSE(tailgate::hosted::ProofMatches(replayed, proof));
 }
 
 TEST(Given_IncompleteRelayAuthentication, When_Decoding_Then_ItIsRejected)
@@ -255,7 +256,7 @@ TEST(Given_IncompleteRelayAuthentication, When_Decoding_Then_ItIsRejected)
 
     const auto decode = [&]()
     {
-        (void)tailgate::relay::DecodeAuthentication(encoded);
+        (void)tailgate::hosted::DecodeAuthentication(encoded);
     };
 
     EXPECT_THROW(decode(), std::exception);
@@ -263,14 +264,14 @@ TEST(Given_IncompleteRelayAuthentication, When_Decoding_Then_ItIsRejected)
 
 TEST(Given_RelaySession, When_RoundTripping_Then_PublicMetadataIsPreserved)
 {
-    tailgate::relay::Session source;
+    tailgate::hosted::Session source;
     source.Tailnet = "example.ts.net";
     source.RelayHostName = "relay-host";
     source.RelayHostAddress = "100.64.0.1";
     source.ServerProof[0] = 7;
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodeSession(source);
-    const tailgate::relay::Session decoded = tailgate::relay::DecodeSession(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodeSession(source);
+    const tailgate::hosted::Session decoded = tailgate::hosted::DecodeSession(encoded);
 
     const std::string serialized(encoded.begin(), encoded.end());
 
@@ -284,24 +285,26 @@ TEST(Given_RelaySession, When_RoundTripping_Then_PublicMetadataIsPreserved)
 
 TEST(Given_RelayNetworkMap, When_RoundTripping_Then_SelfIdentityIsPreserved)
 {
-    tailgate::control::NetworkConfig source;
+    tailgate::types::netmap::NetworkConfig source;
     source.SelfNodeId = 42;
     source.SelfKey = "nodekey:0102";
     source.SelfAddress = "100.64.0.42";
     source.SelfName = "watch.example.ts.net";
     source.Domain = "example.ts.net";
-    source.UserProfiles.push_back(tailgate::control::UserProfile{.Id = 7,
-                                                                 .LoginName = "tagged-devices",
-                                                                 .DisplayName = "Tagged Devices",
-                                                                 .ProfilePicUrl = {}});
-    tailgate::control::PeerConfig peer;
+    source.UserProfiles.push_back(
+        tailgate::types::netmap::UserProfile{.Id = 7,
+                                             .LoginName = "tagged-devices",
+                                             .DisplayName = "Tagged Devices",
+                                             .ProfilePicUrl = {}});
+    tailgate::types::netmap::PeerConfig peer;
     peer.NodeId = 101;
     peer.OwnerId = 7;
     peer.Owner = "Tagged Devices";
     source.Peers.push_back(peer);
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodeNetworkConfig(source);
-    const tailgate::control::NetworkConfig decoded = tailgate::relay::DecodeNetworkConfig(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodeNetworkConfig(source);
+    const tailgate::types::netmap::NetworkConfig decoded =
+        tailgate::hosted::DecodeNetworkConfig(encoded);
 
     EXPECT_EQ(decoded.SelfNodeId, source.SelfNodeId);
     EXPECT_EQ(decoded.SelfKey, source.SelfKey);
@@ -315,7 +318,7 @@ TEST(Given_RelayNetworkMap, When_RoundTripping_Then_SelfIdentityIsPreserved)
 
 TEST(Given_LargeRelayNetworkMap, When_RoundTripping_Then_ItIsNotTruncated)
 {
-    tailgate::control::NetworkConfig source;
+    tailgate::types::netmap::NetworkConfig source;
     source.SelfNodeId = 42;
     source.SelfKey = "nodekey:0102";
     source.SelfAddress = "100.64.0.42";
@@ -323,7 +326,7 @@ TEST(Given_LargeRelayNetworkMap, When_RoundTripping_Then_ItIsNotTruncated)
     source.Domain = "example.ts.net";
     for (std::uint64_t index = 1; index <= 100; ++index)
     {
-        tailgate::control::PeerConfig peer;
+        tailgate::types::netmap::PeerConfig peer;
         peer.NodeId = index;
         peer.Name = std::format("peer-{}.example.ts.net", index);
         peer.Address = "100.64.0.1";
@@ -331,8 +334,9 @@ TEST(Given_LargeRelayNetworkMap, When_RoundTripping_Then_ItIsNotTruncated)
         source.Peers.push_back(std::move(peer));
     }
 
-    const std::vector<std::uint8_t> encoded = tailgate::relay::EncodeNetworkConfig(source);
-    const tailgate::control::NetworkConfig decoded = tailgate::relay::DecodeNetworkConfig(encoded);
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::EncodeNetworkConfig(source);
+    const tailgate::types::netmap::NetworkConfig decoded =
+        tailgate::hosted::DecodeNetworkConfig(encoded);
 
     EXPECT_GT(encoded.size(), 4096U);
     EXPECT_EQ(decoded.Peers.size(), source.Peers.size());
@@ -344,7 +348,7 @@ TEST(Given_TailgateHttpUpgrade, When_ServerAccepts_Then_ProtocolIsSwitched)
         "POST /tailgate HTTP/1.1\r\nHost: relay.example.com\r\nConnection: Upgrade\r\n"
         "Upgrade: tailgate\r\n\r\n");
 
-    tailgate::relay::AcceptHttpUpgrade(stream);
+    tailgate::hosted::AcceptHttpUpgrade(stream);
 
     const std::string response(stream.Output.begin(), stream.Output.end());
     EXPECT_TRUE(response.rfind("HTTP/1.1 101 ", 0) == 0);
@@ -352,17 +356,17 @@ TEST(Given_TailgateHttpUpgrade, When_ServerAccepts_Then_ProtocolIsSwitched)
 
 TEST(Given_RelayFrameCoalescedWithHttpUpgrade, When_ClientUpgrades_Then_FrameIsPreserved)
 {
-    const tailgate::relay::Frame challenge{.Type = tailgate::relay::MessageType::ServerChallenge,
-                                           .Payload = {1, 2, 3}};
-    const std::vector<std::uint8_t> encoded = tailgate::relay::Encode(challenge);
+    const tailgate::hosted::Frame challenge{.Type = tailgate::hosted::MessageType::ServerChallenge,
+                                            .Payload = {1, 2, 3}};
+    const std::vector<std::uint8_t> encoded = tailgate::hosted::Encode(challenge);
     std::string response =
         "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: tailgate\r\n\r\n";
     response.append(reinterpret_cast<const char*>(encoded.data()), encoded.size());
     MemoryStream stream(std::move(response));
-    tailgate::relay::Decoder decoder;
+    tailgate::hosted::Decoder decoder;
 
-    decoder.Feed(tailgate::relay::RequestHttpUpgrade(stream, "relay.example.com:443"));
-    const std::optional<tailgate::relay::Frame> decoded = decoder.Next();
+    decoder.Feed(tailgate::hosted::RequestHttpUpgrade(stream, "relay.example.com:443"));
+    const std::optional<tailgate::hosted::Frame> decoded = decoder.Next();
 
     EXPECT_TRUE(decoded.has_value());
     EXPECT_EQ(decoded->Type, challenge.Type);
@@ -376,7 +380,7 @@ TEST(Given_UnknownHttpPath, When_ServerAccepts_Then_RequestIsRejected)
 
     const auto accept = [&]()
     {
-        tailgate::relay::AcceptHttpUpgrade(stream);
+        tailgate::hosted::AcceptHttpUpgrade(stream);
     };
 
     EXPECT_THROW(accept(), std::runtime_error);

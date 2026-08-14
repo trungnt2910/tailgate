@@ -1,8 +1,5 @@
 #include "LinuxAcme.h"
-#include "LinuxCaBundle.h"
-#include "LinuxFiles.h"
-#include "TcpStream.h"
-#include "tailgate/protocol/TlsStream.h"
+
 #include <charconv>
 #include <format>
 #include <stdexcept>
@@ -13,6 +10,12 @@
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
+
+#include <tailgate/net/tls/TlsStream.h>
+
+#include "LinuxCaBundle.h"
+#include "LinuxFiles.h"
+#include "TcpStream.h"
 
 namespace tailgate::linux_frontend
 {
@@ -112,11 +115,12 @@ std::string DecodeChunked(const std::string& body)
 
 } // namespace
 
-acme::HttpResponse LinuxAcmeHttpClient::Send(const acme::HttpRequest& request)
+tailgate::serve::acme::HttpResponse
+LinuxAcmeHttpClient::Send(const tailgate::serve::acme::HttpRequest& request)
 {
     const Endpoint endpoint = Parse(request.Url);
     TcpStream socket(endpoint.Host, endpoint.Port, {}, TcpStream::ControlIoTimeoutSeconds);
-    protocol::TlsStream tls(socket, endpoint.Host, SystemCaBundle());
+    tailgate::net::tls::TlsStream tls(socket, endpoint.Host, SystemCaBundle());
     std::string output = std::format("{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n"
                                      "Content-Length: {}\r\n",
                                      request.Method,
@@ -144,7 +148,7 @@ acme::HttpResponse LinuxAcmeHttpClient::Send(const acme::HttpRequest& request)
     {
         throw std::runtime_error("ACME HTTP response has no headers");
     }
-    acme::HttpResponse result;
+    tailgate::serve::acme::HttpResponse result;
     std::vector<std::string> lines;
     boost::algorithm::split(
         lines, response.substr(0, headerEnd), boost::algorithm::is_any_of("\n"));

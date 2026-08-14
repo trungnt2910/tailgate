@@ -30,6 +30,7 @@ target_link_libraries(
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_dns>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_packet>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_stun>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_tls>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_qr>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_serve>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_serve_acme>"

@@ -13,7 +13,6 @@ if(TAILGATE_BUILD_TESTS)
         target_include_directories(
             ${target}
             PRIVATE
-                "${PROJECT_SOURCE_DIR}/src/core"
                 "${PROJECT_SOURCE_DIR}/tests"
         )
         target_link_libraries(${target} PRIVATE GTest::gtest)

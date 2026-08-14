@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-#include <tailgate/QrCode.h>
+#include <tailgate/qr/QrCode.h>
 
 namespace tailgate::linux_frontend
 {
@@ -16,6 +16,6 @@ enum class QrTextFormat
 };
 
 [[nodiscard]] QrTextFormat ResolveQrTextFormat(std::string_view requested, std::string_view locale);
-[[nodiscard]] std::string RenderQrCode(const QrCode& code, QrTextFormat format);
+[[nodiscard]] std::string RenderQrCode(const tailgate::qr::QrCode& code, QrTextFormat format);
 
 } // namespace tailgate::linux_frontend

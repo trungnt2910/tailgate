@@ -3,12 +3,12 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/QrCode.h>
+#include <tailgate/qr/QrCode.h>
 
 TEST(Given_LoginUrl, When_EncodingQrCode_Then_SquareModuleMatrixIsReturned)
 {
-    const tailgate::QrCode code =
-        tailgate::EncodeQrCode("https://login.tailscale.com/a/fake-login-code");
+    const tailgate::qr::QrCode code =
+        tailgate::qr::EncodeQrCode("https://login.tailscale.com/a/fake-login-code");
 
     const std::size_t darkModules =
         static_cast<std::size_t>(std::count(code.Modules.begin(), code.Modules.end(), 1));
@@ -20,7 +20,7 @@ TEST(Given_LoginUrl, When_EncodingQrCode_Then_SquareModuleMatrixIsReturned)
 
 TEST(Given_QrCode, When_ReadingFinderPattern_Then_ExpectedModulesArePresent)
 {
-    const tailgate::QrCode code = tailgate::EncodeQrCode("Tailgate");
+    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode("Tailgate");
 
     const bool topLeftCorner = code.Module(0, 0);
     const bool topLeftInnerBorder = code.Module(1, 1);
@@ -33,7 +33,7 @@ TEST(Given_QrCode, When_ReadingFinderPattern_Then_ExpectedModulesArePresent)
 
 TEST(Given_QrCode, When_ReadingOutsideMatrix_Then_AccessIsRejected)
 {
-    const tailgate::QrCode code = tailgate::EncodeQrCode("Tailgate");
+    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode("Tailgate");
     const auto readOutside = [&]()
     {
         (void)code.Module(code.Size, 0);
@@ -46,7 +46,7 @@ TEST(Given_EmptyText, When_EncodingQrCode_Then_InputIsRejected)
 {
     const auto encode = []()
     {
-        (void)tailgate::EncodeQrCode("");
+        (void)tailgate::qr::EncodeQrCode("");
     };
 
     EXPECT_THROW(encode(), std::invalid_argument);

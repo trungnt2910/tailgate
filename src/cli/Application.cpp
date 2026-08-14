@@ -1,4 +1,4 @@
-#include "tailgate/Application.h"
+#include <tailgate/Application.h>
 
 #include <algorithm>
 #include <chrono>
@@ -11,7 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "tailgate/cli/Arguments.h"
+#include <tailgate/cli/Arguments.h>
 
 namespace tailgate
 {

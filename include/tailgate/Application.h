@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tailgate/PlatformFrontend.h"
+#include <tailgate/PlatformFrontend.h>
 
 namespace tailgate
 {

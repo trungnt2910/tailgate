@@ -2,7 +2,7 @@
 
 #include <winrt/base.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -19,7 +19,7 @@ public:
 
 private:
     winrt::handle m_signal;
-    Logger m_logger{"uwp-event-signal"};
+    tailgate::base::Logger m_logger{"uwp-event-signal"};
 };
 
 } // namespace tailgate::uwp

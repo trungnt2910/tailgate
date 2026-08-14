@@ -1,0 +1,12 @@
+tailgate_add_library(
+    tailgate_core_disco
+    STATIC
+    Disco.cpp
+)
+target_link_libraries(
+    tailgate_core_disco
+    PUBLIC
+        tailgate_core_crypto
+    PRIVATE
+        sodium
+)

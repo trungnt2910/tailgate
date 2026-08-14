@@ -5,12 +5,12 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/control/ControlDialer.h>
+#include <tailgate/control/client/ControlDialer.h>
 
 namespace
 {
 
-class FakeStream final : public tailgate::IByteStream
+class FakeStream final : public tailgate::base::IByteStream
 {
 public:
     explicit FakeStream(std::string name) : Name(std::move(name))
@@ -51,7 +51,7 @@ TEST(Given_WorkingPlaintextControl, When_Dialing_Then_TlsIsNeverAttempted)
         established.push_back(stream.Name);
     };
 
-    const auto outcome = tailgate::control::DialControlStream(plaintext, tls, establish);
+    const auto outcome = tailgate::control::client::DialControlStream(plaintext, tls, establish);
 
     EXPECT_FALSE(outcome.UsedTls);
     EXPECT_FALSE(tlsDialed);
@@ -75,7 +75,7 @@ TEST(Given_PlaintextControlConnectFailure, When_Dialing_Then_TlsFallbackIsUsed)
         established.push_back(stream.Name);
     };
 
-    const auto outcome = tailgate::control::DialControlStream(plaintext, tls, establish);
+    const auto outcome = tailgate::control::client::DialControlStream(plaintext, tls, establish);
 
     EXPECT_TRUE(outcome.UsedTls);
     EXPECT_EQ(established, std::vector<std::string>{"tls"});
@@ -102,7 +102,7 @@ TEST(Given_PlaintextControlHandshakeFailure, When_Dialing_Then_TlsFallbackIsUsed
         }
     };
 
-    const auto outcome = tailgate::control::DialControlStream(plaintext, tls, establish);
+    const auto outcome = tailgate::control::client::DialControlStream(plaintext, tls, establish);
 
     EXPECT_TRUE(outcome.UsedTls);
     EXPECT_EQ(established, (std::vector<std::string>{"plaintext", "tls"}));
@@ -124,7 +124,7 @@ TEST(Given_BothControlPathsFailing, When_Dialing_Then_TheTlsErrorPropagates)
     };
     const auto dial = [&]()
     {
-        (void)tailgate::control::DialControlStream(plaintext, tls, establish);
+        (void)tailgate::control::client::DialControlStream(plaintext, tls, establish);
     };
 
     EXPECT_THROW(dial(), std::runtime_error);

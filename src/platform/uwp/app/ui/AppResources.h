@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -195,7 +195,7 @@ private:
     [[nodiscard]] foundation::IInspectable Lookup(const wchar_t* key) const;
 
     xaml::ResourceDictionary m_dictionary;
-    Logger m_logger{"uwp-app-resources"};
+    tailgate::base::Logger m_logger{"uwp-app-resources"};
 };
 
 } // namespace tailgate::uwp

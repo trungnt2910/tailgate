@@ -1,11 +1,5 @@
 #include "LinuxRelayServer.h"
 
-#include "FdStream.h"
-#include "UniqueFd.h"
-#include "tailgate/Logging.h"
-#include "tailgate/relay/RelayProtocol.h"
-#include "tailgate/serve/HandshakeLimiter.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -23,6 +17,13 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <tailgate/base/Logging.h>
+#include <tailgate/hosted/Protocol.h>
+#include <tailgate/serve/HandshakeLimiter.h>
+
+#include "FdStream.h"
+#include "UniqueFd.h"
 
 namespace tailgate::linux_frontend
 {
@@ -79,7 +80,9 @@ public:
                   Run();
               })
     {
-        Log(LogLevel::Info, "relay", std::format("listening on 127.0.0.1:{}", port));
+        tailgate::base::Log(tailgate::base::LogLevel::Info,
+                            "relay",
+                            std::format("listening on 127.0.0.1:{}", port));
     }
 
     ~Impl()
@@ -144,9 +147,9 @@ private:
                 {
                     continue;
                 }
-                Log(LogLevel::Warning,
-                    "relay",
-                    "accept failed: " + std::string(std::strerror(errno)));
+                tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                    "relay",
+                                    "accept failed: " + std::string(std::strerror(errno)));
                 continue;
             }
             ReapConnections();
@@ -154,9 +157,9 @@ private:
             int noDelay = 1;
             if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay)) != 0)
             {
-                Log(LogLevel::Warning,
-                    "relay",
-                    "TCP_NODELAY failed: " + std::string(std::strerror(errno)));
+                tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                    "relay",
+                                    "TCP_NODELAY failed: " + std::string(std::strerror(errno)));
                 close(fd);
                 continue;
             }
@@ -164,13 +167,16 @@ private:
                 std::lock_guard lock(m_connectionMutex);
                 if (m_connectionFds.size() >= MaximumConnections)
                 {
-                    Log(LogLevel::Warning, "relay", "connection limit reached");
+                    tailgate::base::Log(
+                        tailgate::base::LogLevel::Warning, "relay", "connection limit reached");
                     close(fd);
                     continue;
                 }
                 if (!m_handshakeLimiter.TryBegin())
                 {
-                    Log(LogLevel::Debug, "relay", "unauthenticated connection limit reached");
+                    tailgate::base::Log(tailgate::base::LogLevel::Debug,
+                                        "relay",
+                                        "unauthenticated connection limit reached");
                     close(fd);
                     continue;
                 }
@@ -205,7 +211,7 @@ private:
         {
             FdStream stream(fd);
             stream.SetReadTimeout(AuthenticationTimeout);
-            relay::AcceptHttpUpgrade(stream);
+            tailgate::hosted::AcceptHttpUpgrade(stream);
             m_handler(
                 stream,
                 [fd]()
@@ -222,7 +228,9 @@ private:
         {
             if (!m_stopping)
             {
-                Log(LogLevel::Warning, "relay", "connection failed: " + std::string(error.what()));
+                tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                    "relay",
+                                    "connection failed: " + std::string(error.what()));
             }
         }
         finishHandshake();

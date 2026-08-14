@@ -5,9 +5,9 @@
 #include <mutex>
 #include <thread>
 
-#include <tailgate/ByteStream.h>
-#include <tailgate/Logger.h>
-#include <tailgate/control/ControlClient.h>
+#include <tailgate/base/ByteStream.h>
+#include <tailgate/base/Logger.h>
+#include <tailgate/control/client/ControlClient.h>
 
 #include "manager/ControlPlaneManager.h"
 
@@ -29,7 +29,8 @@ public:
 
     void Start(SessionGeneration generation) override;
     void LoadIdentity(bool registered) override;
-    [[nodiscard]] control::RegistrationResult Connect(const std::string& authKey) override;
+    [[nodiscard]] tailgate::control::client::RegistrationResult
+    Connect(const std::string& authKey) override;
     void StartMaintenance(NetworkMapHandler networkMapHandler) override;
     void StopMaintenance() override;
     void RequestStop() override;
@@ -37,9 +38,9 @@ public:
     void Reset() override;
 
     [[nodiscard]] bool IsStopping() const override;
-    [[nodiscard]] const protocol::Bytes32& NodePrivateKey() const override;
-    [[nodiscard]] const protocol::Bytes32& NodePublicKey() const override;
-    [[nodiscard]] const protocol::Bytes32& DiscoPrivateKey() const override;
+    [[nodiscard]] const tailgate::crypto::Bytes32& NodePrivateKey() const override;
+    [[nodiscard]] const tailgate::crypto::Bytes32& NodePublicKey() const override;
+    [[nodiscard]] const tailgate::crypto::Bytes32& DiscoPrivateKey() const override;
 
 private:
     [[nodiscard]] bool WaitForRetry(std::chrono::milliseconds delay) const;
@@ -47,16 +48,16 @@ private:
 
     SessionManager& m_sessionManager;
     SessionGeneration m_generation = 0;
-    protocol::Bytes32 m_machinePrivateKey{};
-    protocol::Bytes32 m_nodePrivateKey{};
-    protocol::Bytes32 m_nodePublicKey{};
-    protocol::Bytes32 m_discoPrivateKey{};
+    tailgate::crypto::Bytes32 m_machinePrivateKey{};
+    tailgate::crypto::Bytes32 m_nodePrivateKey{};
+    tailgate::crypto::Bytes32 m_nodePublicKey{};
+    tailgate::crypto::Bytes32 m_discoPrivateKey{};
     std::unique_ptr<UwpTcpStream> m_stream;
-    std::unique_ptr<control::ControlClient> m_client;
+    std::unique_ptr<tailgate::control::client::ControlClient> m_client;
     mutable std::mutex m_mutex;
     std::atomic_bool m_stopping = false;
     std::thread m_maintenanceThread;
-    Logger m_logger{"uwp-control-plane"};
+    tailgate::base::Logger m_logger{"uwp-control-plane"};
 };
 
 } // namespace tailgate::uwp::bg::manager

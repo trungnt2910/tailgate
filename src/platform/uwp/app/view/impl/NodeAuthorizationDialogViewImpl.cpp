@@ -3,8 +3,8 @@
 #include <exception>
 #include <string>
 
-#include <tailgate/QrCode.h>
-#include <tailgate/protocol/ControlRequests.h>
+#include <tailgate/control/client/ControlRequests.h>
+#include <tailgate/qr/QrCode.h>
 
 #include "common/ResourceLoader.h"
 #include "strings/Resources.h"
@@ -24,7 +24,7 @@ constexpr int QrQuietZoneModules = 4;
 
 controls::Canvas LoginQrCanvas(const std::string& authorizationUrl, AppResources& resources)
 {
-    const tailgate::QrCode code = tailgate::EncodeQrCode(authorizationUrl);
+    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode(authorizationUrl);
     const int totalModules = code.Size + (QrQuietZoneModules * 2);
     const double moduleSize = resources.Double(AppDouble::QrModuleSize);
     controls::Canvas canvas;
@@ -145,7 +145,8 @@ void NodeAuthorizationDialogViewImpl::OnStateChange(const std::string&)
         m_panel.Children().Append(url);
     }
 
-    const std::string authorizationCode = tailgate::protocol::AuthorizationCode(authorizationUrl);
+    const std::string authorizationCode =
+        tailgate::control::client::AuthorizationCode(authorizationUrl);
     if (!authorizationCode.empty())
     {
         auto codeInstructions = m_uiFactory.Text(

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -29,7 +29,7 @@ private:
     ContentDialogController& m_dialogController;
     PingController& m_pingController;
     PingDialogState m_state;
-    Logger m_logger{"uwp-ping-dialog-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-ping-dialog-ctrl"};
 };
 
 } // namespace tailgate::uwp

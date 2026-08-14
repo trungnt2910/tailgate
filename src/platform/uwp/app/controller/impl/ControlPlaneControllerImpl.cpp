@@ -5,10 +5,10 @@
 #include <memory>
 #include <utility>
 
-#include <tailgate/control/ControlClient.h>
-#include <tailgate/control/ControlDialer.h>
-#include <tailgate/protocol/ControlHandshake.h>
-#include <tailgate/protocol/Crypto.h>
+#include <tailgate/control/base/ControlHandshake.h>
+#include <tailgate/control/client/ControlClient.h>
+#include <tailgate/control/client/ControlDialer.h>
+#include <tailgate/crypto/Crypto.h>
 
 #include "common/HostInfo.h"
 #include "common/UwpAliases.h"
@@ -32,8 +32,8 @@ const ControlPlaneState& ControlPlaneControllerImpl::GetState() const noexcept
     return m_state;
 }
 
-void ControlPlaneControllerImpl::Logout(std::optional<protocol::Bytes32> machineKey,
-                                        std::optional<protocol::Bytes32> nodeKey)
+void ControlPlaneControllerImpl::Logout(std::optional<tailgate::crypto::Bytes32> machineKey,
+                                        std::optional<tailgate::crypto::Bytes32> nodeKey)
 {
     if (m_state.Busy())
     {
@@ -50,8 +50,8 @@ void ControlPlaneControllerImpl::Logout(std::optional<protocol::Bytes32> machine
 }
 
 FireAndForget
-ControlPlaneControllerImpl::LogoutInBackground(std::optional<protocol::Bytes32> machineKey,
-                                               std::optional<protocol::Bytes32> nodeKey)
+ControlPlaneControllerImpl::LogoutInBackground(std::optional<tailgate::crypto::Bytes32> machineKey,
+                                               std::optional<tailgate::crypto::Bytes32> nodeKey)
 {
     winrt::apartment_context uiThread;
     std::optional<UwpError::Code> failure;
@@ -60,15 +60,15 @@ ControlPlaneControllerImpl::LogoutInBackground(std::optional<protocol::Bytes32> 
         co_await winrt::resume_background();
         try
         {
-            tailgate::protocol::HostInfo host = BuildHostInfo();
-            std::unique_ptr<tailgate::control::ControlClient> control;
-            tailgate::control::ControlDialOutcome<std::unique_ptr<UwpTcpStream>> dialed =
-                tailgate::control::DialControlStream(
+            tailgate::control::client::HostInfo host = BuildHostInfo();
+            std::unique_ptr<tailgate::control::client::ControlClient> control;
+            tailgate::control::client::ControlDialOutcome<std::unique_ptr<UwpTcpStream>> dialed =
+                tailgate::control::client::DialControlStream(
                     []
                     {
                         return std::make_unique<UwpTcpStream>(
-                            tailgate::protocol::ControlHandshake::DefaultHost,
-                            tailgate::protocol::ControlHandshake::PlaintextService,
+                            tailgate::control::base::ControlHandshake::DefaultHost,
+                            tailgate::control::base::ControlHandshake::PlaintextService,
                             winrt::Windows::Networking::Sockets::SocketProtectionLevel::PlainSocket,
                             LogoutIoTimeout,
                             PlaintextControlConnectTimeout);
@@ -76,14 +76,14 @@ ControlPlaneControllerImpl::LogoutInBackground(std::optional<protocol::Bytes32> 
                     []
                     {
                         return std::make_unique<UwpTcpStream>(
-                            tailgate::protocol::ControlHandshake::DefaultHost,
-                            tailgate::protocol::ControlHandshake::TlsService,
+                            tailgate::control::base::ControlHandshake::DefaultHost,
+                            tailgate::control::base::ControlHandshake::TlsService,
                             winrt::Windows::Networking::Sockets::SocketProtectionLevel::Tls12,
                             LogoutIoTimeout);
                     },
-                    [&](tailgate::IByteStream& stream)
+                    [&](tailgate::base::IByteStream& stream)
                     {
-                        control = std::make_unique<tailgate::control::ControlClient>(
+                        control = std::make_unique<tailgate::control::client::ControlClient>(
                             stream, *machineKey, *nodeKey, host);
                     });
             control->Logout();

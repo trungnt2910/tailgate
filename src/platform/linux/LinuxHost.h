@@ -1,10 +1,10 @@
 #pragma once
 
-#include "tailgate/protocol/ControlRequests.h"
+#include <tailgate/control/client/ControlRequests.h>
 
 namespace tailgate::linux_frontend
 {
 
-[[nodiscard]] tailgate::protocol::HostInfo CollectHostInfo();
+[[nodiscard]] tailgate::control::client::HostInfo CollectHostInfo();
 
 } // namespace tailgate::linux_frontend

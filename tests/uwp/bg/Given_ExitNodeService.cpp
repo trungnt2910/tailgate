@@ -6,7 +6,7 @@
 #include <boost/di.hpp>
 #include <gtest/gtest.h>
 
-#include <tailgate/network/Ipv4.h>
+#include <tailgate/net/packet/Ipv4.h>
 
 #include "common/Settings.h"
 #include "common/UwpAppServiceProtocol.h"
@@ -33,7 +33,7 @@ DecodeResponse(const std::vector<std::vector<std::uint8_t>>& packets)
     {
         return std::nullopt;
     }
-    const auto datagram = network::ParseIpv4UdpDatagram(packets.front());
+    const auto datagram = tailgate::net::packet::ParseIpv4UdpDatagram(packets.front());
     if (!datagram)
     {
         return std::nullopt;
@@ -70,7 +70,7 @@ protected:
 
 TEST_F(Given_ExitNodeService, When_ExitNodeDoesNotExist_Then_RequestIsRejected)
 {
-    network::Ipv4UdpDatagram datagram;
+    tailgate::net::packet::Ipv4UdpDatagram datagram;
     datagram.Source = AppAddress;
     datagram.SourcePort = AppPort;
     const app_service::ExitNodeRequest request{
@@ -78,7 +78,7 @@ TEST_F(Given_ExitNodeService, When_ExitNodeDoesNotExist_Then_RequestIsRejected)
         .ExitNode = "missing.example.ts.net",
         .PreserveSelection = false,
     };
-    const control::NetworkConfig config;
+    const tailgate::types::netmap::NetworkConfig config;
     std::vector<std::vector<std::uint8_t>> appResponses;
 
     const bg::service::ExitNodeAction action =
@@ -97,7 +97,7 @@ TEST_F(Given_ExitNodeService, When_ExitNodeDoesNotExist_Then_RequestIsRejected)
 
 TEST_F(Given_ExitNodeService, When_OnlineExitNodeExists_Then_ReconnectIsRequested)
 {
-    network::Ipv4UdpDatagram datagram;
+    tailgate::net::packet::Ipv4UdpDatagram datagram;
     datagram.Source = AppAddress;
     datagram.SourcePort = AppPort;
     const app_service::ExitNodeRequest request{
@@ -105,12 +105,12 @@ TEST_F(Given_ExitNodeService, When_OnlineExitNodeExists_Then_ReconnectIsRequeste
         .ExitNode = "exit",
         .PreserveSelection = false,
     };
-    control::PeerConfig peer;
+    tailgate::types::netmap::PeerConfig peer;
     peer.Name = "exit.example.ts.net.";
     peer.Address = "100.64.0.2";
     peer.Online = true;
     peer.ExitNodeOption = true;
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     config.Peers.push_back(peer);
     std::vector<std::vector<std::uint8_t>> appResponses;
 
@@ -123,7 +123,7 @@ TEST_F(Given_ExitNodeService, When_OnlineExitNodeExists_Then_ReconnectIsRequeste
 
 TEST_F(Given_ExitNodeService, When_AcceptedChangeCommits_Then_SuccessResponseIsQueued)
 {
-    network::Ipv4UdpDatagram datagram;
+    tailgate::net::packet::Ipv4UdpDatagram datagram;
     datagram.Source = AppAddress;
     datagram.SourcePort = AppPort;
     const app_service::ExitNodeRequest request{
@@ -131,12 +131,12 @@ TEST_F(Given_ExitNodeService, When_AcceptedChangeCommits_Then_SuccessResponseIsQ
         .ExitNode = "exit.example.ts.net",
         .PreserveSelection = false,
     };
-    control::PeerConfig peer;
+    tailgate::types::netmap::PeerConfig peer;
     peer.Name = "exit.example.ts.net.";
     peer.Address = "100.64.0.2";
     peer.Online = true;
     peer.ExitNodeOption = true;
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     config.Peers.push_back(peer);
     std::vector<std::vector<std::uint8_t>> ignoredResponses;
     const auto action = m_subject->Handle(datagram, request, config, "", ignoredResponses);
@@ -160,7 +160,7 @@ TEST_F(Given_ExitNodeService, When_AcceptedChangeCommits_Then_SuccessResponseIsQ
 
 TEST_F(Given_ExitNodeService, When_ExitNodeIsOffline_Then_RequestIsRejected)
 {
-    network::Ipv4UdpDatagram datagram;
+    tailgate::net::packet::Ipv4UdpDatagram datagram;
     datagram.Source = AppAddress;
     datagram.SourcePort = AppPort;
     const app_service::ExitNodeRequest request{
@@ -168,12 +168,12 @@ TEST_F(Given_ExitNodeService, When_ExitNodeIsOffline_Then_RequestIsRejected)
         .ExitNode = "offline",
         .PreserveSelection = false,
     };
-    control::PeerConfig peer;
+    tailgate::types::netmap::PeerConfig peer;
     peer.Name = "offline.example.ts.net.";
     peer.Address = "100.64.0.3";
     peer.Online = false;
     peer.ExitNodeOption = true;
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     config.Peers.push_back(peer);
     std::vector<std::vector<std::uint8_t>> appResponses;
 

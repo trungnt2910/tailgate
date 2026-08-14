@@ -49,7 +49,7 @@ std::string FirstIpv6(const std::vector<std::string>& addresses)
     return found == addresses.end() ? std::string() : *found;
 }
 
-std::vector<StateDevice> DevicesFromNetworkMap(const control::NetworkConfig& config)
+std::vector<StateDevice> DevicesFromNetworkMap(const tailgate::types::netmap::NetworkConfig& config)
 {
     std::vector<StateDevice> devices;
     devices.push_back(StateDevice{.Group = config.AccountDisplayName,
@@ -221,7 +221,7 @@ void SessionManagerImpl::StopForegroundMonitor()
     }
 }
 
-void SessionManagerImpl::WriteState(const control::NetworkConfig& config)
+void SessionManagerImpl::WriteState(const tailgate::types::netmap::NetworkConfig& config)
 {
     nlohmann::json devicesJson = nlohmann::json::array();
     for (const StateDevice& device : DevicesFromNetworkMap(config))

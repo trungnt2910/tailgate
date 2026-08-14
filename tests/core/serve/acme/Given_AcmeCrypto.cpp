@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/acme/AcmeClient.h>
+#include <tailgate/serve/acme/Client.h>
 
 namespace
 {
@@ -27,7 +27,7 @@ constexpr auto MinimumValidity = std::chrono::hours(24);
 
 TEST(Given_FreshProcess, When_CheckingCachedCertificate_Then_ItIsAccepted)
 {
-    tailgate::acme::MbedTlsCrypto crypto;
+    tailgate::serve::acme::MbedTlsCrypto crypto;
 
     const bool valid = crypto.CertificateValidFor(Certificate, MinimumValidity);
 

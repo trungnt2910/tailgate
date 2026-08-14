@@ -1,0 +1,14 @@
+tailgate_add_library(
+    tailgate_core_control_base
+    STATIC
+    ControlHandshake.cpp
+    H2.cpp
+    Noise.cpp
+    NoiseTransport.cpp
+)
+target_link_libraries(
+    tailgate_core_control_base
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_crypto
+)

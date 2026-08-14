@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -44,7 +44,7 @@ private:
     SettingsController& m_settingsController;
     ExitNodeState m_state;
     StateEventRegistration m_settingsRegistration;
-    Logger m_logger{"uwp-exit-node-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-exit-node-ctrl"};
 };
 
 } // namespace tailgate::uwp

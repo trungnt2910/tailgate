@@ -1,5 +1,3 @@
-#include "VpnBackgroundTask.h"
-
 #include <string_view>
 
 #define WIN32_LEAN_AND_MEAN
@@ -11,17 +9,19 @@
 #include <winrt/Windows.Foundation.h>
 #include <winrt/base.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 #include "common/UwpLogger.h"
+
+#include "VpnBackgroundTask.h"
 
 namespace
 {
 
 constexpr std::wstring_view BackgroundTaskClassName = L"Tailgate.Background.TailgateVpnTask";
 constexpr wchar_t LogFileName[] = L"Tailgate.Background.log";
-tailgate::Logger BackgroundLogger{"uwp-background"};
+tailgate::base::Logger BackgroundLogger{"uwp-background"};
 
 namespace foundation = winrt::Windows::Foundation;
 
@@ -35,7 +35,7 @@ struct TailgateActivationFactory
     }
 
 private:
-    tailgate::Logger m_logger{"uwp-background-factory"};
+    tailgate::base::Logger m_logger{"uwp-background-factory"};
 };
 
 } // namespace

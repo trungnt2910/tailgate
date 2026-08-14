@@ -14,14 +14,13 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/base.h>
 
-#include <tailgate/control/ControlDialer.h>
-#include <tailgate/control/RetryBackoff.h>
-#include <tailgate/protocol/ControlHandshake.h>
-
-#include "common/UwpTcpStream.h"
+#include <tailgate/control/base/ControlHandshake.h>
+#include <tailgate/control/client/ControlDialer.h>
+#include <tailgate/control/client/RetryBackoff.h>
 
 #include "common/HostInfo.h"
 #include "common/Settings.h"
+#include "common/UwpTcpStream.h"
 
 namespace tailgate::uwp::bg::manager
 {
@@ -41,11 +40,11 @@ constexpr std::chrono::milliseconds ReconnectPollInterval(100);
 
 winrt::hstring GeneratePrivateKeyText()
 {
-    const protocol::Bytes32 key = protocol::GeneratePrivateKey();
-    return winrt::to_hstring(protocol::BytesToHex(key.data(), key.size()));
+    const tailgate::crypto::Bytes32 key = tailgate::crypto::GeneratePrivateKey();
+    return winrt::to_hstring(tailgate::crypto::BytesToHex(key.data(), key.size()));
 }
 
-std::optional<protocol::Bytes32> DecodePrivateKey(const winrt::hstring& encoded)
+std::optional<tailgate::crypto::Bytes32> DecodePrivateKey(const winrt::hstring& encoded)
 {
     if (encoded.empty())
     {
@@ -53,10 +52,11 @@ std::optional<protocol::Bytes32> DecodePrivateKey(const winrt::hstring& encoded)
     }
     try
     {
-        const std::vector<std::uint8_t> bytes = protocol::HexToBytes(winrt::to_string(encoded));
-        if (bytes.size() == protocol::Bytes32{}.size())
+        const std::vector<std::uint8_t> bytes =
+            tailgate::crypto::HexToBytes(winrt::to_string(encoded));
+        if (bytes.size() == tailgate::crypto::Bytes32{}.size())
         {
-            protocol::Bytes32 result{};
+            tailgate::crypto::Bytes32 result{};
             std::copy(bytes.begin(), bytes.end(), result.begin());
             return result;
         }
@@ -67,12 +67,12 @@ std::optional<protocol::Bytes32> DecodePrivateKey(const winrt::hstring& encoded)
     return std::nullopt;
 }
 
-std::optional<protocol::Bytes32> LoadPrivateKey(const winrt::hstring& name)
+std::optional<tailgate::crypto::Bytes32> LoadPrivateKey(const winrt::hstring& name)
 {
     return DecodePrivateKey(Settings::GetString(name));
 }
 
-protocol::Bytes32 LoadOrCreatePrivateKey(const winrt::hstring& name)
+tailgate::crypto::Bytes32 LoadOrCreatePrivateKey(const winrt::hstring& name)
 {
     const Settings::Value stored =
         Settings::GetOrCreate(name,
@@ -80,7 +80,7 @@ protocol::Bytes32 LoadOrCreatePrivateKey(const winrt::hstring& name)
                               {
                                   return winrt::box_value(GeneratePrivateKeyText());
                               });
-    if (const std::optional<protocol::Bytes32> existing =
+    if (const std::optional<tailgate::crypto::Bytes32> existing =
             DecodePrivateKey(winrt::unbox_value_or<winrt::hstring>(stored, L"")))
     {
         return *existing;
@@ -127,9 +127,9 @@ void ControlPlaneManagerImpl::LoadIdentity(bool registered)
         m_discoPrivateKey = LoadOrCreatePrivateKey(L"DiscoPrivateKey");
         return;
     }
-    const std::optional<protocol::Bytes32> machine = LoadPrivateKey(L"MachinePrivateKey");
-    const std::optional<protocol::Bytes32> node = LoadPrivateKey(L"NodePrivateKey");
-    const std::optional<protocol::Bytes32> disco = LoadPrivateKey(L"DiscoPrivateKey");
+    const std::optional<tailgate::crypto::Bytes32> machine = LoadPrivateKey(L"MachinePrivateKey");
+    const std::optional<tailgate::crypto::Bytes32> node = LoadPrivateKey(L"NodePrivateKey");
+    const std::optional<tailgate::crypto::Bytes32> disco = LoadPrivateKey(L"DiscoPrivateKey");
     if (!machine || !node || !disco)
     {
         throw IdentityStorageError();
@@ -139,31 +139,35 @@ void ControlPlaneManagerImpl::LoadIdentity(bool registered)
     m_discoPrivateKey = *disco;
 }
 
-control::RegistrationResult ControlPlaneManagerImpl::Connect(const std::string& authKey)
+tailgate::control::client::RegistrationResult
+ControlPlaneManagerImpl::Connect(const std::string& authKey)
 {
     m_logger.LogInfo("starting control registration");
-    std::unique_ptr<control::ControlClient> client;
-    control::ControlDialOutcome<std::unique_ptr<UwpTcpStream>> dialed = control::DialControlStream(
-        []
-        {
-            return std::make_unique<UwpTcpStream>(protocol::ControlHandshake::DefaultHost,
-                                                  protocol::ControlHandshake::PlaintextService,
-                                                  sockets::SocketProtectionLevel::PlainSocket,
-                                                  ControlIoTimeout,
-                                                  PlaintextControlConnectTimeout);
-        },
-        []
-        {
-            return std::make_unique<UwpTcpStream>(protocol::ControlHandshake::DefaultHost,
-                                                  protocol::ControlHandshake::TlsService,
-                                                  sockets::SocketProtectionLevel::Tls12,
-                                                  ControlIoTimeout);
-        },
-        [&](IByteStream& stream)
-        {
-            client = std::make_unique<control::ControlClient>(
-                stream, m_machinePrivateKey, m_nodePrivateKey, BuildHostInfo());
-        });
+    std::unique_ptr<tailgate::control::client::ControlClient> client;
+    tailgate::control::client::ControlDialOutcome<std::unique_ptr<UwpTcpStream>> dialed =
+        tailgate::control::client::DialControlStream(
+            []
+            {
+                return std::make_unique<UwpTcpStream>(
+                    tailgate::control::base::ControlHandshake::DefaultHost,
+                    tailgate::control::base::ControlHandshake::PlaintextService,
+                    sockets::SocketProtectionLevel::PlainSocket,
+                    ControlIoTimeout,
+                    PlaintextControlConnectTimeout);
+            },
+            []
+            {
+                return std::make_unique<UwpTcpStream>(
+                    tailgate::control::base::ControlHandshake::DefaultHost,
+                    tailgate::control::base::ControlHandshake::TlsService,
+                    sockets::SocketProtectionLevel::Tls12,
+                    ControlIoTimeout);
+            },
+            [&](tailgate::base::IByteStream& stream)
+            {
+                client = std::make_unique<tailgate::control::client::ControlClient>(
+                    stream, m_machinePrivateKey, m_nodePrivateKey, BuildHostInfo());
+            });
     m_logger.LogInfo("{}",
                      dialed.UsedTls ? "control connected through the TLS fallback"
                                     : "control connected through plaintext ts2021");
@@ -178,11 +182,12 @@ control::RegistrationResult ControlPlaneManagerImpl::Connect(const std::string& 
         m_stream = std::move(dialed.Stream);
     }
     m_stream->SetReadTimeout(std::nullopt);
-    control::RegistrationOptions options;
+    tailgate::control::client::RegistrationOptions options;
     options.InitialFollowupUrl = winrt::to_string(Settings::GetString(L"NodeFollowupUrl"));
-    options.StateChanged = [&](const control::RegistrationResult& state)
+    options.StateChanged = [&](const tailgate::control::client::RegistrationResult& state)
     {
-        const bool loginRequired = state.State == control::RegistrationState::LoginRequired;
+        const bool loginRequired =
+            state.State == tailgate::control::client::RegistrationState::LoginRequired;
         const std::string actionUrl = loginRequired ? state.AuthorizationUrl : state.ApprovalUrl;
         if (loginRequired)
         {
@@ -209,7 +214,7 @@ control::RegistrationResult ControlPlaneManagerImpl::Connect(const std::string& 
     {
         return WaitForRetry(delay);
     };
-    control::RegistrationResult registration;
+    tailgate::control::client::RegistrationResult registration;
     try
     {
         registration = m_client->RegisterUntilAuthorized(authKey, options);
@@ -224,9 +229,10 @@ control::RegistrationResult ControlPlaneManagerImpl::Connect(const std::string& 
     {
         throw std::runtime_error("Control registration completed without a network map.");
     }
-    const control::NetworkConfig& config = *registration.Network;
-    const std::string key = "nodekey:" + protocol::BytesToHex(m_client->NodePublicKey().data(),
-                                                              m_client->NodePublicKey().size());
+    const tailgate::types::netmap::NetworkConfig& config = *registration.Network;
+    const std::string key =
+        "nodekey:" + tailgate::crypto::BytesToHex(m_client->NodePublicKey().data(),
+                                                  m_client->NodePublicKey().size());
     if (config.SelfKey != key)
     {
         throw ControlIdentityChangedError();
@@ -258,8 +264,8 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
         [this, networkMapHandler = std::move(networkMapHandler)]
         {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
-            control::RetryBackoff reconnectBackoff(ReconnectMinimumBackoff,
-                                                   ReconnectMaximumBackoff);
+            tailgate::control::client::RetryBackoff reconnectBackoff(ReconnectMinimumBackoff,
+                                                                     ReconnectMaximumBackoff);
             bool connected = true;
             while (!m_stopping)
             {
@@ -267,7 +273,7 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
                 {
                     if (!connected)
                     {
-                        control::RegistrationResult registration = Connect("");
+                        tailgate::control::client::RegistrationResult registration = Connect("");
                         if (!registration.Network)
                         {
                             throw std::runtime_error(
@@ -278,7 +284,8 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
                         reconnectBackoff.Reset();
                         m_logger.LogInfo("control stream reconnected");
                     }
-                    if (std::optional<control::NetworkConfig> update = m_client->PollNetworkMap())
+                    if (std::optional<tailgate::types::netmap::NetworkConfig> update =
+                            m_client->PollNetworkMap())
                     {
                         networkMapHandler(std::move(*update));
                         continue;
@@ -366,17 +373,17 @@ bool ControlPlaneManagerImpl::IsStopping() const
     return m_stopping;
 }
 
-const protocol::Bytes32& ControlPlaneManagerImpl::NodePrivateKey() const
+const tailgate::crypto::Bytes32& ControlPlaneManagerImpl::NodePrivateKey() const
 {
     return m_nodePrivateKey;
 }
 
-const protocol::Bytes32& ControlPlaneManagerImpl::NodePublicKey() const
+const tailgate::crypto::Bytes32& ControlPlaneManagerImpl::NodePublicKey() const
 {
     return m_nodePublicKey;
 }
 
-const protocol::Bytes32& ControlPlaneManagerImpl::DiscoPrivateKey() const
+const tailgate::crypto::Bytes32& ControlPlaneManagerImpl::DiscoPrivateKey() const
 {
     return m_discoPrivateKey;
 }

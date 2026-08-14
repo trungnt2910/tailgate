@@ -3,16 +3,16 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/protocol/Noise.h>
+#include <tailgate/control/base/Noise.h>
 
 TEST(Given_NoiseInitiator, When_WritingMessage1_Then_FrameShapeMatchesTs2021)
 {
-    tailgate::protocol::Bytes32 machinePrivate{};
-    tailgate::protocol::Bytes32 ephemeralPrivate{};
+    tailgate::crypto::Bytes32 machinePrivate{};
+    tailgate::crypto::Bytes32 ephemeralPrivate{};
     machinePrivate[0] = 1;
     ephemeralPrivate[0] = 2;
 
-    tailgate::protocol::NoiseInitiator noise(machinePrivate, ephemeralPrivate);
+    tailgate::control::base::NoiseInitiator noise(machinePrivate, ephemeralPrivate);
     const std::vector<std::uint8_t> message = noise.WriteMessage1();
     const std::vector<std::uint8_t> prefix(
         message.begin(), message.begin() + std::min(message.size(), std::size_t{5}));

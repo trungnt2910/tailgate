@@ -1,14 +1,15 @@
 #pragma once
 
-#include "UniqueFd.h"
-#include "tailgate/network/Ipv4.h"
-
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include <netinet/in.h>
+
+#include <tailgate/net/packet/Ipv4.h>
+
+#include "UniqueFd.h"
 
 namespace tailgate::linux_frontend
 {
@@ -17,8 +18,8 @@ namespace tailgate::linux_frontend
 void SetInterfaceAddress(const std::string& name, const std::string& address);
 void SetInterfaceIpv6Address(const std::string& name, const std::string& address);
 void SetInterfaceMtu(const std::string& name, int mtu);
-void AddRoute(const std::string& interfaceName, const network::Ipv4Prefix& prefix);
-void RemoveRoute(const std::string& interfaceName, const network::Ipv4Prefix& prefix);
+void AddRoute(const std::string& interfaceName, const tailgate::net::packet::Ipv4Prefix& prefix);
+void RemoveRoute(const std::string& interfaceName, const tailgate::net::packet::Ipv4Prefix& prefix);
 void WriteResolver(const std::string& dnsResolver, const std::vector<std::string>& domains);
 [[nodiscard]] std::vector<std::string> ReadResolverAddresses();
 

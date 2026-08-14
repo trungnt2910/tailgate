@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
 
-#include <tailgate/protocol/ControlRequests.h>
+#include <tailgate/control/client/ControlRequests.h>
 #include <tailgate/serve/FunnelConfig.h>
 
 TEST(Given_HostInfoWithFunnel, When_BuildingMapRequest_Then_IngressIsAdvertised)
 {
-    tailgate::protocol::HostInfo host;
+    tailgate::control::client::HostInfo host;
     const tailgate::serve::FunnelConfig funnel =
         tailgate::serve::TlsTerminatedTcpFunnel(10000, 9000);
     host.Hostname = "fake-host";
@@ -14,12 +14,14 @@ TEST(Given_HostInfoWithFunnel, When_BuildingMapRequest_Then_IngressIsAdvertised)
     host.Architecture = "fake-architecture";
 
     tailgate::serve::ApplyToHostInfo(funnel, host);
-    host.Services.push_back(tailgate::protocol::HostService{.Protocol = "peerapi4", .Port = 41112});
-    host.Services.push_back(tailgate::protocol::HostService{.Protocol = "peerapi6", .Port = 41112});
     host.Services.push_back(
-        tailgate::protocol::HostService{.Protocol = "peerapi-dns-proxy", .Port = 1});
+        tailgate::control::client::HostService{.Protocol = "peerapi4", .Port = 41112});
+    host.Services.push_back(
+        tailgate::control::client::HostService{.Protocol = "peerapi6", .Port = 41112});
+    host.Services.push_back(
+        tailgate::control::client::HostService{.Protocol = "peerapi-dns-proxy", .Port = 1});
     const auto bytes =
-        tailgate::protocol::BuildMapRequest("nodekey:test", "discokey:test", host, 1, true);
+        tailgate::control::client::BuildMapRequest("nodekey:test", "discokey:test", host, 1, true);
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_TRUE(request.find("\"IngressEnabled\":true") != std::string::npos);

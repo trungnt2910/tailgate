@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <optional>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -65,7 +65,7 @@ private:
     StateEventRegistration m_sessionRegistration;
     StateEventRegistration m_signInRegistration;
     StateEventRegistration m_settingsRegistration;
-    Logger m_logger{"uwp-main-window-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-main-window-ctrl"};
 };
 
 } // namespace tailgate::uwp

@@ -16,7 +16,7 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.UI.Core.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpAppServiceProtocol.h"
 #include "common/UwpFireAndForget.h"
@@ -50,7 +50,7 @@ struct PingSessionState
     bool TimeoutReported = false;
     std::chrono::steady_clock::time_point Started{};
     std::chrono::steady_clock::time_point LastSent{};
-    Logger Log{"uwp-ping-session"};
+    tailgate::base::Logger Log{"uwp-ping-session"};
 };
 
 namespace

@@ -1,13 +1,13 @@
 #pragma once
 
-#include "tailgate/ByteStream.h"
+#include <tailgate/base/ByteStream.h>
 
 #include <string>
 
 namespace tailgate::linux_frontend
 {
 
-class TcpStream final : public IByteStream
+class TcpStream final : public tailgate::base::IByteStream
 {
 public:
     static constexpr int DefaultIoTimeoutSeconds = 15;

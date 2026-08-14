@@ -1,11 +1,11 @@
 #pragma once
 
-#include "tailgate/Status.h"
-#include "tailgate/cli/Arguments.h"
-
 #include <cstdint>
 #include <memory>
 #include <string>
+
+#include <tailgate/Status.h>
+#include <tailgate/cli/Arguments.h>
 
 namespace tailgate::platform
 {

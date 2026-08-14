@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
-#include <tailgate/protocol/ReplayWindow.h>
+#include <tailgate/wgengine/wireguard/ReplayWindow.h>
 
 TEST(Given_AuthenticatedCountersBeyondThirtyTwoPackets, When_Reordered_Then_TheyAreAccepted)
 {
-    tailgate::protocol::ReplayWindow window;
+    tailgate::wgengine::wireguard::ReplayWindow window;
 
     const bool newestAccepted = window.Accept(1000);
     const bool reorderedAccepted = window.Accept(900);
@@ -15,7 +15,7 @@ TEST(Given_AuthenticatedCountersBeyondThirtyTwoPackets, When_Reordered_Then_They
 
 TEST(Given_AuthenticatedCounter, When_ReceivedTwice_Then_ReplayIsRejected)
 {
-    tailgate::protocol::ReplayWindow window;
+    tailgate::wgengine::wireguard::ReplayWindow window;
     ASSERT_TRUE(window.Accept(42));
 
     const bool replayAccepted = window.Accept(42);
@@ -25,8 +25,8 @@ TEST(Given_AuthenticatedCounter, When_ReceivedTwice_Then_ReplayIsRejected)
 
 TEST(Given_CounterOlderThanWireGuardWindow, When_Received_Then_ItIsRejected)
 {
-    tailgate::protocol::ReplayWindow window;
-    ASSERT_TRUE(window.Accept(tailgate::protocol::ReplayWindow::WindowSize));
+    tailgate::wgengine::wireguard::ReplayWindow window;
+    ASSERT_TRUE(window.Accept(tailgate::wgengine::wireguard::ReplayWindow::WindowSize));
 
     const bool staleAccepted = window.Accept(0);
 
@@ -35,7 +35,7 @@ TEST(Given_CounterOlderThanWireGuardWindow, When_Received_Then_ItIsRejected)
 
 TEST(Given_WindowCrossingBitmapBoundary, When_CountersAreReordered_Then_BitsRemainDistinct)
 {
-    tailgate::protocol::ReplayWindow window;
+    tailgate::wgengine::wireguard::ReplayWindow window;
     ASSERT_TRUE(window.Accept(8191));
     ASSERT_TRUE(window.Accept(8193));
 

@@ -8,7 +8,7 @@
 #include <winrt/Windows.Networking.Vpn.h>
 #include <winrt/base.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -69,7 +69,7 @@ struct VpnBackgroundTask : winrt::implements<VpnBackgroundTask, background::IBac
     }
 
 private:
-    Logger m_logger{"uwp-background-task"};
+    tailgate::base::Logger m_logger{"uwp-background-task"};
 };
 
 } // namespace

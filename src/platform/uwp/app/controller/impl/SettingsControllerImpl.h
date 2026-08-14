@@ -2,7 +2,7 @@
 
 #include <winrt/Windows.UI.Core.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -36,7 +36,7 @@ private:
     winrt::event_token m_dataChangedToken{};
     bool m_stateWatchStarted = false;
     SettingsState m_state;
-    Logger m_logger{"uwp-settings-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-settings-ctrl"};
 };
 
 } // namespace tailgate::uwp

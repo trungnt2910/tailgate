@@ -2,13 +2,13 @@
 
 #include <memory>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
+#include "common/AuthorizationState.h"
 #include "common/UwpFireAndForget.h"
 #include "common/UwpFormat.h"
 
 #include "app/controller/InteractiveAuthorizationController.h"
-#include "common/AuthorizationState.h"
 
 namespace tailgate::uwp
 {
@@ -32,7 +32,7 @@ private:
     winrt::hstring m_pendingTailgateServer;
     bool m_stopRequested = false;
     InteractiveAuthorizationState m_state;
-    Logger m_logger{"uwp-interactive-auth-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-interactive-auth-ctrl"};
 };
 
 } // namespace tailgate::uwp

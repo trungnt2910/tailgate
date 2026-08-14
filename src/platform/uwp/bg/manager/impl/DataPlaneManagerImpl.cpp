@@ -7,11 +7,11 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.h>
 
-#include <tailgate/network/Ipv4.h>
-
-#include "common/TailgateRelay.h"
+#include <tailgate/net/packet/Ipv4.h>
 
 #include "common/Settings.h"
+#include "common/TailgateRelay.h"
+
 #include "service/IService.h"
 
 namespace tailgate::uwp::bg::manager
@@ -51,7 +51,7 @@ std::optional<RelayResolution> LoadRelayResolution(const winrt::hstring& server)
         winrt::unbox_value_or<winrt::hstring>(value.TryLookup(RelayResolutionAddressField), L""));
     result.ValidationHost = winrt::to_string(winrt::unbox_value_or<winrt::hstring>(
         value.TryLookup(RelayResolutionValidationHostField), L""));
-    if (!network::ParseIpv4(result.ConnectAddress) || result.ValidationHost.empty())
+    if (!tailgate::net::packet::ParseIpv4(result.ConnectAddress) || result.ValidationHost.empty())
     {
         Settings::Remove(RelayResolutionSetting);
         return std::nullopt;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFireAndForget.h"
 #include "common/UwpFormat.h"
@@ -20,7 +20,7 @@ private:
     FireAndForget PreflightInBackground(std::uint64_t operationId, winrt::hstring tailgateServer);
 
     TailgateRelayState m_state;
-    Logger m_logger{"uwp-tailgate-relay-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-tailgate-relay-ctrl"};
 };
 
 } // namespace tailgate::uwp

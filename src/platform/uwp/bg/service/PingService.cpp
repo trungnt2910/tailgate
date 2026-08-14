@@ -10,9 +10,9 @@
 
 #include <boost/algorithm/string/case_conv.hpp>
 
-#include <tailgate/network/Ipv4.h>
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/relay/RelayProtocol.h>
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/hosted/Protocol.h>
+#include <tailgate/net/packet/Ipv4.h>
 
 #include "common/VpnConstants.h"
 
@@ -42,14 +42,15 @@ std::vector<std::uint8_t> BuildResponse(std::uint32_t appAddress,
             .Relay = relayName,
             .Endpoint = endpoint,
         });
-    return network::BuildUdpPacket(VpnConstants::Network::ServiceIpv4Address,
-                                   appAddress,
-                                   VpnConstants::AppService::Port,
-                                   appPort,
-                                   payload);
+    return tailgate::net::packet::BuildUdpPacket(VpnConstants::Network::ServiceIpv4Address,
+                                                 appAddress,
+                                                 VpnConstants::AppService::Port,
+                                                 appPort,
+                                                 payload);
 }
 
-std::string RelayLabel(const control::PeerConfig& peer, const std::string& relayName)
+std::string RelayLabel(const tailgate::types::netmap::PeerConfig& peer,
+                       const std::string& relayName)
 {
     if (!relayName.empty())
     {
@@ -85,8 +86,8 @@ void PingService::Reset()
 
 void PingService::Encapsulate(EncapsulationContext& context)
 {
-    const std::optional<network::Ipv4UdpDatagram> datagram =
-        network::ParseIpv4UdpDatagram(context.Original);
+    const std::optional<tailgate::net::packet::Ipv4UdpDatagram> datagram =
+        tailgate::net::packet::ParseIpv4UdpDatagram(context.Original);
     if (!datagram || datagram->Destination != VpnConstants::Network::ServiceIpv4Address ||
         datagram->DestinationPort != VpnConstants::AppService::Port)
     {
@@ -98,7 +99,8 @@ void PingService::Encapsulate(EncapsulationContext& context)
     {
         return;
     }
-    const std::optional<std::uint32_t> self = network::ParseIpv4(context.Config.SelfAddress);
+    const std::optional<std::uint32_t> self =
+        tailgate::net::packet::ParseIpv4(context.Config.SelfAddress);
     const std::optional<app_service::PingRequest> request =
         app_service::DecodePingRequest(*message);
     if (!self || datagram->Source != *self || datagram->SourcePort == 0 || !request)
@@ -128,10 +130,10 @@ void PingService::FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput
     m_responses.clear();
 }
 
-void PingService::Handle(const network::Ipv4UdpDatagram& datagram,
+void PingService::Handle(const tailgate::net::packet::Ipv4UdpDatagram& datagram,
                          const app_service::PingRequest& request,
-                         const control::NetworkConfig& config,
-                         protocol::Disco* disco,
+                         const tailgate::types::netmap::NetworkConfig& config,
+                         tailgate::disco::Disco* disco,
                          const std::string& relayName,
                          std::vector<std::uint8_t>& relayOutput,
                          std::vector<std::vector<std::uint8_t>>& appResponses)
@@ -157,7 +159,7 @@ void PingService::Handle(const network::Ipv4UdpDatagram& datagram,
     const auto peer =
         std::find_if(config.Peers.begin(),
                      config.Peers.end(),
-                     [&](const control::PeerConfig& candidate)
+                     [&](const tailgate::types::netmap::PeerConfig& candidate)
                      {
                          return candidate.Address == request.Target ||
                                 candidate.Name == request.Target ||
@@ -173,14 +175,14 @@ void PingService::Handle(const network::Ipv4UdpDatagram& datagram,
     }
     const std::vector<std::uint8_t> nodeBytes =
         peer->Key.rfind(NodeKeyPrefix, 0) == 0
-            ? protocol::HexToBytes(peer->Key.substr(NodeKeyPrefix.size()))
+            ? tailgate::crypto::HexToBytes(peer->Key.substr(NodeKeyPrefix.size()))
             : std::vector<std::uint8_t>{};
     const std::vector<std::uint8_t> discoBytes =
         peer->DiscoKey.rfind(DiscoKeyPrefix, 0) == 0
-            ? protocol::HexToBytes(peer->DiscoKey.substr(DiscoKeyPrefix.size()))
+            ? tailgate::crypto::HexToBytes(peer->DiscoKey.substr(DiscoKeyPrefix.size()))
             : std::vector<std::uint8_t>{};
-    if (!disco || nodeBytes.size() != protocol::Bytes32{}.size() ||
-        discoBytes.size() != protocol::Bytes32{}.size())
+    if (!disco || nodeBytes.size() != tailgate::crypto::Bytes32{}.size() ||
+        discoBytes.size() != tailgate::crypto::Bytes32{}.size())
     {
         m_logger.LogWarning("app ping failed: peer has no usable disco key peer={}", peer->Name);
         respondError(app_service::Status::NoDiscoKey);
@@ -194,14 +196,14 @@ void PingService::Handle(const network::Ipv4UdpDatagram& datagram,
     pending.Relay = RelayLabel(*peer, relayName);
     pending.AppAddress = datagram.Source;
     pending.AppPort = datagram.SourcePort;
-    protocol::Bytes32 nodeKey{};
-    protocol::Bytes32 discoKey{};
+    tailgate::crypto::Bytes32 nodeKey{};
+    tailgate::crypto::Bytes32 discoKey{};
     std::copy(nodeBytes.begin(), nodeBytes.end(), nodeKey.begin());
     std::copy(discoBytes.begin(), discoBytes.end(), discoKey.begin());
     AppendRelayFrame(relayOutput,
-                     relay::Frame{
-                         .Type = relay::MessageType::ClientPacket,
-                         .Payload = relay::EncodePeerPacket(relay::PeerPacket{
+                     tailgate::hosted::Frame{
+                         .Type = tailgate::hosted::MessageType::ClientPacket,
+                         .Payload = tailgate::hosted::EncodePeerPacket(tailgate::hosted::PeerPacket{
                              .Peer = nodeKey,
                              .Payload = disco->BuildPing(discoKey, pending.Transaction),
                              .Disco = true,
@@ -211,12 +213,13 @@ void PingService::Handle(const network::Ipv4UdpDatagram& datagram,
                       request.Sequence,
                       peer->Name,
                       pending.Relay,
-                      network::FormatIpv4(pending.AppAddress),
+                      tailgate::net::packet::FormatIpv4(pending.AppAddress),
                       pending.AppPort);
     m_pending.push_back(std::move(pending));
 }
 
-void PingService::Complete(const protocol::Disco::Message& message, const relay::PeerPacket& packet)
+void PingService::Complete(const tailgate::disco::Disco::Message& message,
+                           const tailgate::hosted::PeerPacket& packet)
 {
     const auto pending = std::find_if(m_pending.begin(),
                                       m_pending.end(),
@@ -234,9 +237,10 @@ void PingService::Complete(const protocol::Disco::Message& message, const relay:
     // This describes only the server-to-peer leg; the hosted UWP path remains relayed.
     const bool serverPathDirect = packet.EndpointAddress != 0 && packet.EndpointPort != 0;
     const std::string endpoint =
-        serverPathDirect
-            ? std::format("{}:{}", network::FormatIpv4(packet.EndpointAddress), packet.EndpointPort)
-            : "";
+        serverPathDirect ? std::format("{}:{}",
+                                       tailgate::net::packet::FormatIpv4(packet.EndpointAddress),
+                                       packet.EndpointPort)
+                         : "";
     if (serverPathDirect)
     {
         m_logger.LogDebug("app ping pong seq={} peer={} latency-us={} relay={} "
@@ -245,7 +249,7 @@ void PingService::Complete(const protocol::Disco::Message& message, const relay:
                           pending->PeerName,
                           latency,
                           pending->Relay,
-                          network::FormatIpv4(packet.EndpointAddress),
+                          tailgate::net::packet::FormatIpv4(packet.EndpointAddress),
                           packet.EndpointPort);
     }
     else

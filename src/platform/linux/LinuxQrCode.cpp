@@ -9,7 +9,7 @@ namespace
 
 constexpr int QuietZoneModules = 4;
 
-bool ModuleWithQuietZone(const QrCode& code, int x, int y)
+bool ModuleWithQuietZone(const tailgate::qr::QrCode& code, int x, int y)
 {
     x -= QuietZoneModules;
     y -= QuietZoneModules;
@@ -44,7 +44,7 @@ QrTextFormat ResolveQrTextFormat(std::string_view requested, std::string_view lo
     return SupportsUnicode(locale) ? QrTextFormat::Small : QrTextFormat::Ascii;
 }
 
-std::string RenderQrCode(const QrCode& code, QrTextFormat format)
+std::string RenderQrCode(const tailgate::qr::QrCode& code, QrTextFormat format)
 {
     if (code.Size <= 0 || code.Modules.size() != static_cast<std::size_t>(code.Size * code.Size))
     {

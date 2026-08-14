@@ -20,7 +20,12 @@ tailgate_add_library(
     TcpStream.cpp
 )
 target_link_libraries(tailgate_linux PUBLIC tailgate_core)
-target_link_libraries(tailgate_linux PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(
+    tailgate_linux
+    PRIVATE
+        Boost::algorithm
+        nlohmann_json::nlohmann_json
+)
 
 tailgate_add_executable(tailgate Main.cpp)
 target_link_libraries(tailgate PRIVATE tailgate_cli tailgate_linux)

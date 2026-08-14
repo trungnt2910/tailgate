@@ -20,7 +20,8 @@ public:
         return m_state;
     }
 
-    void Logout(std::optional<protocol::Bytes32>, std::optional<protocol::Bytes32>) override
+    void Logout(std::optional<tailgate::crypto::Bytes32>,
+                std::optional<tailgate::crypto::Bytes32>) override
     {
         ++LogoutCount;
     }

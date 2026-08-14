@@ -40,3 +40,4 @@ target_include_directories(
         ${TAILGATE_UWP_GENERATED_DIR}
 )
 target_link_libraries(Tailgate.Uwp.Common PUBLIC tailgate_core)
+target_link_libraries(Tailgate.Uwp.Common PRIVATE Boost::algorithm)

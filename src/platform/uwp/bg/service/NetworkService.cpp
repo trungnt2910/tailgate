@@ -5,13 +5,13 @@
 #include <string>
 #include <vector>
 
-#include <tailgate/control/NetworkMap.h>
-#include <tailgate/network/Ipv4.h>
-#include <tailgate/network/TailnetDns.h>
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/protocol/DerpClient.h>
-#include <tailgate/protocol/Tsmp.h>
-#include <tailgate/relay/RelayProtocol.h>
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/derp/Client.h>
+#include <tailgate/hosted/Protocol.h>
+#include <tailgate/net/dns/TailnetDns.h>
+#include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/net/packet/Tsmp.h>
+#include <tailgate/types/netmap/NetworkMap.h>
 
 #include "common/UwpAppServiceProtocol.h"
 #include "common/VpnConstants.h"
@@ -47,12 +47,12 @@ void NetworkService::Encapsulate(EncapsulationContext& context)
     {
         return;
     }
-    const std::optional<network::Ipv4UdpDatagram> datagram =
-        network::ParseIpv4UdpDatagram(context.Original);
+    const std::optional<tailgate::net::packet::Ipv4UdpDatagram> datagram =
+        tailgate::net::packet::ParseIpv4UdpDatagram(context.Original);
     if (datagram && ((datagram->Destination == VpnConstants::Network::ServiceIpv4Address &&
                       datagram->DestinationPort == VpnConstants::AppService::Port) ||
-                     (datagram->Destination == network::MagicDnsIpv4Address &&
-                      datagram->DestinationPort == network::DnsPort)))
+                     (datagram->Destination == tailgate::net::dns::MagicDnsIpv4Address &&
+                      datagram->DestinationPort == tailgate::net::dns::DnsPort)))
     {
         return;
     }
@@ -61,10 +61,11 @@ void NetworkService::Encapsulate(EncapsulationContext& context)
 
 void NetworkService::Decapsulate(DecapsulationContext& context)
 {
-    const relay::Frame& frame = context.Message;
-    if (frame.Type == relay::MessageType::ServerPacket && context.Router)
+    const tailgate::hosted::Frame& frame = context.Message;
+    if (frame.Type == tailgate::hosted::MessageType::ServerPacket && context.Router)
     {
-        const relay::PeerPacket packet = relay::DecodePeerPacket(frame.Payload);
+        const tailgate::hosted::PeerPacket packet =
+            tailgate::hosted::DecodePeerPacket(frame.Payload);
         if (packet.Disco)
         {
             ProcessDiscoPacket(packet, context);
@@ -74,10 +75,10 @@ void NetworkService::Decapsulate(DecapsulationContext& context)
         AppendTransportFrames(context.RemoteOutput, std::move(received.Outbound));
         for (auto& plaintext : received.Plaintext)
         {
-            if (const auto pong = protocol::BuildTsmpPong(plaintext, 0))
+            if (const auto pong = tailgate::net::packet::BuildTsmpPong(plaintext, 0))
             {
                 m_logger.LogDebug("answering TSMP ping from peer={}",
-                                  protocol::BytesToHex(packet.Peer.data(), 8));
+                                  tailgate::crypto::BytesToHex(packet.Peer.data(), 8));
                 AppendTransportFrames(context.RemoteOutput, context.Router->Send(*pong));
                 continue;
             }
@@ -85,9 +86,10 @@ void NetworkService::Decapsulate(DecapsulationContext& context)
         }
         return;
     }
-    if (frame.Type == relay::MessageType::NetworkMap && context.Router)
+    if (frame.Type == tailgate::hosted::MessageType::NetworkMap && context.Router)
     {
-        control::NetworkConfig next = relay::DecodeNetworkConfig(frame.Payload);
+        tailgate::types::netmap::NetworkConfig next =
+            tailgate::hosted::DecodeNetworkConfig(frame.Payload);
         if (next.Domain != context.Config.Domain || next.SelfNodeId != context.Config.SelfNodeId ||
             next.SelfKey != context.Config.SelfKey)
         {
@@ -98,11 +100,11 @@ void NetworkService::Decapsulate(DecapsulationContext& context)
         m_sessionManager.WriteState(context.Config);
         return;
     }
-    if (frame.Type == relay::MessageType::Heartbeat)
+    if (frame.Type == tailgate::hosted::MessageType::Heartbeat)
     {
         AppendRelayFrame(context.RemoteOutput,
-                         relay::Frame{
-                             .Type = relay::MessageType::Heartbeat,
+                         tailgate::hosted::Frame{
+                             .Type = tailgate::hosted::MessageType::Heartbeat,
                              .Payload = {},
                          });
         if (context.Router)
@@ -111,30 +113,31 @@ void NetworkService::Decapsulate(DecapsulationContext& context)
         }
         if (context.Disco)
         {
-            for (const relay::PeerPacket& probe :
-                 relay::BuildDiscoProbes(*context.Disco, context.Config.Peers))
+            for (const tailgate::hosted::PeerPacket& probe :
+                 tailgate::hosted::BuildDiscoProbes(*context.Disco, context.Config.Peers))
             {
                 AppendRelayFrame(context.RemoteOutput,
-                                 relay::Frame{
-                                     .Type = relay::MessageType::ClientPacket,
-                                     .Payload = relay::EncodePeerPacket(probe),
+                                 tailgate::hosted::Frame{
+                                     .Type = tailgate::hosted::MessageType::ClientPacket,
+                                     .Payload = tailgate::hosted::EncodePeerPacket(probe),
                                  });
             }
         }
         return;
     }
-    if (frame.Type == relay::MessageType::DerpChallenge)
+    if (frame.Type == tailgate::hosted::MessageType::DerpChallenge)
     {
-        const auto challenge = relay::DecodeDerpChallenge(frame.Payload);
-        const std::vector<std::uint8_t> clientInfo = protocol::DerpClient::BuildClientInfo(
+        const auto challenge = tailgate::hosted::DecodeDerpChallenge(frame.Payload);
+        const std::vector<std::uint8_t> clientInfo = tailgate::derp::DerpClient::BuildClientInfo(
             context.NodePrivateKey, context.NodePublicKey, challenge.ServerKey);
         AppendRelayFrame(context.RemoteOutput,
-                         relay::Frame{
-                             .Type = relay::MessageType::DerpResponse,
-                             .Payload = relay::EncodeDerpResponse(relay::DerpAuthenticationResponse{
-                                 .RequestId = challenge.RequestId,
-                                 .ClientInfo = clientInfo,
-                             }),
+                         tailgate::hosted::Frame{
+                             .Type = tailgate::hosted::MessageType::DerpResponse,
+                             .Payload = tailgate::hosted::EncodeDerpResponse(
+                                 tailgate::hosted::DerpAuthenticationResponse{
+                                     .RequestId = challenge.RequestId,
+                                     .ClientInfo = clientInfo,
+                                 }),
                          });
     }
 }
@@ -143,7 +146,7 @@ void NetworkService::FlushLocal(std::vector<std::vector<std::uint8_t>>&)
 {
 }
 
-void NetworkService::ProcessDiscoPacket(const relay::PeerPacket& packet,
+void NetworkService::ProcessDiscoPacket(const tailgate::hosted::PeerPacket& packet,
                                         DecapsulationContext& context)
 {
     if (!context.Disco)
@@ -152,10 +155,10 @@ void NetworkService::ProcessDiscoPacket(const relay::PeerPacket& packet,
         return;
     }
     const std::string nodeKey =
-        "nodekey:" + protocol::BytesToHex(packet.Peer.data(), packet.Peer.size());
+        "nodekey:" + tailgate::crypto::BytesToHex(packet.Peer.data(), packet.Peer.size());
     const auto peer = std::find_if(context.Config.Peers.begin(),
                                    context.Config.Peers.end(),
-                                   [&](const control::PeerConfig& candidate)
+                                   [&](const tailgate::types::netmap::PeerConfig& candidate)
                                    {
                                        return candidate.Key == nodeKey;
                                    });
@@ -164,24 +167,26 @@ void NetworkService::ProcessDiscoPacket(const relay::PeerPacket& packet,
         m_logger.LogDebug("disco packet dropped: unknown peer or missing disco key {}", nodeKey);
         return;
     }
-    const std::vector<std::uint8_t> keyBytes = protocol::HexToBytes(peer->DiscoKey.substr(9));
-    if (keyBytes.size() != protocol::Bytes32{}.size())
+    const std::vector<std::uint8_t> keyBytes =
+        tailgate::crypto::HexToBytes(peer->DiscoKey.substr(9));
+    if (keyBytes.size() != tailgate::crypto::Bytes32{}.size())
     {
         m_logger.LogDebug("disco packet dropped: bad disco key length peer={}", peer->Name);
         return;
     }
-    protocol::Bytes32 discoKey{};
+    tailgate::crypto::Bytes32 discoKey{};
     std::copy(keyBytes.begin(), keyBytes.end(), discoKey.begin());
-    const std::optional<protocol::Disco::Message> message = context.Disco->Parse(packet.Payload);
+    const std::optional<tailgate::disco::Disco::Message> message =
+        context.Disco->Parse(packet.Payload);
     if (message && message->Sender == discoKey &&
-        message->Type == protocol::Disco::MessageType::Pong)
+        message->Type == tailgate::disco::Disco::MessageType::Pong)
     {
         m_logger.LogTrace("disco pong peer={}", peer->Name);
         m_pingService.Complete(*message, packet);
         return;
     }
     if (!message || message->Sender != discoKey ||
-        message->Type != protocol::Disco::MessageType::Ping)
+        message->Type != tailgate::disco::Disco::MessageType::Ping)
     {
         if (message)
         {
@@ -198,14 +203,14 @@ void NetworkService::ProcessDiscoPacket(const relay::PeerPacket& packet,
     }
     m_logger.LogTrace("disco ping peer={} endpoint={}:{}",
                       peer->Name,
-                      network::FormatIpv4(packet.EndpointAddress),
+                      tailgate::net::packet::FormatIpv4(packet.EndpointAddress),
                       packet.EndpointPort);
     const bool viaDerp = packet.EndpointAddress == 0 || packet.EndpointPort == 0;
     const std::uint32_t pongAddress =
-        viaDerp ? protocol::Disco::DerpMagicIpv4Address : packet.EndpointAddress;
+        viaDerp ? tailgate::disco::Disco::DerpMagicIpv4Address : packet.EndpointAddress;
     const std::uint16_t pongPort =
         viaDerp ? static_cast<std::uint16_t>(context.Config.DerpRegion) : packet.EndpointPort;
-    const relay::PeerPacket response{
+    const tailgate::hosted::PeerPacket response{
         .Peer = packet.Peer,
         .Payload = context.Disco->BuildPong(discoKey, message->Transaction, pongAddress, pongPort),
         .Disco = true,
@@ -213,9 +218,9 @@ void NetworkService::ProcessDiscoPacket(const relay::PeerPacket& packet,
         .EndpointPort = packet.EndpointPort,
     };
     AppendRelayFrame(context.RemoteOutput,
-                     relay::Frame{
-                         .Type = relay::MessageType::ClientPacket,
-                         .Payload = relay::EncodePeerPacket(response),
+                     tailgate::hosted::Frame{
+                         .Type = tailgate::hosted::MessageType::ClientPacket,
+                         .Payload = tailgate::hosted::EncodePeerPacket(response),
                      });
 }
 

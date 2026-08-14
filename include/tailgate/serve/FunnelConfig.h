@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tailgate/protocol/ControlRequests.h"
+#include <tailgate/control/client/ControlRequests.h>
 
 #include <string>
 #include <string_view>
@@ -24,6 +24,6 @@ struct FunnelConfig
                                       std::string_view fallbackHostname,
                                       std::string_view domain,
                                       std::string_view target);
-void ApplyToHostInfo(const FunnelConfig& config, protocol::HostInfo& host);
+void ApplyToHostInfo(const FunnelConfig& config, tailgate::control::client::HostInfo& host);
 
 } // namespace tailgate::serve

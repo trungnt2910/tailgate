@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tailgate/ByteStream.h"
+#include <tailgate/base/ByteStream.h>
 
 #include <memory>
 #include <string>
@@ -8,7 +8,7 @@
 namespace tailgate::linux_frontend
 {
 
-[[nodiscard]] int PeerApiWaitTimeout(const IByteStream& stream);
+[[nodiscard]] int PeerApiWaitTimeout(const tailgate::base::IByteStream& stream);
 
 class LinuxPeerApiServer
 {

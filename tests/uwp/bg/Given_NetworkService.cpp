@@ -6,7 +6,7 @@
 #include <boost/di.hpp>
 #include <gtest/gtest.h>
 
-#include <tailgate/relay/RelayProtocol.h>
+#include <tailgate/hosted/Protocol.h>
 
 #include "manager/DataPlaneManager.h"
 #include "manager/SessionManager.h"
@@ -57,10 +57,11 @@ protected:
 
 TEST_F(Given_NetworkService, When_HeartbeatArrives_Then_HeartbeatIsReturned)
 {
-    const relay::Frame heartbeat{.Type = relay::MessageType::Heartbeat, .Payload = {}};
-    control::NetworkConfig config;
-    const protocol::Bytes32 privateKey{};
-    const protocol::Bytes32 publicKey{};
+    const tailgate::hosted::Frame heartbeat{.Type = tailgate::hosted::MessageType::Heartbeat,
+                                            .Payload = {}};
+    tailgate::types::netmap::NetworkConfig config;
+    const tailgate::crypto::Bytes32 privateKey{};
+    const tailgate::crypto::Bytes32 publicKey{};
     const std::string exitNode;
     std::vector<std::vector<std::uint8_t>> localOutput;
     std::vector<std::uint8_t> remoteOutput;
@@ -75,19 +76,20 @@ TEST_F(Given_NetworkService, When_HeartbeatArrives_Then_HeartbeatIsReturned)
     };
 
     m_subject->Decapsulate(context);
-    relay::Decoder decoder;
+    tailgate::hosted::Decoder decoder;
     decoder.Feed(remoteOutput);
-    const std::optional<relay::Frame> response = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> response = decoder.Next();
 
     EXPECT_TRUE(response.has_value());
-    EXPECT_EQ(response.value_or(relay::Frame{}).Type, relay::MessageType::Heartbeat);
-    EXPECT_TRUE(response.value_or(relay::Frame{}).Payload.empty());
+    EXPECT_EQ(response.value_or(tailgate::hosted::Frame{}).Type,
+              tailgate::hosted::MessageType::Heartbeat);
+    EXPECT_TRUE(response.value_or(tailgate::hosted::Frame{}).Payload.empty());
 }
 
 TEST_F(Given_NetworkService, When_NoRouterExists_Then_OutboundPacketIsIgnored)
 {
     const std::vector<std::uint8_t> packet{1, 2, 3, 4};
-    const control::NetworkConfig config;
+    const tailgate::types::netmap::NetworkConfig config;
     const std::string exitNode;
     const std::string relayName = "DERP-1";
     std::vector<std::uint8_t> remoteOutput;
@@ -110,17 +112,19 @@ TEST_F(Given_NetworkService, When_NoRouterExists_Then_OutboundPacketIsIgnored)
 TEST_F(Given_NetworkService, When_DerpChallengeArrives_Then_AuthenticatedResponseIsReturned)
 {
     constexpr std::uint64_t RequestId = 77;
-    const protocol::Bytes32 privateKey = protocol::GeneratePrivateKey();
-    const protocol::Bytes32 publicKey = protocol::X25519PublicFromPrivate(privateKey);
-    const protocol::Bytes32 serverKey = protocol::GeneratePrivateKey();
-    const relay::Frame challenge{
-        .Type = relay::MessageType::DerpChallenge,
-        .Payload = relay::EncodeDerpChallenge(relay::DerpAuthenticationChallenge{
-            .RequestId = RequestId,
-            .ServerKey = serverKey,
-        }),
+    const tailgate::crypto::Bytes32 privateKey = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 publicKey =
+        tailgate::crypto::X25519PublicFromPrivate(privateKey);
+    const tailgate::crypto::Bytes32 serverKey = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::hosted::Frame challenge{
+        .Type = tailgate::hosted::MessageType::DerpChallenge,
+        .Payload =
+            tailgate::hosted::EncodeDerpChallenge(tailgate::hosted::DerpAuthenticationChallenge{
+                .RequestId = RequestId,
+                .ServerKey = serverKey,
+            }),
     };
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     const std::string exitNode;
     std::vector<std::vector<std::uint8_t>> localOutput;
     std::vector<std::uint8_t> remoteOutput;
@@ -135,13 +139,14 @@ TEST_F(Given_NetworkService, When_DerpChallengeArrives_Then_AuthenticatedRespons
     };
 
     m_subject->Decapsulate(context);
-    relay::Decoder decoder;
+    tailgate::hosted::Decoder decoder;
     decoder.Feed(remoteOutput);
     const auto frame = decoder.Next();
     ASSERT_TRUE(frame.has_value());
-    const relay::DerpAuthenticationResponse response = relay::DecodeDerpResponse(frame->Payload);
+    const tailgate::hosted::DerpAuthenticationResponse response =
+        tailgate::hosted::DecodeDerpResponse(frame->Payload);
 
-    EXPECT_EQ(frame->Type, relay::MessageType::DerpResponse);
+    EXPECT_EQ(frame->Type, tailgate::hosted::MessageType::DerpResponse);
     EXPECT_EQ(response.RequestId, RequestId);
     EXPECT_FALSE(response.ClientInfo.empty());
 }

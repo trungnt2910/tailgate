@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <memory>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -47,7 +47,7 @@ private:
     std::uint64_t m_generation = 0;
     std::uint64_t m_desiredGeneration = 0;
     bool m_hiding = false;
-    Logger m_logger{"uwp-content-dialog-view"};
+    tailgate::base::Logger m_logger{"uwp-content-dialog-view"};
 };
 
 } // namespace tailgate::uwp

@@ -7,10 +7,10 @@
 #include <boost/di.hpp>
 #include <gtest/gtest.h>
 
-#include <tailgate/network/Dns.h>
-#include <tailgate/network/Ipv4.h>
-#include <tailgate/network/TailnetDns.h>
-#include <tailgate/relay/RelayProtocol.h>
+#include <tailgate/hosted/Protocol.h>
+#include <tailgate/net/dns/Dns.h>
+#include <tailgate/net/dns/TailnetDns.h>
+#include <tailgate/net/packet/Ipv4.h>
 
 #include "service/HostedDnsService.h"
 
@@ -48,12 +48,16 @@ protected:
 
 TEST_F(Given_HostedDnsService, When_EncapsulatingMagicDnsQuery_Then_RelayFrameIsProduced)
 {
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     config.SelfAddress = "100.64.0.1";
     const std::vector<std::uint8_t> query =
-        network::BuildDnsQuery("host.example.ts.net", TransactionId);
-    const std::vector<std::uint8_t> packet = network::BuildUdpPacket(
-        SelfAddress, network::MagicDnsIpv4Address, SourcePort, network::DnsPort, query);
+        tailgate::net::dns::BuildDnsQuery("host.example.ts.net", TransactionId);
+    const std::vector<std::uint8_t> packet =
+        tailgate::net::packet::BuildUdpPacket(SelfAddress,
+                                              tailgate::net::dns::MagicDnsIpv4Address,
+                                              SourcePort,
+                                              tailgate::net::dns::DnsPort,
+                                              query);
     const std::string exitNode;
     const std::string relayName;
     std::vector<std::uint8_t> remoteOutput;
@@ -66,24 +70,29 @@ TEST_F(Given_HostedDnsService, When_EncapsulatingMagicDnsQuery_Then_RelayFrameIs
     };
 
     m_subject->Encapsulate(context);
-    relay::Decoder decoder;
+    tailgate::hosted::Decoder decoder;
     decoder.Feed(remoteOutput);
-    const std::optional<relay::Frame> frame = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> frame = decoder.Next();
 
     EXPECT_EQ(m_dataPlane->ServiceCount(), 1U);
     EXPECT_TRUE(frame.has_value());
-    EXPECT_EQ(frame.value_or(relay::Frame{}).Type, relay::MessageType::TailnetDnsQuery);
-    EXPECT_EQ(frame.value_or(relay::Frame{}).Payload, packet);
+    EXPECT_EQ(frame.value_or(tailgate::hosted::Frame{}).Type,
+              tailgate::hosted::MessageType::TailnetDnsQuery);
+    EXPECT_EQ(frame.value_or(tailgate::hosted::Frame{}).Payload, packet);
 }
 
 TEST_F(Given_HostedDnsService, When_QuerySourceDoesNotMatchSelf_Then_QueryIsDropped)
 {
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     config.SelfAddress = "100.64.0.1";
     const std::vector<std::uint8_t> query =
-        network::BuildDnsQuery("host.example.ts.net", TransactionId);
-    const std::vector<std::uint8_t> packet = network::BuildUdpPacket(
-        OtherAddress, network::MagicDnsIpv4Address, SourcePort, network::DnsPort, query);
+        tailgate::net::dns::BuildDnsQuery("host.example.ts.net", TransactionId);
+    const std::vector<std::uint8_t> packet =
+        tailgate::net::packet::BuildUdpPacket(OtherAddress,
+                                              tailgate::net::dns::MagicDnsIpv4Address,
+                                              SourcePort,
+                                              tailgate::net::dns::DnsPort,
+                                              query);
     const std::string exitNode;
     const std::string relayName;
     std::vector<std::uint8_t> remoteOutput;
@@ -102,18 +111,22 @@ TEST_F(Given_HostedDnsService, When_QuerySourceDoesNotMatchSelf_Then_QueryIsDrop
 
 TEST_F(Given_HostedDnsService, When_ValidHostedDnsResponseArrives_Then_PacketIsInjected)
 {
-    control::NetworkConfig config;
+    tailgate::types::netmap::NetworkConfig config;
     config.SelfAddress = "100.64.0.1";
     const std::vector<std::uint8_t> dnsMessage =
-        network::BuildDnsQuery("host.example.ts.net", TransactionId);
-    const std::vector<std::uint8_t> packet = network::BuildUdpPacket(
-        network::MagicDnsIpv4Address, SelfAddress, network::DnsPort, SourcePort, dnsMessage);
-    const relay::Frame response{
-        .Type = relay::MessageType::TailnetDnsResponse,
+        tailgate::net::dns::BuildDnsQuery("host.example.ts.net", TransactionId);
+    const std::vector<std::uint8_t> packet =
+        tailgate::net::packet::BuildUdpPacket(tailgate::net::dns::MagicDnsIpv4Address,
+                                              SelfAddress,
+                                              tailgate::net::dns::DnsPort,
+                                              SourcePort,
+                                              dnsMessage);
+    const tailgate::hosted::Frame response{
+        .Type = tailgate::hosted::MessageType::TailnetDnsResponse,
         .Payload = packet,
     };
-    const protocol::Bytes32 privateKey{};
-    const protocol::Bytes32 publicKey{};
+    const tailgate::crypto::Bytes32 privateKey{};
+    const tailgate::crypto::Bytes32 publicKey{};
     const std::string exitNode;
     std::vector<std::vector<std::uint8_t>> localOutput;
     std::vector<std::uint8_t> remoteOutput;

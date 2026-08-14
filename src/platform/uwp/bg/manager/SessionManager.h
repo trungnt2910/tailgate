@@ -4,7 +4,7 @@
 #include <functional>
 #include <string>
 
-#include <tailgate/control/NetworkMap.h>
+#include <tailgate/types/netmap/NetworkMap.h>
 
 namespace tailgate::uwp::bg::manager
 {
@@ -82,7 +82,7 @@ public:
     virtual void StartForegroundMonitor(const std::string& tailgateServer,
                                         ForegroundCancellationHandler cancelled) = 0;
     virtual void StopForegroundMonitor() = 0;
-    virtual void WriteState(const control::NetworkConfig& config) = 0;
+    virtual void WriteState(const tailgate::types::netmap::NetworkConfig& config) = 0;
     virtual void SignalStateChanged() = 0;
     virtual void BeginStop() = 0;
     virtual void CompleteStop() = 0;

@@ -5,13 +5,12 @@
 #include <string>
 #include <vector>
 
-#include <tailgate/Logger.h>
-
-#include "common/UwpFormat.h"
-#include <tailgate/control/NetworkMap.h>
-#include <tailgate/network/Ipv4.h>
+#include <tailgate/base/Logger.h>
+#include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/types/netmap/NetworkMap.h>
 
 #include "common/UwpAppServiceProtocol.h"
+#include "common/UwpFormat.h"
 
 #include "manager/DataPlaneManager.h"
 #include "service/ServiceBase.h"
@@ -36,12 +35,12 @@ public:
     void Encapsulate(EncapsulationContext& context) override;
     void Decapsulate(DecapsulationContext& context) override;
     void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
-    void LoadPending(const control::NetworkConfig& config, std::string& exitNode);
+    void LoadPending(const tailgate::types::netmap::NetworkConfig& config, std::string& exitNode);
     void CommitPending(const std::string& exitNode);
 
-    [[nodiscard]] ExitNodeAction Handle(const network::Ipv4UdpDatagram& datagram,
+    [[nodiscard]] ExitNodeAction Handle(const tailgate::net::packet::Ipv4UdpDatagram& datagram,
                                         const app_service::ExitNodeRequest& request,
-                                        const control::NetworkConfig& config,
+                                        const tailgate::types::netmap::NetworkConfig& config,
                                         const std::string& currentExitNode,
                                         std::vector<std::vector<std::uint8_t>>& appResponses);
 
@@ -66,7 +65,7 @@ private:
     std::optional<PendingChange> m_pending;
     std::vector<std::vector<std::uint8_t>> m_responses;
     bool m_responseReady = false;
-    Logger m_logger{"uwp-exit-node"};
+    tailgate::base::Logger m_logger{"uwp-exit-node"};
 };
 
 } // namespace tailgate::uwp::bg::service

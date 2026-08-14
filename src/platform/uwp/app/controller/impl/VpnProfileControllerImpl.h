@@ -3,7 +3,7 @@
 #include <optional>
 #include <string_view>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpAliases.h"
 #include "common/UwpFireAndForget.h"
@@ -50,7 +50,7 @@ private:
     vpn::VpnPlugInProfile m_newlyAddedProfile{nullptr};
     foundation::IAsyncOperation<vpn::VpnManagementErrorStatus> m_connectOperation{nullptr};
     VpnProfileState m_state;
-    Logger m_logger{"uwp-vpn-profile-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-vpn-profile-ctrl"};
 };
 
 } // namespace tailgate::uwp

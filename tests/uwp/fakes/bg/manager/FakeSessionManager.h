@@ -39,7 +39,7 @@ public:
         ++StopForegroundMonitorCount;
     }
 
-    void WriteState(const control::NetworkConfig&) override
+    void WriteState(const tailgate::types::netmap::NetworkConfig&) override
     {
         ++WriteStateCount;
     }

@@ -4,7 +4,7 @@
 
 #include <winrt/base.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -50,7 +50,7 @@ struct FireAndForget
         }
 
     private:
-        Logger m_logger{"uwp-fire-and-forget"};
+        tailgate::base::Logger m_logger{"uwp-fire-and-forget"};
     };
 };
 

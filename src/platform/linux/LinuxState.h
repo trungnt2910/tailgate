@@ -5,10 +5,10 @@
 #include <string>
 #include <vector>
 
-#include "tailgate/Status.h"
-#include "tailgate/protocol/Crypto.h"
-
 #include <sys/types.h>
+
+#include <tailgate/Status.h>
+#include <tailgate/crypto/Crypto.h>
 
 namespace tailgate::linux_frontend
 {
@@ -18,9 +18,9 @@ using DaemonStatus = tailgate::Status;
 
 struct IdentityState
 {
-    protocol::Bytes32 MachinePrivateKey{};
-    protocol::Bytes32 NodePrivateKey{};
-    protocol::Bytes32 DiscoPrivateKey{};
+    tailgate::crypto::Bytes32 MachinePrivateKey{};
+    tailgate::crypto::Bytes32 NodePrivateKey{};
+    tailgate::crypto::Bytes32 DiscoPrivateKey{};
     std::string Hostname;
     bool RegistrationComplete = false;
 };
@@ -49,7 +49,7 @@ struct RelaySessionState
 {
     std::string ServerUrl;
     std::string Tailnet;
-    protocol::Bytes32 RelayPublicKey{};
+    tailgate::crypto::Bytes32 RelayPublicKey{};
 };
 
 [[nodiscard]] const std::string& StateDirectory();

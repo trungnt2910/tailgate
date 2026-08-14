@@ -135,7 +135,6 @@ tailgate_add_third_party_library(
     ${WireGuardLwip_SOURCE_DIR}/src/crypto/refc/poly1305-donna.c
     ${WireGuardLwip_SOURCE_DIR}/src/crypto/refc/x25519.c
     ${WireGuardLwip_SOURCE_DIR}/src/wireguard.c
-    ${PROJECT_SOURCE_DIR}/src/core/WireguardPlatform.cpp
 )
 target_include_directories(
     tailgate_wireguard_crypto

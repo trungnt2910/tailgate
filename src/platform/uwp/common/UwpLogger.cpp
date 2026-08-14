@@ -13,7 +13,7 @@
 
 #include <winrt/Windows.Storage.h>
 
-#include <tailgate/Logging.h>
+#include <tailgate/base/Logging.h>
 
 namespace tailgate::uwp
 {
@@ -35,9 +35,10 @@ void InstallUwpLogSink(const winrt::hstring& fileName)
     {
         stream->close();
     }
-    tailgate::SetLogSink(
-        [stream, streamMutex](
-            tailgate::LogLevel level, const std::string& component, const std::string& message)
+    tailgate::base::SetLogSink(
+        [stream, streamMutex](tailgate::base::LogLevel level,
+                              const std::string& component,
+                              const std::string& message)
         {
             std::lock_guard lock(*streamMutex);
             if (!stream->is_open())
@@ -50,7 +51,7 @@ void InstallUwpLogSink(const winrt::hstring& fileName)
                                    timestamp,
                                    GetCurrentProcessId(),
                                    GetCurrentThreadId(),
-                                   tailgate::LogLevelName(level),
+                                   tailgate::base::LogLevelName(level),
                                    component,
                                    message)
                     << std::flush;

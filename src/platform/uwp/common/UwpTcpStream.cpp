@@ -51,7 +51,8 @@ auto ResultWithOptionalTimeout(const T& operation,
     return ResultWithTimeout(operation, name, *timeout);
 }
 
-std::vector<std::uint8_t> BytesFromBuffer(const streams::IBuffer& buffer, const Logger& logger)
+std::vector<std::uint8_t> BytesFromBuffer(const streams::IBuffer& buffer,
+                                          const tailgate::base::Logger& logger)
 {
     const std::uint32_t length = buffer.Length();
     logger.LogTrace("tcp read {}", length);

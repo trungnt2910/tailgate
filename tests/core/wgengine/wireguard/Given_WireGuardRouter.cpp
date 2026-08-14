@@ -2,48 +2,48 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/network/Ipv4.h>
-#include <tailgate/protocol/Crypto.h>
-#include <tailgate/protocol/WireGuardRouter.h>
+#include <tailgate/crypto/Crypto.h>
+#include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/wgengine/wireguard/Router.h>
 
 namespace
 {
 
-tailgate::control::PeerConfig Peer(const tailgate::protocol::Bytes32& privateKey,
-                                   const std::string& address,
-                                   const std::string& name = {})
+tailgate::types::netmap::PeerConfig Peer(const tailgate::crypto::Bytes32& privateKey,
+                                         const std::string& address,
+                                         const std::string& name = {})
 {
-    const auto publicKey = tailgate::protocol::X25519PublicFromPrivate(privateKey);
-    tailgate::control::PeerConfig result;
+    const auto publicKey = tailgate::crypto::X25519PublicFromPrivate(privateKey);
+    tailgate::types::netmap::PeerConfig result;
     result.Address = address;
     result.Name = name;
     result.Addresses = {address};
-    result.Key = "nodekey:" + tailgate::protocol::BytesToHex(publicKey.data(), publicKey.size());
-    result.AllowedPrefixes = {tailgate::network::Ipv4Prefix{
-        .Network = *tailgate::network::ParseIpv4(address), .PrefixLength = 32}};
+    result.Key = "nodekey:" + tailgate::crypto::BytesToHex(publicKey.data(), publicKey.size());
+    result.AllowedPrefixes = {tailgate::net::packet::Ipv4Prefix{
+        .Network = *tailgate::net::packet::ParseIpv4(address), .PrefixLength = 32}};
     return result;
 }
 
 TEST(Given_HostedExitNode, When_RoutingPublicTraffic_Then_UsesSelectedExitNode)
 {
-    tailgate::protocol::Bytes32 privateKey{};
+    tailgate::crypto::Bytes32 privateKey{};
     privateKey[1] = 1;
-    tailgate::protocol::Bytes32 regularPrivateKey{};
+    tailgate::crypto::Bytes32 regularPrivateKey{};
     regularPrivateKey[1] = 2;
-    tailgate::protocol::Bytes32 exitPrivateKey{};
+    tailgate::crypto::Bytes32 exitPrivateKey{};
     exitPrivateKey[1] = 3;
-    tailgate::control::PeerConfig regular = Peer(regularPrivateKey, "100.64.0.2", "regular");
-    tailgate::control::PeerConfig exit = Peer(exitPrivateKey, "100.64.0.3", "exit");
+    tailgate::types::netmap::PeerConfig regular = Peer(regularPrivateKey, "100.64.0.2", "regular");
+    tailgate::types::netmap::PeerConfig exit = Peer(exitPrivateKey, "100.64.0.3", "exit");
     exit.ExitNodeOption = true;
     exit.Online = true;
-    tailgate::protocol::WireGuardRouter router(privateKey, {regular, exit}, "exit");
+    tailgate::wgengine::wireguard::WireGuardRouter router(privateKey, {regular, exit}, "exit");
     const std::vector<std::uint8_t> packet =
-        tailgate::network::BuildIpv4Packet(*tailgate::network::ParseIpv4("100.64.0.1"),
-                                           *tailgate::network::ParseIpv4("203.0.113.10"),
-                                           1,
-                                           {1});
-    const tailgate::protocol::Bytes32 exitPublic =
-        tailgate::protocol::X25519PublicFromPrivate(exitPrivateKey);
+        tailgate::net::packet::BuildIpv4Packet(*tailgate::net::packet::ParseIpv4("100.64.0.1"),
+                                               *tailgate::net::packet::ParseIpv4("203.0.113.10"),
+                                               1,
+                                               {1});
+    const tailgate::crypto::Bytes32 exitPublic =
+        tailgate::crypto::X25519PublicFromPrivate(exitPrivateKey);
 
     const auto outbound = router.Send(packet);
     ASSERT_EQ(outbound.size(), 1U);
@@ -55,19 +55,21 @@ TEST(Given_HostedExitNode, When_RoutingPublicTraffic_Then_UsesSelectedExitNode)
 
 TEST(Given_HostedPacket, When_Routed_Then_RelayOnlySeesWireGuardCiphertext)
 {
-    tailgate::protocol::Bytes32 firstPrivate{};
+    tailgate::crypto::Bytes32 firstPrivate{};
     firstPrivate[1] = 1;
-    tailgate::protocol::Bytes32 secondPrivate{};
+    tailgate::crypto::Bytes32 secondPrivate{};
     secondPrivate[1] = 2;
-    tailgate::protocol::WireGuardRouter first(firstPrivate, {Peer(secondPrivate, "100.64.0.2")});
-    tailgate::protocol::WireGuardRouter second(secondPrivate, {Peer(firstPrivate, "100.64.0.1")});
+    tailgate::wgengine::wireguard::WireGuardRouter first(firstPrivate,
+                                                         {Peer(secondPrivate, "100.64.0.2")});
+    tailgate::wgengine::wireguard::WireGuardRouter second(secondPrivate,
+                                                          {Peer(firstPrivate, "100.64.0.1")});
     const std::vector<std::uint8_t> plaintext =
-        tailgate::network::BuildIpv4Packet(*tailgate::network::ParseIpv4("100.64.0.1"),
-                                           *tailgate::network::ParseIpv4("100.64.0.2"),
-                                           1,
-                                           {1, 2, 3, 4});
-    const auto firstPublic = tailgate::protocol::X25519PublicFromPrivate(firstPrivate);
-    const auto secondPublic = tailgate::protocol::X25519PublicFromPrivate(secondPrivate);
+        tailgate::net::packet::BuildIpv4Packet(*tailgate::net::packet::ParseIpv4("100.64.0.1"),
+                                               *tailgate::net::packet::ParseIpv4("100.64.0.2"),
+                                               1,
+                                               {1, 2, 3, 4});
+    const auto firstPublic = tailgate::crypto::X25519PublicFromPrivate(firstPrivate);
+    const auto secondPublic = tailgate::crypto::X25519PublicFromPrivate(secondPrivate);
 
     const auto initiation = first.Send(plaintext);
     ASSERT_EQ(initiation.size(), 1U);
@@ -92,13 +94,14 @@ TEST(Given_HostedPacket, When_Routed_Then_RelayOnlySeesWireGuardCiphertext)
 
 TEST(Given_UnknownWireGuardTransportSource, When_Received_Then_ItIsRejected)
 {
-    tailgate::protocol::Bytes32 privateKey{};
+    tailgate::crypto::Bytes32 privateKey{};
     privateKey[1] = 1;
-    tailgate::protocol::Bytes32 peerPrivateKey{};
+    tailgate::crypto::Bytes32 peerPrivateKey{};
     peerPrivateKey[1] = 2;
-    tailgate::protocol::Bytes32 unknownKey{};
+    tailgate::crypto::Bytes32 unknownKey{};
     unknownKey[1] = 3;
-    tailgate::protocol::WireGuardRouter router(privateKey, {Peer(peerPrivateKey, "100.64.0.2")});
+    tailgate::wgengine::wireguard::WireGuardRouter router(privateKey,
+                                                          {Peer(peerPrivateKey, "100.64.0.2")});
 
     const auto received = router.Receive(unknownKey, {1, 0, 0, 0});
 

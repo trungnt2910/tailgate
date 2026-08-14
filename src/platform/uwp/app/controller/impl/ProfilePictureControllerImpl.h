@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
 
@@ -29,7 +29,7 @@ private:
     ProfilePictureState m_state;
     bool m_loading = false;
     bool m_applied = false;
-    Logger m_logger{"uwp-profile-picture-ctrl"};
+    tailgate::base::Logger m_logger{"uwp-profile-picture-ctrl"};
 };
 
 } // namespace tailgate::uwp

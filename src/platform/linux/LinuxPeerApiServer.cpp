@@ -1,16 +1,9 @@
 #include "LinuxPeerApiServer.h"
 
-#include "FdStream.h"
-#include "UniqueFd.h"
-#include "tailgate/ByteStream.h"
-#include "tailgate/Logging.h"
-#include "tailgate/serve/PeerApiIngress.h"
-
 #include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <deque>
-#include <fcntl.h>
 #include <format>
 #include <mutex>
 #include <optional>
@@ -22,6 +15,7 @@
 #include <vector>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <linux/in.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -30,10 +24,17 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <tailgate/base/ByteStream.h>
+#include <tailgate/base/Logging.h>
+#include <tailgate/serve/PeerApiIngress.h>
+
+#include "FdStream.h"
+#include "UniqueFd.h"
+
 namespace tailgate::linux_frontend
 {
 
-int PeerApiWaitTimeout(const IByteStream& stream)
+int PeerApiWaitTimeout(const tailgate::base::IByteStream& stream)
 {
     return stream.HasBufferedInput() ? 0 : -1;
 }
@@ -72,7 +73,7 @@ struct PendingWrites
         Buffers.push_back(std::move(data));
     }
 
-    bool Flush(IByteStream& stream)
+    bool Flush(tailgate::base::IByteStream& stream)
     {
         while (!Buffers.empty())
         {
@@ -111,7 +112,10 @@ void ModifyEvents(int epollFd, int fd, std::uint32_t events, std::uint64_t tag)
     }
 }
 
-void PumpTls(int peerFd, IByteStream& tls, int localFd, IByteStream& local)
+void PumpTls(int peerFd,
+             tailgate::base::IByteStream& tls,
+             int localFd,
+             tailgate::base::IByteStream& local)
 {
     constexpr std::uint64_t PeerTag = 1;
     constexpr std::uint64_t LocalTag = 2;
@@ -345,9 +349,9 @@ public:
                   Run();
               })
     {
-        Log(LogLevel::Info,
-            "peerapi",
-            std::format("listening on {}:{}", tailnetAddress, peerApiPort));
+        tailgate::base::Log(tailgate::base::LogLevel::Info,
+                            "peerapi",
+                            std::format("listening on {}:{}", tailnetAddress, peerApiPort));
     }
 
     ~Impl()
@@ -392,21 +396,24 @@ private:
                 {
                     continue;
                 }
-                Log(LogLevel::Warning,
-                    "peerapi",
-                    "accept failed: " + std::string(std::strerror(errno)));
+                tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                    "peerapi",
+                                    "accept failed: " + std::string(std::strerror(errno)));
                 continue;
             }
             const std::string remoteText = RemoteAddress(remote);
             int noDelay = 1;
             if (setsockopt(accepted.Fd, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay)) != 0)
             {
-                Log(LogLevel::Warning,
+                tailgate::base::Log(
+                    tailgate::base::LogLevel::Warning,
                     "peerapi",
                     std::format("TCP_NODELAY failed for {}: {}", remoteText, std::strerror(errno)));
                 continue;
             }
-            Log(LogLevel::Info, "peerapi", "accepted connection from " + remoteText);
+            tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                "peerapi",
+                                "accepted connection from " + remoteText);
             const int connectionFd = accepted.Release();
             {
                 std::lock_guard lock(m_connectionsMutex);
@@ -430,17 +437,21 @@ private:
             FdStream peer(fd);
             const tailgate::serve::PeerApiIngressRequest request =
                 m_handler.ReadRequestAndRespond(peer);
-            Log(LogLevel::Info,
+            tailgate::base::Log(
+                tailgate::base::LogLevel::Info,
                 "peerapi",
                 std::format("request from {} line={}", remoteText, request.RequestLine));
             if (request.Status == tailgate::serve::PeerApiIngressStatus::NotFound)
             {
-                Log(LogLevel::Warning, "peerapi", "rejecting unknown request from " + remoteText);
+                tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                    "peerapi",
+                                    "rejecting unknown request from " + remoteText);
                 return;
             }
             if (request.Status == tailgate::serve::PeerApiIngressStatus::Forbidden)
             {
-                Log(LogLevel::Warning,
+                tailgate::base::Log(
+                    tailgate::base::LogLevel::Warning,
                     "peerapi",
                     std::format("rejecting ingress from {} source={} target={}",
                                 remoteText,
@@ -448,7 +459,8 @@ private:
                                 request.Target.empty() ? "<missing>" : request.Target));
                 return;
             }
-            Log(LogLevel::Info,
+            tailgate::base::Log(
+                tailgate::base::LogLevel::Info,
                 "peerapi",
                 std::format("accepted ingress from {} source={} target={} local-port={}",
                             remoteText,
@@ -457,12 +469,14 @@ private:
                             m_localPort));
             UniqueFd local = ConnectLocal(m_localPort);
             FdStream localStream(local.Fd);
-            std::unique_ptr<IByteStream> tls = m_handler.OpenTlsStream(peer);
+            std::unique_ptr<tailgate::base::IByteStream> tls = m_handler.OpenTlsStream(peer);
             PumpTls(fd, *tls, local.Fd, localStream);
         }
         catch (const std::exception& error)
         {
-            Log(LogLevel::Warning, "peerapi", "ingress failed: " + std::string(error.what()));
+            tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                "peerapi",
+                                "ingress failed: " + std::string(error.what()));
         }
     }
 

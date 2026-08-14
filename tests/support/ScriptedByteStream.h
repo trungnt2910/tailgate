@@ -8,12 +8,12 @@
 #include <optional>
 #include <vector>
 
-#include <tailgate/ByteStream.h>
+#include <tailgate/base/ByteStream.h>
 
 namespace tailgate::test
 {
 
-class ScriptedByteStream final : public IByteStream
+class ScriptedByteStream final : public tailgate::base::IByteStream
 {
 public:
     [[nodiscard]] std::optional<std::size_t> TryWriteSome(const std::uint8_t* data,

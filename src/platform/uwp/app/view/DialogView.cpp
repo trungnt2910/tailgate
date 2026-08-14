@@ -6,7 +6,7 @@
 
 #include <winrt/Windows.UI.Core.h>
 
-#include <tailgate/Logger.h>
+#include <tailgate/base/Logger.h>
 
 namespace tailgate::uwp
 {
@@ -189,7 +189,7 @@ private:
         }
     }
 
-    Logger m_logger{"uwp-content-dialog"};
+    tailgate::base::Logger m_logger{"uwp-content-dialog"};
     xaml::IWindow::SizeChanged_revoker m_windowSizeChanged;
     winrt::event_token m_dialogOpened{};
     double m_platformMaximumWidth = 0;
