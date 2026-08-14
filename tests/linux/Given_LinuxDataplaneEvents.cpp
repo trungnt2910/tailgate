@@ -1,10 +1,11 @@
-#include "LinuxDataplaneEvents.h"
+#include <chrono>
+#include <thread>
+
+#include <poll.h>
 
 #include <gtest/gtest.h>
 
-#include <chrono>
-#include <poll.h>
-#include <thread>
+#include "LinuxDataplaneEvents.h"
 
 using namespace std::chrono_literals;
 

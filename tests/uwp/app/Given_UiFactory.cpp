@@ -57,7 +57,7 @@ TEST(Given_UiFactory, When_BuildingFallbackProfilePicture_Then_SizedCircleAndIco
     std::uint32_t children = 0;
 
     TestHost::RunOnUiThread(
-        [&PictureSize, &width, &height, &children]
+        [&width, &height, &children]
         {
             AppResources resources;
             const UiFactory subject(resources);

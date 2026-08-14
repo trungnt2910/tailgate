@@ -3,15 +3,6 @@ set(TAILGATE_UWP_TEST_EXECUTABLE_NAME "Tailgate.Tests")
 set(TAILGATE_UWP_TEST_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/AppxManifest.xml")
 configure_file(AppxManifest.in "${TAILGATE_UWP_TEST_MANIFEST}" @ONLY)
 
-# LLVM-MinGW's UWP linker supports whole-archive but not the push-state/pop-state
-# wrapper in CMake's default Windows-Clang definition.
-set(
-    CMAKE_CXX_LINK_LIBRARY_USING_WHOLE_ARCHIVE
-    "LINKER:--whole-archive"
-    "<LINK_ITEM>"
-    "LINKER:--no-whole-archive"
-)
-
 set(TAILGATE_UWP_TEST_CERTIFICATE "${TAILGATE_UWP_APPX_CERTIFICATE}")
 if(NOT IS_ABSOLUTE "${TAILGATE_UWP_TEST_CERTIFICATE}")
     cmake_path(
@@ -20,6 +11,9 @@ if(NOT IS_ABSOLUTE "${TAILGATE_UWP_TEST_CERTIFICATE}")
         NORMALIZE
     )
 endif()
+
+add_subdirectory(app)
+add_subdirectory(bg)
 
 uwp_add_executable(
     tailgate_uwp_tests
@@ -35,61 +29,13 @@ uwp_add_executable(
         TestResultDisplay.cpp
         TestResultDisplay.h
         ViewTestInjector.h
-        app/Given_AppResources.cpp
-        app/Given_AuthorizationController.cpp
-        app/Given_ContentDialogView.cpp
-        app/Given_DevicePageView.cpp
-        app/Given_DialogView.cpp
-        app/Given_ExitNodeController.cpp
-        app/Given_ExitNodeControlView.cpp
-        app/Given_HomePageView.cpp
-        app/Given_MainWindowController.cpp
-        app/Given_NavigationController.cpp
-        app/Given_NodeAuthorizationDialogView.cpp
-        app/Given_PingDialogController.cpp
-        app/Given_PingDialogView.cpp
-        app/Given_SessionController.cpp
-        app/Given_SettingsController.cpp
-        app/Given_SettingsPageView.cpp
-        app/Given_SetOptionsController.cpp
-        app/Given_SignInDialogView.cpp
-        app/Given_UiFactory.cpp
-        bg/Given_DataPlaneManager.cpp
-        bg/Given_ExitNodeService.cpp
-        bg/Given_HostedDnsService.cpp
-        bg/Given_NetworkService.cpp
-        bg/Given_PingService.cpp
-        bg/Given_SessionManager.cpp
-        fakes/app/controller/FakeAuthorizationController.h
-        fakes/app/controller/FakeClipboardController.h
-        fakes/app/controller/FakeContentDialogController.h
-        fakes/app/controller/FakeControlPlaneController.h
-        fakes/app/controller/FakeDevicePageController.h
-        fakes/app/controller/FakeExitNodeController.h
-        fakes/app/controller/FakeHomePageController.h
-        fakes/app/controller/FakeInteractiveAuthorizationController.h
-        fakes/app/controller/FakeNavigationController.h
-        fakes/app/controller/FakeNodeAuthorizationDialogController.h
-        fakes/app/controller/FakePackageController.h
-        fakes/app/controller/FakePingController.h
-        fakes/app/controller/FakePingDialogController.h
-        fakes/app/controller/FakeProfilePictureController.h
-        fakes/app/controller/FakeSessionController.h
-        fakes/app/controller/FakeSetOptionsController.h
-        fakes/app/controller/FakeSettingsController.h
-        fakes/app/controller/FakeSignInDialogController.h
-        fakes/app/controller/FakeTailgateRelayController.h
-        fakes/app/controller/FakeVpnProfileController.h
-        fakes/app/ui/FakeResourceLoader.h
-        fakes/app/view/FakeDialogViews.h
-        fakes/bg/manager/FakeDataPlaneManager.h
-        fakes/bg/manager/FakeSessionManager.h
-        fakes/bg/service/FakeService.h
 )
 target_link_libraries(
     tailgate_uwp_tests
     PRIVATE
-        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests>"
+        tailgate_tests
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_app>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_bg>"
         Boost.DI
         mapbox::pixelmatch
         Tailgate.Uwp.App.Controller.Impl

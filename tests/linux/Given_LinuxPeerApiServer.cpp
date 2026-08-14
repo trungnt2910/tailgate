@@ -1,9 +1,9 @@
-#include "LinuxPeerApiServer.h"
+#include <optional>
+#include <vector>
 
 #include <gtest/gtest.h>
 
-#include <optional>
-#include <vector>
+#include "LinuxPeerApiServer.h"
 
 namespace
 {

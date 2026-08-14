@@ -36,7 +36,8 @@ protected:
                       .Address = L"100.64.0.2",
                       .Ipv6 = L"fd7a:115c:a1e0::2",
                       .OperatingSystem = L"Linux",
-                      .Online = true},
+                      .Online = true,
+                      .ExitNodeOption = false},
         });
         m_subject = m_dependencies.Create<DevicePageViewImpl>(
             di::bind<ClipboardController>.to(

@@ -1,0 +1,37 @@
+tailgate_uwp_add_test_library(
+    tailgate_tests_uwp_app
+    Given_AppResources.cpp
+    Given_AuthorizationController.cpp
+    Given_ContentDialogView.cpp
+    Given_DevicePageView.cpp
+    Given_DialogView.cpp
+    Given_ExitNodeController.cpp
+    Given_ExitNodeControlView.cpp
+    Given_HomePageView.cpp
+    Given_MainWindowController.cpp
+    Given_NavigationController.cpp
+    Given_NodeAuthorizationDialogView.cpp
+    Given_PingDialogController.cpp
+    Given_PingDialogView.cpp
+    Given_SessionController.cpp
+    Given_SettingsController.cpp
+    Given_SettingsPageView.cpp
+    Given_SetOptionsController.cpp
+    Given_SignInDialogView.cpp
+    Given_UiFactory.cpp
+)
+target_include_directories(
+    tailgate_tests_uwp_app
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/platform/uwp"
+        "${PROJECT_SOURCE_DIR}/tests/uwp"
+)
+target_link_libraries(
+    tailgate_tests_uwp_app
+    PRIVATE
+        Boost.DI
+        Tailgate.Uwp.App.Controller.Impl
+        Tailgate.Uwp.App.Ui
+        Tailgate.Uwp.App.View.Impl
+        Tailgate.Uwp.Common
+)

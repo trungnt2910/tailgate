@@ -1,6 +1,4 @@
-#include <cstdlib>
 #include <filesystem>
-#include <format>
 #include <string>
 #include <thread>
 
@@ -11,11 +9,11 @@
 #include "LinuxPingIpc.h"
 #include "LinuxState.h"
 
+#include "LinuxTestEnvironment.h"
+
 TEST(Given_LongPingFields, When_UsingDaemonIpc_Then_StringsRoundTripWithoutTruncation)
 {
-    const std::filesystem::path home =
-        std::filesystem::temp_directory_path() / std::format("tailgate-linux-ping-{}", getpid());
-    ASSERT_EQ(setenv("HOME", home.c_str(), 1), 0);
+    tailgate::test::LinuxTestHome home("linux-ping");
     std::filesystem::create_directories(tailgate::linux_frontend::StateDirectory());
     tailgate::linux_frontend::UniqueFd server = tailgate::linux_frontend::OpenPingServer();
     const std::string target = std::string(1024, 'a') + ".example.ts.net";
@@ -43,7 +41,6 @@ TEST(Given_LongPingFields, When_UsingDaemonIpc_Then_StringsRoundTripWithoutTrunc
     const tailgate::platform::PingResult result =
         tailgate::linux_frontend::RequestDaemonPing(target, 1, true);
     worker.join();
-    std::filesystem::remove_all(home);
 
     EXPECT_TRUE(received);
     EXPECT_EQ(receivedRequest.Target, target);

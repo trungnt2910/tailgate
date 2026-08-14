@@ -29,12 +29,18 @@ protected:
         m_session = std::make_shared<FakeSessionController>();
         m_settings = std::make_shared<FakeSettingsController>();
         m_settings->GetState().Devices(std::vector<UwpDevice>{
-            UwpDevice{.Name = L"online-exit.example.ts.net",
+            UwpDevice{.Group = L"",
+                      .Name = L"online-exit.example.ts.net",
                       .Address = L"100.64.0.2",
+                      .Ipv6 = L"",
+                      .OperatingSystem = L"",
                       .Online = true,
                       .ExitNodeOption = true},
-            UwpDevice{.Name = L"offline-exit.example.ts.net",
+            UwpDevice{.Group = L"",
+                      .Name = L"offline-exit.example.ts.net",
                       .Address = L"100.64.0.3",
+                      .Ipv6 = L"",
+                      .OperatingSystem = L"",
                       .Online = false,
                       .ExitNodeOption = true},
         });

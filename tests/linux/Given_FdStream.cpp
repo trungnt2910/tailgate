@@ -1,13 +1,13 @@
-#include "FdStream.h"
-
-#include <gtest/gtest.h>
-
 #include <array>
 #include <chrono>
 #include <cstdint>
 
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <gtest/gtest.h>
+
+#include "FdStream.h"
 
 TEST(Given_SilentDescriptor, When_ReadDeadlineExpires_Then_ReadFails)
 {

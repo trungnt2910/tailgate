@@ -6,6 +6,7 @@ tailgate_add_test_executable(
     Given_LinuxPingIpc.cpp
     Given_LinuxQrCode.cpp
     Given_LinuxState.cpp
+    LinuxTestEnvironment.h
 )
 target_include_directories(
     tailgate_linux_tests
@@ -14,6 +15,6 @@ target_include_directories(
 target_link_libraries(
     tailgate_linux_tests
     PRIVATE
-        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests>"
+        tailgate_tests
         tailgate_linux
 )
