@@ -2,6 +2,8 @@
 
 #include <boost/di/extension/scopes/scoped.hpp>
 
+#include <tailgate/di/Bindings.h>
+
 #include "bg/ResourceLoader.h"
 #include "manager/impl/ControlPlaneManagerImpl.h"
 #include "manager/impl/DataPlaneManagerImpl.h"
@@ -17,6 +19,7 @@ using namespace service;
 PluginInjector CreateRs2PluginInjector()
 {
     return di::make_injector(
+        tailgate::di::Bindings(),
         di::bind<tailgate::uwp::ResourceLoader>.to<ResourceLoader>().in(di::extension::scoped),
         di::bind<ControlPlaneManager>.to<ControlPlaneManagerImpl>().in(di::extension::scoped),
         di::bind<DataPlaneManager>.to<DataPlaneManagerImpl>().in(di::extension::scoped),

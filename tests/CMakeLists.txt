@@ -25,6 +25,7 @@ target_link_libraries(
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_control_client>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_crypto>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_derp>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_di>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_disco>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_hosted>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_dns>"

@@ -2,6 +2,8 @@
 
 #include <boost/di.hpp>
 
+#include <tailgate/base/Clock.h>
+
 #include "common/ResourceLoader.h"
 
 #include "manager/ControlPlaneManager.h"
@@ -25,7 +27,8 @@ using service::HostedDnsService;
 using service::NetworkService;
 using service::PingService;
 
-using PluginInjector = boost::di::injector<ControlPlaneManager&,
+using PluginInjector = boost::di::injector<tailgate::base::IClock&,
+                                           ControlPlaneManager&,
                                            DataPlaneManager&,
                                            tailgate::uwp::ResourceLoader&,
                                            SessionManager&,

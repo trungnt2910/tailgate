@@ -44,6 +44,7 @@
 #include <unistd.h>
 
 #include <boost/algorithm/string/join.hpp>
+#include <boost/di.hpp>
 
 #include <tailgate/PlatformFrontend.h>
 #include <tailgate/base/Logging.h>
@@ -53,6 +54,7 @@
 #include <tailgate/control/client/RetryBackoff.h>
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/derp/Client.h>
+#include <tailgate/di/Bindings.h>
 #include <tailgate/disco/Disco.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/net/dns/Dns.h>
@@ -5847,7 +5849,10 @@ public:
 
 std::unique_ptr<IPlatformFrontend> CreateFrontend()
 {
-    return std::make_unique<LinuxFrontend>();
+    namespace di = boost::di;
+    auto injector = di::make_injector(tailgate::di::Bindings(),
+                                      di::bind<IPlatformFrontend>.to<LinuxFrontend>());
+    return injector.create<std::unique_ptr<IPlatformFrontend>>();
 }
 
 } // namespace tailgate::platform

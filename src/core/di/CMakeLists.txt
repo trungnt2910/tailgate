@@ -1,0 +1,11 @@
+tailgate_add_library(
+    tailgate_core_di
+    STATIC
+    Bindings.cpp
+)
+target_link_libraries(
+    tailgate_core_di
+    PUBLIC
+        Boost.DI
+        tailgate_core_base
+)

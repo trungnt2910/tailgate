@@ -1,6 +1,7 @@
 tailgate_add_test_executable(
     tailgate_linux_tests
     Given_FdStream.cpp
+    Given_LinuxBindings.cpp
     Given_LinuxDataplaneEvents.cpp
     Given_LinuxPeerApiServer.cpp
     Given_LinuxPingIpc.cpp

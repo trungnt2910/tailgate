@@ -2,6 +2,7 @@ add_subdirectory(base)
 add_subdirectory(control)
 add_subdirectory(crypto)
 add_subdirectory(derp)
+add_subdirectory(di)
 add_subdirectory(disco)
 add_subdirectory(hosted)
 add_subdirectory(net)
@@ -19,6 +20,7 @@ target_link_libraries(
         tailgate_core_control_client
         tailgate_core_crypto
         tailgate_core_derp
+        tailgate_core_di
         tailgate_core_disco
         tailgate_core_hosted
         tailgate_core_net_dns

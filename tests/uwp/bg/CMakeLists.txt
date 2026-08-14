@@ -1,6 +1,7 @@
 tailgate_uwp_add_test_library(
     tailgate_tests_uwp_bg
     Given_DataPlaneManager.cpp
+    Given_DI.cpp
     Given_ExitNodeService.cpp
     Given_HostedDnsService.cpp
     Given_NetworkService.cpp
@@ -17,6 +18,7 @@ target_link_libraries(
     tailgate_tests_uwp_bg
     PRIVATE
         Boost.DI
+        Tailgate.Uwp.Background.DI
         Tailgate.Uwp.Background.Manager
         Tailgate.Uwp.Background.Service
         Tailgate.Uwp.Common

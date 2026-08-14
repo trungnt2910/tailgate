@@ -78,16 +78,14 @@ CPMAddPackage(
 )
 unset(TAILGATE_BOOST_URL)
 
-if(TAILGATE_BUILD_UWP)
-    CPMAddPackage(
-        NAME BoostExtDi
-        VERSION 1.3.2
-        GIT_REPOSITORY https://github.com/boost-ext/di.git
-        GIT_TAG v1.3.2
-        GIT_SHALLOW TRUE
-        OPTIONS "BOOST_DI_OPT_BUILD_TESTS OFF" "BOOST_DI_OPT_BUILD_EXAMPLES OFF"
-    )
-endif()
+CPMAddPackage(
+    NAME BoostExtDi
+    VERSION 1.3.2
+    GIT_REPOSITORY https://github.com/boost-ext/di.git
+    GIT_TAG v1.3.2
+    GIT_SHALLOW TRUE
+    OPTIONS "BOOST_DI_OPT_BUILD_TESTS OFF" "BOOST_DI_OPT_BUILD_EXAMPLES OFF"
+)
 
 if(TAILGATE_BUILD_TESTS)
     CPMAddPackage(
