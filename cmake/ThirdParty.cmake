@@ -109,13 +109,19 @@ if(TAILGATE_BUILD_TESTS AND TAILGATE_BUILD_UWP)
     )
 endif()
 
+string(
+    CONCAT
+    TAILGATE_WIREGUARD_LWIP_URL
+    "https://github.com/smartalock/wireguard-lwip/archive/"
+    "c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d.tar.gz"
+)
 CPMAddPackage(
     NAME WireGuardLwip
-    GIT_REPOSITORY https://github.com/smartalock/wireguard-lwip.git
-    GIT_TAG f0d0ca5153b798354087610ffac5b5efd2312d27
-    GIT_SHALLOW TRUE
+    URL "${TAILGATE_WIREGUARD_LWIP_URL}"
+    URL_HASH SHA256=8be6e97394ff5d579862b9a2a3136540d6de511968235d436e83fee62cdcc9e7
     SOURCE_SUBDIR src
 )
+unset(TAILGATE_WIREGUARD_LWIP_URL)
 
 # wireguard-lwip intentionally exposes source-level integration rather than a CMake target.
 # Keep that upstream file-list dependency isolated here instead of leaking it into Core.
