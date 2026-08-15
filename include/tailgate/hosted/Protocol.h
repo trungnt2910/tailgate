@@ -8,7 +8,6 @@
 
 #include <tailgate/base/ByteStream.h>
 #include <tailgate/crypto/Crypto.h>
-#include <tailgate/disco/Disco.h>
 #include <tailgate/types/netmap/NetworkMap.h>
 
 namespace tailgate::hosted
@@ -130,12 +129,6 @@ EncodeNetworkConfig(const tailgate::types::netmap::NetworkConfig& config);
 [[nodiscard]] tailgate::types::netmap::NetworkConfig
 DecodeNetworkConfig(const std::vector<std::uint8_t>& payload);
 
-// Builds one disco ping per online peer with valid node and disco keys. Hosted clients send
-// these on each server heartbeat so the relay keeps forwarding traffic into DERP, which both
-// keeps the hosted DERP connection registered and advertises the client's disco reachability.
-[[nodiscard]] std::vector<PeerPacket>
-BuildDiscoProbes(const tailgate::disco::Disco& disco,
-                 const std::vector<tailgate::types::netmap::PeerConfig>& peers);
 void AcceptHttpUpgrade(tailgate::base::IByteStream& stream);
 [[nodiscard]] std::vector<std::uint8_t> RequestHttpUpgrade(tailgate::base::IByteStream& stream,
                                                            const std::string& host);

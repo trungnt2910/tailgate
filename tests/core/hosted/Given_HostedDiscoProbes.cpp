@@ -2,7 +2,7 @@
 
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/disco/Disco.h>
-#include <tailgate/hosted/Protocol.h>
+#include <tailgate/hosted/DiscoProbes.h>
 #include <tailgate/types/netmap/NetworkMap.h>
 
 namespace

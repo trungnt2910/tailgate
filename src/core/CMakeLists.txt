@@ -31,5 +31,6 @@ target_link_libraries(
         tailgate_core_serve
         tailgate_core_serve_acme
         tailgate_core_types_netmap
+        tailgate_core_wgengine_magicsock
         tailgate_core_wgengine_wireguard
 )

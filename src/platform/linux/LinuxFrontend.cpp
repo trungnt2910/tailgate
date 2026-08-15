@@ -56,6 +56,7 @@
 #include <tailgate/derp/Client.h>
 #include <tailgate/di/Bindings.h>
 #include <tailgate/disco/Disco.h>
+#include <tailgate/hosted/DiscoProbes.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/net/dns/Dns.h>
 #include <tailgate/net/dns/TailnetDns.h>
@@ -66,6 +67,7 @@
 #include <tailgate/qr/QrCode.h>
 #include <tailgate/serve/FunnelConfig.h>
 #include <tailgate/serve/acme/Client.h>
+#include <tailgate/wgengine/magicsock/PeerPathState.h>
 #include <tailgate/wgengine/wireguard/Router.h>
 #include <tailgate/wgengine/wireguard/Tunnel.h>
 
@@ -149,22 +151,14 @@ using TailPeer = tailgate::types::netmap::PeerConfig;
 
 [[nodiscard]] std::optional<std::string> HostedPathForNode(std::uint64_t nodeId);
 
-constexpr std::size_t MaximumVerifiedEndpointsPerPeer = 32;
-
 struct PeerRuntime
 {
     TailPeer Config;
     tailgate::wgengine::wireguard::WireGuardTunnel::PeerId TunnelPeer = 0;
     UniqueFd Socket;
     bool UseAdvertisedSocket = false;
-    sockaddr_in Endpoint{};
-    bool HasEndpoint = false;
-    std::vector<sockaddr_in> VerifiedEndpoints;
-    bool DirectProbeStarted = false;
-    bool AwaitingDirectResponse = false;
+    tailgate::wgengine::magicsock::PeerPathState Path;
     tailgate::disco::Disco::TransactionId DirectProbeTransaction{};
-    std::chrono::steady_clock::time_point FirstUnansweredDirectSend{};
-    std::chrono::steady_clock::time_point LastDirectProbe{};
     tailgate::wgengine::wireguard::WireGuardTunnel::Key PublicKey{};
     tailgate::crypto::Bytes32 DiscoPublicKey{};
     bool HasDiscoKey = false;
@@ -179,28 +173,21 @@ struct PeerRuntime
     std::chrono::steady_clock::time_point LastHandshake{};
 };
 
-bool SameEndpoint(const sockaddr_in& left, const sockaddr_in& right)
+tailgate::wgengine::magicsock::Endpoint ToMagicsockEndpoint(const sockaddr_in& endpoint)
 {
-    return left.sin_addr.s_addr == right.sin_addr.s_addr && left.sin_port == right.sin_port;
+    return tailgate::wgengine::magicsock::Endpoint{
+        .Address = ntohl(endpoint.sin_addr.s_addr),
+        .Port = ntohs(endpoint.sin_port),
+    };
 }
 
-void RememberVerifiedEndpoint(PeerRuntime& peer, const sockaddr_in& endpoint)
+sockaddr_in ToSockaddr(const tailgate::wgengine::magicsock::Endpoint& endpoint)
 {
-    const auto found = std::find_if(peer.VerifiedEndpoints.begin(),
-                                    peer.VerifiedEndpoints.end(),
-                                    [&](const sockaddr_in& candidate)
-                                    {
-                                        return SameEndpoint(candidate, endpoint);
-                                    });
-    if (found != peer.VerifiedEndpoints.end())
-    {
-        return;
-    }
-    if (peer.VerifiedEndpoints.size() == MaximumVerifiedEndpointsPerPeer)
-    {
-        peer.VerifiedEndpoints.erase(peer.VerifiedEndpoints.begin());
-    }
-    peer.VerifiedEndpoints.push_back(endpoint);
+    sockaddr_in result{};
+    result.sin_family = AF_INET;
+    result.sin_addr.s_addr = htonl(endpoint.Address);
+    result.sin_port = htons(endpoint.Port);
+    return result;
 }
 
 struct DerpRuntime
@@ -219,7 +206,6 @@ constexpr auto ControlSilenceTimeout = std::chrono::minutes(2);
 std::atomic<int> RelayHostControlFd = -1;
 constexpr auto RelayHeartbeatInterval = std::chrono::seconds(20);
 constexpr auto HandshakeRetryInterval = std::chrono::seconds(5);
-constexpr auto DirectProbeInterval = std::chrono::seconds(5);
 constexpr auto DataplaneSlowSection = std::chrono::milliseconds(50);
 constexpr auto PendingDnsTimeout = std::chrono::seconds(10);
 constexpr auto PingRetryInterval = std::chrono::seconds(1);
@@ -913,18 +899,11 @@ void StartTunnel(
 
     auto startDirectProbe = [&](PeerRuntime& peer)
     {
-        if (!disco || !peer.HasDiscoKey || peer.HasEndpoint)
+        if (!disco || !peer.HasDiscoKey || peer.Path.HasDirectPath() ||
+            !peer.Path.TryBeginProbe(std::chrono::steady_clock::now()))
         {
             return;
         }
-        const auto now = std::chrono::steady_clock::now();
-        if (peer.LastDirectProbe != std::chrono::steady_clock::time_point{} &&
-            now - peer.LastDirectProbe < DirectProbeInterval)
-        {
-            return;
-        }
-        peer.DirectProbeStarted = true;
-        peer.LastDirectProbe = now;
         peer.DirectProbeTransaction = disco->NewTransactionId();
         sendRelay(peer,
                   disco->BuildCallMeMaybe(peer.DiscoPublicKey,
@@ -975,9 +954,10 @@ void StartTunnel(
     };
     auto flushOutgoing = [&](PeerRuntime& peer)
     {
-        while (peer.HasEndpoint && !peer.OutgoingPackets.empty())
+        while (peer.Path.HasDirectPath() && !peer.OutgoingPackets.empty())
         {
-            if (!TrySendUdp(peerSocket(peer), peer.Endpoint, peer.OutgoingPackets.front()))
+            const sockaddr_in endpoint = ToSockaddr(*peer.Path.DirectEndpoint());
+            if (!TrySendUdp(peerSocket(peer), endpoint, peer.OutgoingPackets.front()))
             {
                 return;
             }
@@ -992,12 +972,13 @@ void StartTunnel(
                         DerpWorker::Priority priority = DerpWorker::Priority::Data)
     {
         peer.TxBytes += packet.size();
-        if (peer.HasEndpoint)
+        if (peer.Path.HasDirectPath())
         {
             flushOutgoing(peer);
             if (peer.OutgoingPackets.empty())
             {
-                if (!TrySendUdp(peerSocket(peer), peer.Endpoint, packet))
+                const sockaddr_in endpoint = ToSockaddr(*peer.Path.DirectEndpoint());
+                if (!TrySendUdp(peerSocket(peer), endpoint, packet))
                 {
                     queueOutgoing(peer, packet);
                 }
@@ -1006,10 +987,9 @@ void StartTunnel(
             {
                 queueOutgoing(peer, packet);
             }
-            if (expectResponse && !peer.AwaitingDirectResponse)
+            if (expectResponse)
             {
-                peer.AwaitingDirectResponse = true;
-                peer.FirstUnansweredDirectSend = std::chrono::steady_clock::now();
+                peer.Path.MarkDirectSend(std::chrono::steady_clock::now());
             }
         }
         else
@@ -1031,9 +1011,9 @@ void StartTunnel(
         tailgate::base::Log(
             tailgate::base::LogLevel::Debug, "tunnel", "handshake peer=" + peer.Config.Name);
         sendRelay(peer, handshake, DerpWorker::Priority::Control);
-        if (peer.HasEndpoint)
+        if (peer.Path.HasDirectPath())
         {
-            SendUdp(peerSocket(peer), peer.Endpoint, handshake);
+            SendUdp(peerSocket(peer), ToSockaddr(*peer.Path.DirectEndpoint()), handshake);
         }
         else
         {
@@ -1509,9 +1489,7 @@ void StartTunnel(
                         endpoint.sin_addr.s_addr = htonl(transportPacket.EndpointAddress);
                         endpoint.sin_port = htons(transportPacket.EndpointPort);
                         SendUdp(peerSocket(*peer), endpoint, transportPacket.Payload);
-                        peer->Endpoint = endpoint;
-                        peer->HasEndpoint = true;
-                        RememberVerifiedEndpoint(*peer, endpoint);
+                        (void)peer->Path.MarkDirect(ToMagicsockEndpoint(endpoint));
                     }
                     else
                     {
@@ -1717,13 +1695,7 @@ void StartTunnel(
     {
         const std::string endpoint =
             std::format("{}:{}", inet_ntoa(source.sin_addr), ntohs(source.sin_port));
-        const bool changed = !peer.HasEndpoint ||
-                             peer.Endpoint.sin_addr.s_addr != source.sin_addr.s_addr ||
-                             peer.Endpoint.sin_port != source.sin_port;
-        peer.Endpoint = source;
-        peer.HasEndpoint = true;
-        RememberVerifiedEndpoint(peer, source);
-        peer.AwaitingDirectResponse = false;
+        const bool changed = peer.Path.MarkDirect(ToMagicsockEndpoint(source));
         if (changed)
         {
             tailgate::base::Log(
@@ -1775,7 +1747,6 @@ void StartTunnel(
                 endpoint.sin_port = htons(candidate.Port);
                 SendUdp(advertisedUdpFd, endpoint, ping);
             }
-            peer.DirectProbeStarted = true;
             tailgate::base::Log(tailgate::base::LogLevel::Debug,
                                 "disco",
                                 std::format("CallMeMaybe peer={} endpoints={}",
@@ -1822,8 +1793,7 @@ void StartTunnel(
                 {
                     endpoint =
                         std::format("{}:{}", inet_ntoa(source->sin_addr), ntohs(source->sin_port));
-                    peer.Endpoint = *source;
-                    peer.HasEndpoint = true;
+                    (void)peer.Path.MarkDirect(ToMagicsockEndpoint(*source));
                 }
                 completePing(pending, true, endpoint, 0);
                 break;
@@ -1842,7 +1812,7 @@ void StartTunnel(
         }
         if (received)
         {
-            peer.AwaitingDirectResponse = false;
+            peer.Path.MarkDirectReceive();
         }
         std::vector<std::uint8_t> plain =
             received ? std::move(received->Plaintext) : std::vector<std::uint8_t>{};
@@ -2147,10 +2117,8 @@ void StartTunnel(
                             {
                                 existing->TunnelPeer = tunnel->AddPeer(existing->PublicKey);
                             }
-                            existing->HasEndpoint = false;
-                            existing->VerifiedEndpoints.clear();
-                            existing->DirectProbeStarted = false;
-                            existing->AwaitingDirectResponse = false;
+                            existing->Path.Reset(tailgate::wgengine::magicsock::PeerPathState::
+                                                     ResetMode::ForgetVerifiedEndpoints);
                             existing->PendingPackets.clear();
                             existing->PendingBytes = 0;
                         }
@@ -2181,13 +2149,11 @@ void StartTunnel(
                     }
                     if (!configPeer.Online || endpointsChanged)
                     {
-                        existing->HasEndpoint = false;
-                        if (!configPeer.Online || discoKeyChanged)
-                        {
-                            existing->VerifiedEndpoints.clear();
-                        }
-                        existing->DirectProbeStarted = false;
-                        existing->AwaitingDirectResponse = false;
+                        existing->Path.Reset(!configPeer.Online || discoKeyChanged
+                                                 ? tailgate::wgengine::magicsock::PeerPathState::
+                                                       ResetMode::ForgetVerifiedEndpoints
+                                                 : tailgate::wgengine::magicsock::PeerPathState::
+                                                       ResetMode::PreserveVerifiedEndpoints);
                     }
                 }
             });
@@ -2227,10 +2193,8 @@ void StartTunnel(
                                 peer.Config.Online = false;
                                 peer.Config.AllowedPrefixes.clear();
                                 peer.Config.ExitNodeOption = false;
-                                peer.HasEndpoint = false;
-                                peer.VerifiedEndpoints.clear();
-                                peer.DirectProbeStarted = false;
-                                peer.AwaitingDirectResponse = false;
+                                peer.Path.Reset(tailgate::wgengine::magicsock::PeerPathState::
+                                                    ResetMode::ForgetVerifiedEndpoints);
                             }
                         }
                     });
@@ -2626,18 +2590,13 @@ void StartTunnel(
                         }
                         if (encryptedPacketTransport)
                         {
-                            const auto peer = std::find_if(
-                                peers.begin(),
-                                peers.end(),
-                                [&](const PeerRuntime& candidate)
-                                {
-                                    return std::any_of(candidate.VerifiedEndpoints.begin(),
-                                                       candidate.VerifiedEndpoints.end(),
-                                                       [&](const sockaddr_in& endpoint)
-                                                       {
-                                                           return SameEndpoint(endpoint, source);
-                                                       });
-                                });
+                            const auto peer = std::find_if(peers.begin(),
+                                                           peers.end(),
+                                                           [&](const PeerRuntime& candidate)
+                                                           {
+                                                               return candidate.Path.IsVerified(
+                                                                   ToMagicsockEndpoint(source));
+                                                           });
                             if (peer != peers.end())
                             {
                                 peer->UseAdvertisedSocket = true;
@@ -2837,14 +2796,8 @@ void StartTunnel(
                          {
                              for (PeerRuntime& peer : peers)
                              {
-                                 if (peer.HasEndpoint && peer.AwaitingDirectResponse &&
-                                     std::chrono::steady_clock::now() -
-                                             peer.FirstUnansweredDirectSend >
-                                         std::chrono::seconds(15))
+                                 if (peer.Path.ExpireDirectPath(std::chrono::steady_clock::now()))
                                  {
-                                     peer.HasEndpoint = false;
-                                     peer.DirectProbeStarted = false;
-                                     peer.AwaitingDirectResponse = false;
                                      tailgate::base::Log(tailgate::base::LogLevel::Info,
                                                          "tunnel",
                                                          "relay fallback peer=" + peer.Config.Name);
@@ -2862,7 +2815,8 @@ void StartTunnel(
                                  {
                                      continue;
                                  }
-                                 if (tunnel->HasSession(peer.TunnelPeer) && !peer.HasEndpoint)
+                                 if (tunnel->HasSession(peer.TunnelPeer) &&
+                                     !peer.Path.HasDirectPath())
                                  {
                                      startDirectProbe(peer);
                                  }
@@ -4008,9 +3962,13 @@ void RunRelayConnection(
                     for (const tailgate::hosted::PeerPacket& probe :
                          tailgate::hosted::BuildDiscoProbes(disco, config.Peers))
                     {
-                        queueDisco(probe.Peer, probe.Payload);
+                        queueFrame(tailgate::hosted::Frame{
+                            .Type = tailgate::hosted::MessageType::ClientPacket,
+                            .Payload = tailgate::hosted::EncodePeerPacket(probe),
+                        });
                     }
-                    nextDiscoProbe = now + DirectProbeInterval;
+                    nextDiscoProbe =
+                        now + tailgate::wgengine::magicsock::PeerPathState::DirectProbeInterval;
                 }
                 for (PendingRelayPing& pending : pendingPings)
                 {

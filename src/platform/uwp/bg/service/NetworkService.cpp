@@ -7,6 +7,7 @@
 
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/derp/Client.h>
+#include <tailgate/hosted/DiscoProbes.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/net/dns/TailnetDns.h>
 #include <tailgate/net/packet/Ipv4.h>
