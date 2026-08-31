@@ -1,20 +1,20 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <thread>
 
-#include <tailgate/base/ByteStream.h>
 #include <tailgate/base/Logger.h>
-#include <tailgate/control/client/ControlClient.h>
+#include <tailgate/control/client/Session.h>
 
 #include "manager/ControlPlaneManager.h"
 
 namespace tailgate::uwp
 {
 
-class UwpTcpStream;
+class TcpSocketFactory;
 
 }
 
@@ -24,7 +24,9 @@ namespace tailgate::uwp::bg::manager
 class ControlPlaneManagerImpl final : public ControlPlaneManager
 {
 public:
-    explicit ControlPlaneManagerImpl(SessionManager& sessionManager);
+    ControlPlaneManagerImpl(SessionManager& sessionManager,
+                            tailgate::control::client::SessionFactory& controlSessionFactory,
+                            TcpSocketFactory& socketFactory);
     ~ControlPlaneManagerImpl() override;
 
     void Start(SessionGeneration generation) override;
@@ -43,18 +45,22 @@ public:
     [[nodiscard]] const tailgate::crypto::Bytes32& DiscoPrivateKey() const override;
 
 private:
+    class RegistrationHandler;
+
     [[nodiscard]] bool WaitForRetry(std::chrono::milliseconds delay) const;
     void Report(SessionEventKind kind);
 
     SessionManager& m_sessionManager;
+    tailgate::control::client::SessionFactory& m_controlSessionFactory;
+    TcpSocketFactory& m_socketFactory;
     SessionGeneration m_generation = 0;
     tailgate::crypto::Bytes32 m_machinePrivateKey{};
     tailgate::crypto::Bytes32 m_nodePrivateKey{};
     tailgate::crypto::Bytes32 m_nodePublicKey{};
     tailgate::crypto::Bytes32 m_discoPrivateKey{};
-    std::unique_ptr<UwpTcpStream> m_stream;
-    std::unique_ptr<tailgate::control::client::ControlClient> m_client;
+    std::unique_ptr<tailgate::control::client::Session> m_controlSession;
     mutable std::mutex m_mutex;
+    mutable std::condition_variable m_stopChanged;
     std::atomic_bool m_stopping = false;
     std::thread m_maintenanceThread;
     tailgate::base::Logger m_logger{"uwp-control-plane"};

@@ -1,4 +1,4 @@
-#include <tailgate/net/dns/ResolverConfig.h>
+#include "tailgate/net/dns/ResolverConfig.h"
 
 #include <algorithm>
 #include <format>
@@ -7,7 +7,7 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 
-#include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/net/Ipv4Address.h>
 
 namespace tailgate::net::dns
 {
@@ -74,7 +74,7 @@ std::vector<std::string> ResolverAddresses(const std::string& contents)
                                 boost::algorithm::token_compress_on);
         fields.erase(std::remove(fields.begin(), fields.end(), std::string{}), fields.end());
         if (fields.size() >= 2 && fields[0] == "nameserver" &&
-            tailgate::net::packet::ParseIpv4(fields[1]))
+            tailgate::net::Ipv4Address::TryParse(fields[1]))
         {
             result.push_back(fields[1]);
         }

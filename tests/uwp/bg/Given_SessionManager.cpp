@@ -3,6 +3,8 @@
 #include <boost/di.hpp>
 #include <gtest/gtest.h>
 
+#include "common/AuthorizationState.h"
+
 #include "manager/impl/SessionManagerImpl.h"
 
 namespace tailgate::uwp::tests
@@ -99,6 +101,27 @@ TEST_F(Given_SessionManager, When_AuthenticationIsRequired_Then_ItTakesPrecedenc
     m_subject->Report(authentication);
 
     EXPECT_EQ(m_subject->State(), bg::manager::SessionState::AwaitingAuthentication);
+}
+
+TEST_F(Given_SessionManager, When_LoginNotificationIsSent_Then_ForegroundReceivesControlUrl)
+{
+    const winrt::hstring tailgateServer = L"relay.example.com";
+    const std::string authorizationUrl = "https://login.tailscale.com/a/fake-login-code";
+    AuthorizationStateReceiver receiver(tailgateServer);
+    const auto generation = m_subject->BeginConnect();
+    const bg::manager::ForegroundConnectionNotification notification{
+        .Kind = bg::manager::ForegroundConnectionKind::LoginRequired,
+        .Url = authorizationUrl,
+        .TailgateServer = winrt::to_string(tailgateServer),
+    };
+
+    m_subject->Notify(generation, notification);
+    const std::vector<ConnectionMessage> messages = receiver.ReadAvailable();
+    ASSERT_EQ(messages.size(), 1U);
+
+    EXPECT_EQ(messages.front().Kind, ConnectionMessageKind::LoginRequired);
+    EXPECT_EQ(messages.front().Url, winrt::to_hstring(authorizationUrl));
+    EXPECT_EQ(messages.front().TailgateServer, tailgateServer);
 }
 
 TEST_F(Given_SessionManager, When_Stopping_Then_LateReportsAreIgnoredUntilComplete)

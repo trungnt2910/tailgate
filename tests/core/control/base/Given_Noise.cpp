@@ -5,7 +5,7 @@
 
 #include <tailgate/control/base/Noise.h>
 
-TEST(Given_NoiseInitiator, When_WritingMessage1_Then_FrameShapeMatchesTs2021)
+TEST(Given_Noise, When_NoiseInitiatorAndWritingMessage1_Then_FrameShapeMatchesTs2021)
 {
     tailgate::crypto::Bytes32 machinePrivate{};
     tailgate::crypto::Bytes32 ephemeralPrivate{};

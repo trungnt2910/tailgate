@@ -2,6 +2,8 @@ tailgate_uwp_add_library(
     Tailgate.Uwp.Background.Manager
     STATIC
     ControlPlaneManager.h
+    ControlRegistrationNotification.cpp
+    ControlRegistrationNotification.h
     DataPlaneManager.h
     impl/ControlPlaneManagerImpl.cpp
     impl/ControlPlaneManagerImpl.h

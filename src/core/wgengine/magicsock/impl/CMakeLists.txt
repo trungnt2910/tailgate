@@ -1,0 +1,10 @@
+tailgate_add_library(
+    tailgate_core_wgengine_magicsock_impl
+    STATIC
+    ConnectionImpl.cpp
+)
+target_link_libraries(
+    tailgate_core_wgengine_magicsock_impl
+    PUBLIC
+        tailgate_core_wgengine_magicsock
+)

@@ -13,14 +13,12 @@
 namespace tailgate::hosted
 {
 
-using tailgate::base::IByteStream;
+using tailgate::base::ByteStream;
 
 namespace
 {
 
 constexpr std::array<std::uint8_t, 4> Magic = {'T', 'G', 'R', '1'};
-constexpr std::size_t HeaderSize = 12;
-constexpr std::size_t MaximumPayloadSize = 1024U * 1024U;
 constexpr std::size_t CompactThreshold = 64U * 1024U;
 constexpr std::size_t MaximumHttpHeaderSize = 16U * 1024U;
 constexpr std::size_t MaximumHostnameSize = 253;
@@ -89,7 +87,7 @@ nlohmann::json ParseJson(const std::vector<std::uint8_t>& payload)
 bool IsKnownType(std::uint16_t value)
 {
     return value >= static_cast<std::uint16_t>(MessageType::Authenticate) &&
-           value <= static_cast<std::uint16_t>(MessageType::TailnetDnsResponse);
+           value <= static_cast<std::uint16_t>(MessageType::PeerEndpoint);
 }
 
 tailgate::crypto::Bytes32
@@ -133,7 +131,7 @@ struct HttpHeaders
     std::vector<std::uint8_t> TrailingData;
 };
 
-HttpHeaders ReadHttpHeaders(IByteStream& stream)
+HttpHeaders ReadHttpHeaders(ByteStream& stream)
 {
     std::vector<std::uint8_t> input;
     constexpr std::string_view terminator = "\r\n\r\n";
@@ -169,107 +167,122 @@ std::vector<std::uint8_t> Bytes(const std::string& value)
 
 } // namespace
 
-std::vector<std::uint8_t> Encode(const Frame& frame)
+std::vector<std::uint8_t> Frame::Encode() const
 {
-    if (frame.Payload.size() > MaximumPayloadSize ||
-        frame.Payload.size() > std::numeric_limits<std::uint32_t>::max())
+    if (m_payload.size() > Frame::MaximumPayloadSize ||
+        m_payload.size() > std::numeric_limits<std::uint32_t>::max())
     {
         throw std::runtime_error("Relay frame payload is too large.");
     }
-    const auto type = static_cast<std::uint16_t>(frame.Type);
+    const auto type = static_cast<std::uint16_t>(m_type);
     if (!IsKnownType(type))
     {
         throw std::runtime_error("Relay frame has an unknown message type.");
     }
 
     std::vector<std::uint8_t> output;
-    output.reserve(HeaderSize + frame.Payload.size());
+    output.reserve(Frame::HeaderSize + m_payload.size());
     output.insert(output.end(), Magic.begin(), Magic.end());
     Append16(output, type);
     Append16(output, 0);
-    Append32(output, static_cast<std::uint32_t>(frame.Payload.size()));
-    output.insert(output.end(), frame.Payload.begin(), frame.Payload.end());
+    Append32(output, static_cast<std::uint32_t>(m_payload.size()));
+    output.insert(output.end(), m_payload.begin(), m_payload.end());
     return output;
 }
 
-std::vector<std::uint8_t> EncodeAuthentication(const Authentication& authentication)
+std::vector<std::uint8_t> Frame::EncodeAll(const std::vector<Frame>& frames)
+{
+    std::vector<std::uint8_t> output;
+    for (const Frame& frame : frames)
+    {
+        std::vector<std::uint8_t> encoded = frame.Encode();
+        output.insert(output.end(), encoded.begin(), encoded.end());
+    }
+    return output;
+}
+
+std::vector<std::uint8_t> ProtocolCodec::EncodeAuthentication(const Authentication& authentication)
 {
     return JsonBytes({
-        {"Tailnet", authentication.Tailnet},
-        {"NodeId", authentication.NodeId},
-        {"Hostname", authentication.Hostname},
-        {"OS", authentication.OperatingSystem},
-        {"OSVersion", authentication.OperatingSystemVersion},
-        {"NodePublicKey", EncodeBytes32(authentication.NodePublicKey)},
-        {"ClientNonce", EncodeBytes32(authentication.ClientNonce)},
-        {"ClientProof", EncodeBytes32(authentication.ClientProof)},
+        {"Tailnet", authentication.Tailnet()},
+        {"NodeId", authentication.NodeId()},
+        {"Hostname", authentication.Hostname()},
+        {"OS", authentication.OperatingSystem()},
+        {"OSVersion", authentication.OperatingSystemVersion()},
+        {"NodePublicKey", EncodeBytes32(authentication.NodePublicKey())},
+        {"ClientNonce", EncodeBytes32(authentication.ClientNonce())},
+        {"ClientProof", EncodeBytes32(authentication.ClientProof())},
     });
 }
 
-Authentication DecodeAuthentication(const std::vector<std::uint8_t>& payload)
+Authentication ProtocolCodec::DecodeAuthentication(const std::vector<std::uint8_t>& payload)
 {
     const nlohmann::json value = ParseJson(payload);
-    Authentication result;
-    result.Tailnet = value.at("Tailnet").get<std::string>();
-    result.NodeId = value.at("NodeId").get<std::uint64_t>();
-    result.Hostname = value.at("Hostname").get<std::string>();
-    result.OperatingSystem = value.at("OS").get<std::string>();
-    result.OperatingSystemVersion = value.at("OSVersion").get<std::string>();
-    result.NodePublicKey = DecodeBytes32(
+    const std::string tailnet = value.at("Tailnet").get<std::string>();
+    const std::uint64_t nodeId = value.at("NodeId").get<std::uint64_t>();
+    const std::string hostname = value.at("Hostname").get<std::string>();
+    const std::string operatingSystem = value.at("OS").get<std::string>();
+    const std::string operatingSystemVersion = value.at("OSVersion").get<std::string>();
+    const tailgate::crypto::Bytes32 nodePublicKey = DecodeBytes32(
         value, "NodePublicKey", "Relay authentication has an invalid node public key.");
-    result.ClientNonce =
+    const tailgate::crypto::Bytes32 clientNonce =
         DecodeBytes32(value, "ClientNonce", "Relay authentication has an invalid client nonce.");
-    result.ClientProof =
+    const tailgate::crypto::Bytes32 clientProof =
         DecodeBytes32(value, "ClientProof", "Relay authentication has an invalid client proof.");
-    if (result.Tailnet.empty() || result.NodeId == 0 || result.Hostname.empty() ||
-        result.Hostname.size() > MaximumHostnameSize ||
-        result.OperatingSystem.size() > MaximumOperatingSystemSize ||
-        result.OperatingSystemVersion.size() > MaximumOperatingSystemVersionSize)
+    if (tailnet.empty() || nodeId == 0 || hostname.empty() ||
+        hostname.size() > MaximumHostnameSize ||
+        operatingSystem.size() > MaximumOperatingSystemSize ||
+        operatingSystemVersion.size() > MaximumOperatingSystemVersionSize)
     {
         throw std::runtime_error("Relay authentication is missing required fields.");
     }
-    return result;
+    return Authentication(tailnet,
+                          nodeId,
+                          hostname,
+                          operatingSystem,
+                          operatingSystemVersion,
+                          nodePublicKey,
+                          clientNonce,
+                          clientProof);
 }
 
-std::vector<std::uint8_t> EncodeChallenge(const Challenge& challenge)
+std::vector<std::uint8_t> ProtocolCodec::EncodeChallenge(const Challenge& challenge)
 {
-    return JsonBytes({{"RelayPublicKey", EncodeBytes32(challenge.RelayPublicKey)},
-                      {"ServerNonce", EncodeBytes32(challenge.ServerNonce)}});
+    return JsonBytes({{"RelayPublicKey", EncodeBytes32(challenge.RelayPublicKey())},
+                      {"ServerNonce", EncodeBytes32(challenge.ServerNonce())}});
 }
 
-Challenge DecodeChallenge(const std::vector<std::uint8_t>& payload)
+Challenge ProtocolCodec::DecodeChallenge(const std::vector<std::uint8_t>& payload)
 {
     const nlohmann::json value = ParseJson(payload);
-    return Challenge{.RelayPublicKey = DecodeBytes32(
-                         value, "RelayPublicKey", "Relay challenge has an invalid public key."),
-                     .ServerNonce = DecodeBytes32(
-                         value, "ServerNonce", "Relay challenge has an invalid nonce.")};
+    return Challenge(
+        DecodeBytes32(value, "RelayPublicKey", "Relay challenge has an invalid public key."),
+        DecodeBytes32(value, "ServerNonce", "Relay challenge has an invalid nonce."));
 }
 
-std::vector<std::uint8_t> EncodeSession(const Session& session)
+std::vector<std::uint8_t> ProtocolCodec::EncodeSession(const Session& session)
 {
     return JsonBytes({
-        {"Tailnet", session.Tailnet},
-        {"RelayHostName", session.RelayHostName},
-        {"RelayHostAddress", session.RelayHostAddress},
-        {"ServerProof", EncodeBytes32(session.ServerProof)},
+        {"Tailnet", session.Tailnet()},
+        {"RelayHostName", session.RelayHostName()},
+        {"RelayHostAddress", session.RelayHostAddress()},
+        {"ServerProof", EncodeBytes32(session.ServerProof())},
     });
 }
 
-Session DecodeSession(const std::vector<std::uint8_t>& payload)
+Session ProtocolCodec::DecodeSession(const std::vector<std::uint8_t>& payload)
 {
     const nlohmann::json value = ParseJson(payload);
-    Session result;
-    result.Tailnet = value.at("Tailnet").get<std::string>();
-    result.RelayHostName = value.value("RelayHostName", "");
-    result.RelayHostAddress = value.value("RelayHostAddress", "");
-    result.ServerProof =
+    const std::string tailnet = value.at("Tailnet").get<std::string>();
+    const std::string relayHostName = value.value("RelayHostName", "");
+    const std::string relayHostAddress = value.value("RelayHostAddress", "");
+    const tailgate::crypto::Bytes32 serverProof =
         DecodeBytes32(value, "ServerProof", "Relay session has an invalid server proof.");
-    if (result.Tailnet.empty())
+    if (tailnet.empty())
     {
         throw std::runtime_error("Relay session is missing required fields.");
     }
-    return result;
+    return Session(tailnet, relayHostName, relayHostAddress, serverProof);
 }
 
 tailgate::crypto::Bytes32 CreateClientProof(const tailgate::crypto::Bytes32& clientPrivateKey,
@@ -296,45 +309,44 @@ bool ProofMatches(const tailgate::crypto::Bytes32& expected,
     return sodium_memcmp(expected.data(), actual.data(), expected.size()) == 0;
 }
 
-std::vector<std::uint8_t> EncodeRejection(const Rejection& rejection)
+std::vector<std::uint8_t> ProtocolCodec::EncodeRejection(const Rejection& rejection)
 {
-    return JsonBytes({{"Reason", rejection.Reason}});
+    return JsonBytes({{"Reason", rejection.Reason()}});
 }
 
-Rejection DecodeRejection(const std::vector<std::uint8_t>& payload)
+Rejection ProtocolCodec::DecodeRejection(const std::vector<std::uint8_t>& payload)
 {
-    Rejection result;
-    result.Reason = ParseJson(payload).at("Reason").get<std::string>();
-    if (result.Reason.empty())
+    std::string reason = ParseJson(payload).at("Reason").get<std::string>();
+    if (reason.empty())
     {
         throw std::runtime_error("Relay rejection reason is empty.");
     }
-    return result;
+    return Rejection(std::move(reason));
 }
 
-std::vector<std::uint8_t> EncodePeerPacket(const PeerPacket& packet)
+std::vector<std::uint8_t> ProtocolCodec::EncodePeerPacket(const PeerPacket& packet)
 {
     constexpr std::uint8_t ControlFlag = 1U << 0U;
     constexpr std::uint8_t DiscoFlag = 1U << 1U;
     constexpr std::uint8_t EndpointFlag = 1U << 2U;
-    if (packet.Payload.empty())
+    if (packet.Payload().empty())
     {
         throw std::invalid_argument("Relay peer packet has no payload.");
     }
-    std::vector<std::uint8_t> result(packet.Peer.begin(), packet.Peer.end());
-    const bool hasEndpoint = packet.EndpointAddress != 0 && packet.EndpointPort != 0;
-    result.push_back((packet.Control ? ControlFlag : 0U) | (packet.Disco ? DiscoFlag : 0U) |
+    std::vector<std::uint8_t> result(packet.Peer().begin(), packet.Peer().end());
+    const bool hasEndpoint = packet.EndpointAddress() != 0 && packet.EndpointPort() != 0;
+    result.push_back((packet.Control() ? ControlFlag : 0U) | (packet.Disco() ? DiscoFlag : 0U) |
                      (hasEndpoint ? EndpointFlag : 0U));
     if (hasEndpoint)
     {
-        Append32(result, packet.EndpointAddress);
-        Append16(result, packet.EndpointPort);
+        Append32(result, packet.EndpointAddress());
+        Append16(result, packet.EndpointPort());
     }
-    result.insert(result.end(), packet.Payload.begin(), packet.Payload.end());
+    result.insert(result.end(), packet.Payload().begin(), packet.Payload().end());
     return result;
 }
 
-PeerPacket DecodePeerPacket(const std::vector<std::uint8_t>& payload)
+PeerPacket ProtocolCodec::DecodePeerPacket(const std::vector<std::uint8_t>& payload)
 {
     constexpr std::uint8_t ControlFlag = 1U << 0U;
     constexpr std::uint8_t DiscoFlag = 1U << 1U;
@@ -344,12 +356,14 @@ PeerPacket DecodePeerPacket(const std::vector<std::uint8_t>& payload)
     {
         throw std::runtime_error("Relay peer packet is truncated.");
     }
-    PeerPacket result;
-    std::copy_n(payload.begin(), result.Peer.size(), result.Peer.begin());
-    const std::uint8_t flags = payload[result.Peer.size()];
-    result.Control = (flags & ControlFlag) != 0;
-    result.Disco = (flags & DiscoFlag) != 0;
-    std::size_t dataOffset = result.Peer.size() + FlagsSize;
+    tailgate::crypto::Bytes32 peer{};
+    std::copy_n(payload.begin(), peer.size(), peer.begin());
+    const std::uint8_t flags = payload[peer.size()];
+    const bool control = (flags & ControlFlag) != 0;
+    const bool disco = (flags & DiscoFlag) != 0;
+    std::uint32_t endpointAddress = 0;
+    std::uint16_t endpointPort = 0;
+    std::size_t dataOffset = peer.size() + FlagsSize;
     if ((flags & EndpointFlag) != 0)
     {
         constexpr std::size_t EndpointSize = sizeof(std::uint32_t) + sizeof(std::uint16_t);
@@ -357,100 +371,139 @@ PeerPacket DecodePeerPacket(const std::vector<std::uint8_t>& payload)
         {
             throw std::runtime_error("Relay peer packet endpoint is truncated.");
         }
-        result.EndpointAddress = Read32(payload.data() + dataOffset);
-        result.EndpointPort = Read16(payload.data() + dataOffset + sizeof(std::uint32_t));
+        endpointAddress = Read32(payload.data() + dataOffset);
+        endpointPort = Read16(payload.data() + dataOffset + sizeof(std::uint32_t));
         dataOffset += EndpointSize;
     }
-    result.Payload.assign(payload.begin() + static_cast<std::ptrdiff_t>(dataOffset), payload.end());
+    std::vector<std::uint8_t> data(payload.begin() + static_cast<std::ptrdiff_t>(dataOffset),
+                                   payload.end());
+    return PeerPacket(peer, std::move(data), control, disco, endpointAddress, endpointPort);
+}
+
+std::vector<std::uint8_t> ProtocolCodec::EncodePeerEndpoint(const PeerEndpoint& endpoint)
+{
+    if (endpoint.Endpoint().Address().HostOrder() == 0 || endpoint.Endpoint().Port() == 0)
+    {
+        throw std::invalid_argument("Relay peer endpoint is unspecified.");
+    }
+    std::vector<std::uint8_t> result(endpoint.Peer().begin(), endpoint.Peer().end());
+    Append32(result, endpoint.Endpoint().Address().HostOrder());
+    Append16(result, endpoint.Endpoint().Port());
     return result;
 }
 
-std::vector<std::uint8_t> EncodeDerpChallenge(const DerpAuthenticationChallenge& challenge)
+PeerEndpoint ProtocolCodec::DecodePeerEndpoint(const std::vector<std::uint8_t>& payload)
+{
+    constexpr std::size_t AddressSize = sizeof(std::uint32_t);
+    constexpr std::size_t PortSize = sizeof(std::uint16_t);
+    constexpr std::size_t PayloadSize = tailgate::crypto::Bytes32{}.size() + AddressSize + PortSize;
+    if (payload.size() != PayloadSize)
+    {
+        throw std::runtime_error("Relay peer endpoint has an invalid size.");
+    }
+    tailgate::crypto::Bytes32 peer{};
+    std::copy_n(payload.begin(), peer.size(), peer.begin());
+    const std::uint8_t* endpoint = payload.data() + peer.size();
+    const tailgate::net::Ipv4Address address =
+        tailgate::net::Ipv4Address::FromHostOrder(Read32(endpoint));
+    const std::uint16_t port = Read16(endpoint + AddressSize);
+    if (address.HostOrder() == 0 || port == 0)
+    {
+        throw std::runtime_error("Relay peer endpoint is unspecified.");
+    }
+    return PeerEndpoint(peer, tailgate::net::Endpoint(address, port));
+}
+
+std::vector<std::uint8_t>
+ProtocolCodec::EncodeDerpChallenge(const DerpAuthenticationChallenge& challenge)
 {
     std::vector<std::uint8_t> result;
-    result.reserve(sizeof(challenge.RequestId) + challenge.ServerKey.size());
-    Append64(result, challenge.RequestId);
-    result.insert(result.end(), challenge.ServerKey.begin(), challenge.ServerKey.end());
+    result.reserve(sizeof(challenge.RequestId()) + challenge.ServerKey().size());
+    Append64(result, challenge.RequestId());
+    result.insert(result.end(), challenge.ServerKey().begin(), challenge.ServerKey().end());
     return result;
 }
 
-DerpAuthenticationChallenge DecodeDerpChallenge(const std::vector<std::uint8_t>& payload)
+DerpAuthenticationChallenge
+ProtocolCodec::DecodeDerpChallenge(const std::vector<std::uint8_t>& payload)
 {
     if (payload.size() != sizeof(std::uint64_t) + tailgate::crypto::Bytes32{}.size())
     {
         throw std::runtime_error("Relay DERP challenge has an invalid size.");
     }
-    DerpAuthenticationChallenge result;
-    result.RequestId = Read64(payload.data());
-    std::copy(payload.begin() + static_cast<std::ptrdiff_t>(sizeof(result.RequestId)),
+    const std::uint64_t requestId = Read64(payload.data());
+    tailgate::crypto::Bytes32 serverKey{};
+    std::copy(payload.begin() + static_cast<std::ptrdiff_t>(sizeof(requestId)),
               payload.end(),
-              result.ServerKey.begin());
-    return result;
+              serverKey.begin());
+    return DerpAuthenticationChallenge(requestId, serverKey);
 }
 
-std::vector<std::uint8_t> EncodeDerpResponse(const DerpAuthenticationResponse& response)
+std::vector<std::uint8_t>
+ProtocolCodec::EncodeDerpResponse(const DerpAuthenticationResponse& response)
 {
-    if (response.ClientInfo.empty())
+    if (response.ClientInfo().empty())
     {
         throw std::invalid_argument("Relay DERP response has no ClientInfo envelope.");
     }
     std::vector<std::uint8_t> result;
-    result.reserve(sizeof(response.RequestId) + response.ClientInfo.size());
-    Append64(result, response.RequestId);
-    result.insert(result.end(), response.ClientInfo.begin(), response.ClientInfo.end());
+    result.reserve(sizeof(response.RequestId()) + response.ClientInfo().size());
+    Append64(result, response.RequestId());
+    result.insert(result.end(), response.ClientInfo().begin(), response.ClientInfo().end());
     return result;
 }
 
-DerpAuthenticationResponse DecodeDerpResponse(const std::vector<std::uint8_t>& payload)
+DerpAuthenticationResponse
+ProtocolCodec::DecodeDerpResponse(const std::vector<std::uint8_t>& payload)
 {
     if (payload.size() <= sizeof(std::uint64_t))
     {
         throw std::runtime_error("Relay DERP response is truncated.");
     }
-    DerpAuthenticationResponse result;
-    result.RequestId = Read64(payload.data());
-    result.ClientInfo.assign(
-        payload.begin() + static_cast<std::ptrdiff_t>(sizeof(result.RequestId)), payload.end());
-    return result;
+    const std::uint64_t requestId = Read64(payload.data());
+    std::vector<std::uint8_t> clientInfo(
+        payload.begin() + static_cast<std::ptrdiff_t>(sizeof(requestId)), payload.end());
+    return DerpAuthenticationResponse(requestId, std::move(clientInfo));
 }
 
-std::vector<std::uint8_t> EncodeNetworkConfig(const tailgate::types::netmap::NetworkConfig& config)
+std::vector<std::uint8_t>
+ProtocolCodec::EncodeNetworkConfig(const tailgate::types::netmap::NetworkConfig& config)
 {
     nlohmann::json peers = nlohmann::json::array();
-    for (const tailgate::types::netmap::PeerConfig& peer : config.Peers)
+    for (const tailgate::types::netmap::PeerConfig& peer : config.Peers())
     {
         nlohmann::json prefixes = nlohmann::json::array();
-        for (const tailgate::net::packet::Ipv4Prefix& prefix : peer.AllowedPrefixes)
+        for (const tailgate::net::packet::Ipv4Prefix& prefix : peer.AllowedPrefixes())
         {
-            prefixes.push_back({{"Network", prefix.Network}, {"Bits", prefix.PrefixLength}});
+            prefixes.push_back({{"Network", prefix.Network()}, {"Bits", prefix.PrefixLength()}});
         }
         peers.push_back({
-            {"NodeId", peer.NodeId},
-            {"OwnerId", peer.OwnerId},
-            {"Name", peer.Name},
-            {"Address", peer.Address},
-            {"Addresses", peer.Addresses},
-            {"Key", peer.Key},
-            {"DiscoKey", peer.DiscoKey},
-            {"Endpoints", peer.Endpoints},
+            {"NodeId", peer.NodeId()},
+            {"OwnerId", peer.OwnerId()},
+            {"Name", peer.Name()},
+            {"Address", peer.Address()},
+            {"Addresses", peer.Addresses()},
+            {"Key", peer.Key()},
+            {"DiscoKey", peer.DiscoKey()},
+            {"Endpoints", peer.Endpoints()},
             {"AllowedPrefixes", std::move(prefixes)},
-            {"DerpRegion", peer.DerpRegion},
-            {"DerpCode", peer.DerpCode},
-            {"DerpHost", peer.DerpHost},
-            {"OS", peer.OperatingSystem},
-            {"ClientVersion", peer.ClientVersion},
-            {"Owner", peer.Owner},
-            {"Online", peer.Online},
-            {"ExitNodeOption", peer.ExitNodeOption},
+            {"DerpRegion", peer.DerpRegion()},
+            {"DerpCode", peer.DerpCode()},
+            {"DerpHost", peer.DerpHost()},
+            {"OS", peer.OperatingSystem()},
+            {"ClientVersion", peer.ClientVersion()},
+            {"Owner", peer.Owner()},
+            {"Online", peer.Online()},
+            {"ExitNodeOption", peer.ExitNodeOption()},
         });
     }
     nlohmann::json dnsRoutes = nlohmann::json::array();
-    for (const tailgate::types::netmap::NetworkConfig::DnsRoute& route : config.DnsRoutes)
+    for (const tailgate::types::netmap::NetworkConfig::DnsRoute& route : config.DnsRoutes())
     {
         dnsRoutes.push_back({{"Suffix", route.Suffix}, {"Resolvers", route.Resolvers}});
     }
     nlohmann::json userProfiles = nlohmann::json::array();
-    for (const tailgate::types::netmap::UserProfile& profile : config.UserProfiles)
+    for (const tailgate::types::netmap::UserProfile& profile : config.UserProfiles())
     {
         userProfiles.push_back({{"Id", profile.Id},
                                 {"LoginName", profile.LoginName},
@@ -458,93 +511,102 @@ std::vector<std::uint8_t> EncodeNetworkConfig(const tailgate::types::netmap::Net
                                 {"ProfilePicUrl", profile.ProfilePicUrl}});
     }
     return JsonBytes({
-        {"SelfNodeId", config.SelfNodeId},
-        {"SelfKey", config.SelfKey},
-        {"SelfAddress", config.SelfAddress},
-        {"SelfAddresses", config.SelfAddresses},
-        {"SelfName", config.SelfName},
-        {"Domain", config.Domain},
-        {"MagicDnsDomain", config.MagicDnsDomain},
-        {"TailnetDisplayName", config.TailnetDisplayName},
-        {"DnsResolver", config.DnsResolver},
-        {"DnsDomains", config.DnsDomains},
-        {"DnsDefaultResolvers", config.DnsDefaultResolvers},
+        {"SelfNodeId", config.SelfNodeId()},
+        {"SelfKey", config.SelfKey()},
+        {"SelfAddress", config.SelfAddress()},
+        {"SelfAddresses", config.SelfAddresses()},
+        {"SelfName", config.SelfName()},
+        {"Domain", config.Domain()},
+        {"MagicDnsDomain", config.MagicDnsDomain()},
+        {"TailnetDisplayName", config.TailnetDisplayName()},
+        {"DnsResolver", config.DnsResolver()},
+        {"DnsDomains", config.DnsDomains()},
+        {"DnsDefaultResolvers", config.DnsDefaultResolvers()},
         {"DnsRoutes", std::move(dnsRoutes)},
-        {"DerpRegion", config.DerpRegion},
-        {"DerpHost", config.DerpHost},
-        {"DerpCode", config.DerpCode},
+        {"DerpRegion", config.DerpRegion()},
+        {"DerpHost", config.DerpHost()},
+        {"DerpCode", config.DerpCode()},
         {"UserProfiles", std::move(userProfiles)},
         {"Peers", std::move(peers)},
     });
 }
 
-tailgate::types::netmap::NetworkConfig DecodeNetworkConfig(const std::vector<std::uint8_t>& payload)
+tailgate::types::netmap::NetworkConfig
+ProtocolCodec::DecodeNetworkConfig(const std::vector<std::uint8_t>& payload)
 {
     const nlohmann::json value = ParseJson(payload);
     tailgate::types::netmap::NetworkConfig config;
-    config.SelfNodeId = value.value("SelfNodeId", std::uint64_t{0});
-    config.SelfKey = value.value("SelfKey", "");
-    config.SelfAddress = value.at("SelfAddress").get<std::string>();
-    config.SelfAddresses = value.value("SelfAddresses", std::vector<std::string>{});
-    config.SelfName = value.at("SelfName").get<std::string>();
-    config.Domain = value.at("Domain").get<std::string>();
-    config.MagicDnsDomain = value.value("MagicDnsDomain", "");
-    config.TailnetDisplayName = value.value("TailnetDisplayName", "");
-    config.DnsResolver = value.value("DnsResolver", "");
-    config.DnsDomains = value.value("DnsDomains", std::vector<std::string>{});
-    config.DnsDefaultResolvers = value.value("DnsDefaultResolvers", std::vector<std::string>{});
-    config.DerpRegion = value.value("DerpRegion", 0);
-    config.DerpHost = value.value("DerpHost", "");
-    config.DerpCode = value.value("DerpCode", "");
+    config.SelfNodeId(value.value("SelfNodeId", std::uint64_t{0}));
+    config.SelfKey(value.value("SelfKey", ""));
+    config.SelfAddress(value.at("SelfAddress").get<std::string>());
+    config.SelfAddresses(value.value("SelfAddresses", std::vector<std::string>{}));
+    config.SelfName(value.at("SelfName").get<std::string>());
+    config.Domain(value.at("Domain").get<std::string>());
+    config.MagicDnsDomain(value.value("MagicDnsDomain", ""));
+    config.TailnetDisplayName(value.value("TailnetDisplayName", ""));
+    config.DnsResolver(value.value("DnsResolver", ""));
+    config.DnsDomains(value.value("DnsDomains", std::vector<std::string>{}));
+    config.DnsDefaultResolvers(value.value("DnsDefaultResolvers", std::vector<std::string>{}));
+    config.DerpRegion(value.value("DerpRegion", 0));
+    config.DerpHost(value.value("DerpHost", ""));
+    config.DerpCode(value.value("DerpCode", ""));
+    std::vector<tailgate::types::netmap::UserProfile> userProfiles;
     for (const nlohmann::json& source : value.value("UserProfiles", nlohmann::json::array()))
     {
-        config.UserProfiles.push_back(tailgate::types::netmap::UserProfile{
+        userProfiles.push_back(tailgate::types::netmap::UserProfile{
             .Id = source.value("Id", std::uint64_t{0}),
             .LoginName = source.value("LoginName", ""),
             .DisplayName = source.value("DisplayName", ""),
             .ProfilePicUrl = source.value("ProfilePicUrl", "")});
     }
+    config.UserProfiles(std::move(userProfiles));
+    std::vector<tailgate::types::netmap::NetworkConfig::DnsRoute> dnsRoutes;
     for (const nlohmann::json& route : value.value("DnsRoutes", nlohmann::json::array()))
     {
-        config.DnsRoutes.push_back(
+        dnsRoutes.push_back(
             {route.value("Suffix", ""), route.value("Resolvers", std::vector<std::string>{})});
     }
+    config.DnsRoutes(std::move(dnsRoutes));
+    std::vector<tailgate::types::netmap::PeerConfig> peers;
     for (const nlohmann::json& source : value.at("Peers"))
     {
         tailgate::types::netmap::PeerConfig peer;
-        peer.NodeId = source.value("NodeId", std::uint64_t{0});
-        peer.OwnerId = source.value("OwnerId", std::uint64_t{0});
-        peer.Name = source.value("Name", "");
-        peer.Address = source.value("Address", "");
-        peer.Addresses = source.value("Addresses", std::vector<std::string>{});
-        peer.Key = source.value("Key", "");
-        peer.DiscoKey = source.value("DiscoKey", "");
-        peer.Endpoints = source.value("Endpoints", std::vector<std::string>{});
-        peer.DerpRegion = source.value("DerpRegion", 0);
-        peer.DerpCode = source.value("DerpCode", "");
-        peer.DerpHost = source.value("DerpHost", "");
-        peer.OperatingSystem = source.value("OS", "");
-        peer.ClientVersion = source.value("ClientVersion", "");
-        peer.Owner = source.value("Owner", "");
-        peer.Online = source.value("Online", false);
-        peer.ExitNodeOption = source.value("ExitNodeOption", false);
+        peer.NodeId(source.value("NodeId", std::uint64_t{0}));
+        peer.OwnerId(source.value("OwnerId", std::uint64_t{0}));
+        peer.Name(source.value("Name", ""));
+        peer.Address(source.value("Address", ""));
+        peer.Addresses(source.value("Addresses", std::vector<std::string>{}));
+        peer.Key(source.value("Key", ""));
+        peer.DiscoKey(source.value("DiscoKey", ""));
+        peer.Endpoints(source.value("Endpoints", std::vector<std::string>{}));
+        peer.DerpRegion(source.value("DerpRegion", 0));
+        peer.DerpCode(source.value("DerpCode", ""));
+        peer.DerpHost(source.value("DerpHost", ""));
+        peer.OperatingSystem(source.value("OS", ""));
+        peer.ClientVersion(source.value("ClientVersion", ""));
+        peer.Owner(source.value("Owner", ""));
+        peer.Online(source.value("Online", false));
+        peer.ExitNodeOption(source.value("ExitNodeOption", false));
+        std::vector<tailgate::net::packet::Ipv4Prefix> allowedPrefixes;
         for (const nlohmann::json& prefix :
              source.value("AllowedPrefixes", nlohmann::json::array()))
         {
-            peer.AllowedPrefixes.push_back(
+            allowedPrefixes.push_back(
                 {prefix.value("Network", std::uint32_t{0}), prefix.value("Bits", std::uint8_t{0})});
         }
-        config.Peers.push_back(std::move(peer));
+        peer.AllowedPrefixes(std::move(allowedPrefixes));
+        peers.push_back(std::move(peer));
     }
-    if (config.SelfNodeId == 0 || config.SelfKey.empty() || config.SelfAddress.empty() ||
-        config.Domain.empty())
+    config.Peers(std::move(peers));
+    if (config.SelfNodeId() == 0 || config.SelfKey().empty() || config.SelfAddress().empty() ||
+        config.Domain().empty())
     {
         throw std::runtime_error("Relay network configuration is incomplete.");
     }
     return config;
 }
 
-void AcceptHttpUpgrade(IByteStream& stream)
+void AcceptHttpUpgrade(ByteStream& stream)
 {
     const std::string request = ReadHttpHeaders(stream).Value;
     const bool validRequest = request.rfind("POST /tailgate HTTP/1.1\r\n", 0) == 0;
@@ -559,7 +621,7 @@ void AcceptHttpUpgrade(IByteStream& stream)
         "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: tailgate\r\n\r\n"));
 }
 
-std::vector<std::uint8_t> RequestHttpUpgrade(IByteStream& stream, const std::string& host)
+std::vector<std::uint8_t> RequestHttpUpgrade(ByteStream& stream, const std::string& host)
 {
     if (host.empty())
     {
@@ -591,8 +653,8 @@ void Decoder::Feed(const std::uint8_t* data, std::size_t size)
         m_buffer.erase(m_buffer.begin(), m_buffer.begin() + static_cast<std::ptrdiff_t>(m_offset));
         m_offset = 0;
     }
-    if (size > HeaderSize + MaximumPayloadSize ||
-        m_buffer.size() - m_offset > HeaderSize + MaximumPayloadSize - size)
+    if (size > Frame::MaximumEncodedSize ||
+        m_buffer.size() - m_offset > Frame::MaximumEncodedSize - size)
     {
         throw std::runtime_error("Relay decoder buffer limit exceeded.");
     }
@@ -607,7 +669,7 @@ void Decoder::Feed(const std::vector<std::uint8_t>& data)
 std::optional<Frame> Decoder::Next()
 {
     const std::size_t available = m_buffer.size() - m_offset;
-    if (available < HeaderSize)
+    if (available < Frame::HeaderSize)
     {
         return std::nullopt;
     }
@@ -626,20 +688,19 @@ std::optional<Frame> Decoder::Next()
         throw std::runtime_error("Relay frame uses unsupported flags.");
     }
     const std::uint32_t payloadSize = Read32(header + 8);
-    if (payloadSize > MaximumPayloadSize)
+    if (payloadSize > Frame::MaximumPayloadSize)
     {
         throw std::runtime_error("Relay frame payload exceeds the limit.");
     }
-    if (available < HeaderSize + payloadSize)
+    if (available < Frame::HeaderSize + payloadSize)
     {
         return std::nullopt;
     }
 
-    Frame result;
-    result.Type = static_cast<MessageType>(type);
-    const std::uint8_t* payload = header + HeaderSize;
-    result.Payload.assign(payload, payload + payloadSize);
-    m_offset += HeaderSize + payloadSize;
+    const std::uint8_t* payload = header + Frame::HeaderSize;
+    Frame result(static_cast<MessageType>(type),
+                 std::vector<std::uint8_t>(payload, payload + payloadSize));
+    m_offset += Frame::HeaderSize + payloadSize;
     return result;
 }
 
@@ -648,16 +709,16 @@ std::size_t Decoder::BufferedBytes() const
     return m_buffer.size() - m_offset;
 }
 
-void WriteFrame(IByteStream& stream, const Frame& frame)
+void Frame::Write(ByteStream& stream) const
 {
-    stream.WriteAll(Encode(frame));
+    stream.WriteAll(Encode());
 }
 
-Frame ReadFrame(IByteStream& stream, Decoder& decoder)
+Frame Decoder::Read(ByteStream& stream)
 {
     while (true)
     {
-        if (std::optional<Frame> frame = decoder.Next())
+        if (std::optional<Frame> frame = Next())
         {
             return std::move(*frame);
         }
@@ -666,7 +727,34 @@ Frame ReadFrame(IByteStream& stream, Decoder& decoder)
         {
             throw std::runtime_error("Relay connection closed while reading a frame.");
         }
-        decoder.Feed(input);
+        Feed(input);
+    }
+}
+
+DecoderReadResult Decoder::ReadAvailable(ByteStream& stream, std::size_t maximumReadSize)
+{
+    if (maximumReadSize == 0)
+    {
+        throw std::invalid_argument("Relay stream read size is zero.");
+    }
+    DecoderReadResult result;
+    while (true)
+    {
+        while (std::optional<Frame> frame = Next())
+        {
+            result.Frames.push_back(std::move(*frame));
+        }
+        const std::optional<std::vector<std::uint8_t>> input = stream.TryReadSome(maximumReadSize);
+        if (!input)
+        {
+            return result;
+        }
+        if (input->empty())
+        {
+            result.Status = DecoderReadStatus::Closed;
+            return result;
+        }
+        Feed(*input);
     }
 }
 

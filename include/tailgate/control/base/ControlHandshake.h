@@ -29,7 +29,7 @@ public:
     ControlHandshake(tailgate::crypto::Bytes32 machinePrivateKey,
                      tailgate::crypto::Bytes32 ephemeralPrivateKey);
 
-    [[nodiscard]] ControlHandshakeResult Run(tailgate::base::IByteStream& stream,
+    [[nodiscard]] ControlHandshakeResult Run(tailgate::base::ByteStream& stream,
                                              const std::string& host);
 
 private:

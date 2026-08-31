@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <tailgate/crypto/Crypto.h>
+#include <tailgate/net/Endpoint.h>
 
 namespace tailgate::disco
 {
@@ -17,8 +18,8 @@ public:
 
     // Tailscale reports DERP-received disco pings with this synthetic pong source address
     // (127.3.3.40) and the DERP region as the port; a zero source is discarded by peers.
-    static constexpr std::uint32_t DerpMagicIpv4Address =
-        (127U << 24U) | (3U << 16U) | (3U << 8U) | 40U;
+    static constexpr tailgate::net::Ipv4Address DerpMagicIpv4Address =
+        tailgate::net::Ipv4Address::FromOctets(127, 3, 3, 40);
 
     enum class MessageType
     {
@@ -27,18 +28,13 @@ public:
         CallMeMaybe,
     };
 
-    struct Endpoint
-    {
-        std::uint32_t Address = 0;
-        std::uint16_t Port = 0;
-    };
-
     struct Message
     {
         MessageType Type;
         TransactionId Transaction{};
         tailgate::crypto::Bytes32 Sender{};
-        std::vector<Endpoint> Endpoints;
+        std::optional<tailgate::net::Endpoint> SourceEndpoint;
+        std::vector<tailgate::net::Endpoint> Endpoints;
     };
 
     Disco(const tailgate::crypto::Bytes32& privateKey,
@@ -50,11 +46,11 @@ public:
                                                       const TransactionId& transaction) const;
     [[nodiscard]] std::vector<std::uint8_t> BuildPong(const tailgate::crypto::Bytes32& recipient,
                                                       const TransactionId& transaction,
-                                                      std::uint32_t sourceAddress,
+                                                      tailgate::net::Ipv4Address sourceAddress,
                                                       std::uint16_t sourcePort) const;
     [[nodiscard]] std::vector<std::uint8_t>
     BuildCallMeMaybe(const tailgate::crypto::Bytes32& recipient,
-                     const std::vector<Endpoint>& endpoints) const;
+                     const std::vector<tailgate::net::Endpoint>& endpoints) const;
     [[nodiscard]] std::optional<Message> Parse(const std::vector<std::uint8_t>& packet) const;
     [[nodiscard]] static bool IsDiscoPacket(const std::vector<std::uint8_t>& packet);
 

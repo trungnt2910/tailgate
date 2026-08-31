@@ -18,6 +18,8 @@ tailgate_uwp_add_library(
     Settings.h
     TailgateRelay.cpp
     TailgateRelay.h
+    TcpSocketFactory.cpp
+    TcpSocketFactory.h
     UwpAliases.h
     UwpAppServiceProtocol.cpp
     UwpAppServiceProtocol.h

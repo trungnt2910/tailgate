@@ -181,10 +181,10 @@ TEST_F(Given_SettingsController, When_StateFileIsValid_Then_AccountAndDeviceData
     EXPECT_EQ(state.TailnetDisplayName(), L"example.ts.net");
     EXPECT_EQ(state.AccountName(), L"user@example.com");
     EXPECT_EQ(state.SelfAddress(), L"100.64.0.1");
-    EXPECT_EQ(state.Devices()[0].Name, L"local.example.ts.net");
-    EXPECT_TRUE(state.Devices()[0].Online);
-    EXPECT_EQ(state.Devices()[1].Group, L"Example Group");
-    EXPECT_TRUE(state.Devices()[1].ExitNodeOption);
+    EXPECT_EQ(state.Devices()[0].Name(), L"local.example.ts.net");
+    EXPECT_TRUE(state.Devices()[0].Online());
+    EXPECT_EQ(state.Devices()[1].Group(), L"Example Group");
+    EXPECT_TRUE(state.Devices()[1].ExitNodeOption());
 }
 
 TEST_F(Given_SettingsController, When_StateFileIsInvalid_Then_ItIsIgnored)

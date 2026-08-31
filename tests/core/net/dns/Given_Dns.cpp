@@ -12,7 +12,7 @@
 namespace
 {
 
-void AppendName(std::vector<std::uint8_t>& message, const std::string& name)
+[[maybe_unused]] void AppendName(std::vector<std::uint8_t>& message, const std::string& name)
 {
     std::size_t start = 0;
     while (start < name.size())
@@ -28,9 +28,8 @@ void AppendName(std::vector<std::uint8_t>& message, const std::string& name)
     message.push_back(0);
 }
 
-void AppendRecordHeader(std::vector<std::uint8_t>& message,
-                        std::uint16_t type,
-                        std::uint16_t length)
+[[maybe_unused]] void
+AppendRecordHeader(std::vector<std::uint8_t>& message, std::uint16_t type, std::uint16_t length)
 {
     message.insert(message.end(),
                    {static_cast<std::uint8_t>(type >> 8U),
@@ -47,12 +46,12 @@ void AppendRecordHeader(std::vector<std::uint8_t>& message,
 
 } // namespace
 
-TEST(Given_DnsQuestion, When_ParsingName_Then_LabelsAreNormalized)
+TEST(Given_Dns, When_DnsQuestionAndParsingName_Then_LabelsAreNormalized)
 {
     const std::vector<std::uint8_t> query =
-        tailgate::net::dns::BuildDnsQuery("Peer.Example.COM", 0x1234);
+        tailgate::net::dns::DnsQuery::Build("Peer.Example.COM", 0x1234);
 
-    const auto name = tailgate::net::dns::DnsQueryName(query);
+    const auto name = tailgate::net::dns::DnsQuery::Name(query);
     const bool expectedSuffix =
         name.has_value() && tailgate::net::dns::DnsNameHasSuffix(*name, "example.com.");
     const bool unexpectedSuffix =
@@ -63,7 +62,7 @@ TEST(Given_DnsQuestion, When_ParsingName_Then_LabelsAreNormalized)
     EXPECT_FALSE(unexpectedSuffix);
 }
 
-TEST(Given_TruncatedDnsQuestion, When_ParsingName_Then_ItIsRejected)
+TEST(Given_Dns, When_TruncatedDnsQuestionAndParsingName_Then_ItIsRejected)
 {
     const std::vector<std::uint8_t> query{
         0x12,
@@ -84,16 +83,16 @@ TEST(Given_TruncatedDnsQuestion, When_ParsingName_Then_ItIsRejected)
         'd',
     };
 
-    const auto name = tailgate::net::dns::DnsQueryName(query);
+    const auto name = tailgate::net::dns::DnsQuery::Name(query);
 
     EXPECT_FALSE(name.has_value());
 }
 
-TEST(Given_CnameDnsResponse, When_Parsing_Then_CanonicalAddressIsReturned)
+TEST(Given_Dns, When_CnameDnsResponseAndParsing_Then_CanonicalAddressIsReturned)
 {
     constexpr std::uint16_t transaction = 0x1234;
     std::vector<std::uint8_t> response =
-        tailgate::net::dns::BuildDnsQuery("alias.example.com", transaction);
+        tailgate::net::dns::DnsQuery::Build("alias.example.com", transaction);
     response[2] = 0x81;
     response[3] = 0x80;
     response[7] = 2;
@@ -107,18 +106,18 @@ TEST(Given_CnameDnsResponse, When_Parsing_Then_CanonicalAddressIsReturned)
     response.insert(response.end(), {192, 0, 2, 10});
 
     const tailgate::net::dns::DnsAnswer answer =
-        tailgate::net::dns::ParseDnsAnswer(response, transaction, "alias.example.com");
+        tailgate::net::dns::DnsAnswer::Parse(response, transaction, "alias.example.com");
 
-    EXPECT_EQ(answer.CanonicalName, "canonical.example.com");
-    EXPECT_EQ(answer.Addresses.size(), 1U);
-    EXPECT_EQ(answer.Addresses.front(), "192.0.2.10");
+    EXPECT_EQ(answer.CanonicalName(), "canonical.example.com");
+    EXPECT_EQ(answer.Addresses().size(), 1U);
+    EXPECT_EQ(answer.Addresses().front(), "192.0.2.10");
 }
 
-TEST(Given_DnameDnsResponse, When_Parsing_Then_SuffixIsReplaced)
+TEST(Given_Dns, When_DnameDnsResponseAndParsing_Then_SuffixIsReplaced)
 {
     constexpr std::uint16_t transaction = 0x5678;
     std::vector<std::uint8_t> response =
-        tailgate::net::dns::BuildDnsQuery("host.old.example.com", transaction);
+        tailgate::net::dns::DnsQuery::Build("host.old.example.com", transaction);
     response[2] = 0x81;
     response[3] = 0x80;
     response[7] = 2;
@@ -132,25 +131,25 @@ TEST(Given_DnameDnsResponse, When_Parsing_Then_SuffixIsReplaced)
     response.insert(response.end(), {198, 51, 100, 20});
 
     const tailgate::net::dns::DnsAnswer answer =
-        tailgate::net::dns::ParseDnsAnswer(response, transaction, "host.old.example.com");
+        tailgate::net::dns::DnsAnswer::Parse(response, transaction, "host.old.example.com");
 
-    EXPECT_EQ(answer.CanonicalName, "host.new.example.com");
-    EXPECT_EQ(answer.Addresses.size(), 1U);
-    EXPECT_EQ(answer.Addresses.front(), "198.51.100.20");
+    EXPECT_EQ(answer.CanonicalName(), "host.new.example.com");
+    EXPECT_EQ(answer.Addresses().size(), 1U);
+    EXPECT_EQ(answer.Addresses().front(), "198.51.100.20");
 }
 
-TEST(Given_NxdomainDnsResponse, When_Parsing_Then_TypedErrorIncludesCodeAndName)
+TEST(Given_Dns, When_NxdomainDnsResponseAndParsing_Then_TypedErrorIncludesCodeAndName)
 {
     constexpr std::uint16_t transaction = 0x2468;
     std::vector<std::uint8_t> response =
-        tailgate::net::dns::BuildDnsQuery("relay.example.ts.net", transaction);
+        tailgate::net::dns::DnsQuery::Build("relay.example.ts.net", transaction);
     response[2] = 0x81;
     response[3] = 0x83;
     std::optional<tailgate::net::dns::DnsResponseError> error;
 
     try
     {
-        (void)tailgate::net::dns::ParseDnsAnswer(response, transaction, "relay.example.ts.net");
+        (void)tailgate::net::dns::DnsAnswer::Parse(response, transaction, "relay.example.ts.net");
     }
     catch (const tailgate::net::dns::DnsResponseError& caught)
     {
@@ -162,7 +161,7 @@ TEST(Given_NxdomainDnsResponse, When_Parsing_Then_TypedErrorIncludesCodeAndName)
     EXPECT_EQ(error->ResponseCode(), 3);
 }
 
-TEST(Given_TailnetDnsNames, When_SelectingResolver_Then_OnlyLabelSuffixUsesTrustedDns)
+TEST(Given_Dns, When_TailnetDnsNamesAndSelectingResolver_Then_OnlyLabelSuffixUsesTrustedDns)
 {
     const bool tailnetName =
         tailgate::net::dns::DnsNameUsesTrustedResolver("Relay.Example.TS.NET.");
@@ -175,7 +174,7 @@ TEST(Given_TailnetDnsNames, When_SelectingResolver_Then_OnlyLabelSuffixUsesTrust
     EXPECT_FALSE(ordinaryName);
 }
 
-TEST(Given_TrustedDnsAliasChain, When_Resolving_Then_FinalAddressIsReturned)
+TEST(Given_Dns, When_TrustedDnsAliasChainAndResolving_Then_FinalAddressIsReturned)
 {
     std::vector<std::string> queriedNames;
     const auto query = [&queriedNames](const std::string& name)
@@ -183,41 +182,38 @@ TEST(Given_TrustedDnsAliasChain, When_Resolving_Then_FinalAddressIsReturned)
         queriedNames.push_back(name);
         if (name == "relay.example.ts.net")
         {
-            return tailgate::net::dns::DnsAnswer{.CanonicalName = "edge.example.com",
-                                                 .Addresses = {}};
+            return tailgate::net::dns::DnsAnswer("edge.example.com", {});
         }
-        return tailgate::net::dns::DnsAnswer{.CanonicalName = "edge.example.com",
-                                             .Addresses = {"192.0.2.40"}};
+        return tailgate::net::dns::DnsAnswer("edge.example.com", {"192.0.2.40"});
     };
 
     const tailgate::net::dns::DnsAnswer answer =
         tailgate::net::dns::ResolveDnsChain("Relay.Example.TS.NET.", query);
 
     EXPECT_EQ(queriedNames, (std::vector<std::string>{"relay.example.ts.net", "edge.example.com"}));
-    EXPECT_EQ(answer.CanonicalName, "edge.example.com");
-    EXPECT_EQ(answer.Addresses, (std::vector<std::string>{"192.0.2.40"}));
+    EXPECT_EQ(answer.CanonicalName(), "edge.example.com");
+    EXPECT_EQ(answer.Addresses(), (std::vector<std::string>{"192.0.2.40"}));
 }
 
-TEST(Given_TrustedDnsNameWithoutAddress, When_Resolving_Then_CanonicalNameIsPreserved)
+TEST(Given_Dns, When_TrustedDnsNameWithoutAddressAndResolving_Then_CanonicalNameIsPreserved)
 {
     const auto query = [](const std::string& name)
     {
-        return tailgate::net::dns::DnsAnswer{.CanonicalName = name, .Addresses = {}};
+        return tailgate::net::dns::DnsAnswer(name, {});
     };
 
     const tailgate::net::dns::DnsAnswer answer =
         tailgate::net::dns::ResolveDnsChain("relay.example.ts.net", query);
 
-    EXPECT_EQ(answer.CanonicalName, "relay.example.ts.net");
-    EXPECT_TRUE(answer.Addresses.empty());
+    EXPECT_EQ(answer.CanonicalName(), "relay.example.ts.net");
+    EXPECT_TRUE(answer.Addresses().empty());
 }
 
-TEST(Given_TrustedDnsTarget, When_Resolving_Then_SelectedAddressIsUsedForConnection)
+TEST(Given_Dns, When_TrustedDnsTargetAndResolving_Then_SelectedAddressIsUsedForConnection)
 {
     const auto query = [](const std::string&)
     {
-        return tailgate::net::dns::DnsAnswer{.CanonicalName = "relay.tailnet.ts.net",
-                                             .Addresses = {"192.0.2.10", "192.0.2.11"}};
+        return tailgate::net::dns::DnsAnswer("relay.tailnet.ts.net", {"192.0.2.10", "192.0.2.11"});
     };
 
     const tailgate::net::dns::DnsTarget target =
@@ -227,12 +223,11 @@ TEST(Given_TrustedDnsTarget, When_Resolving_Then_SelectedAddressIsUsedForConnect
     EXPECT_EQ(target.ConnectAddress, "192.0.2.11");
 }
 
-TEST(Given_UntrustedCanonicalDnsTarget, When_Resolving_Then_CanonicalNameIsUsedForConnection)
+TEST(Given_Dns, When_UntrustedCanonicalDnsTargetAndResolving_Then_CanonicalNameIsUsedForConnection)
 {
     const auto query = [](const std::string&)
     {
-        return tailgate::net::dns::DnsAnswer{.CanonicalName = "relay.example.com",
-                                             .Addresses = {"192.0.2.20"}};
+        return tailgate::net::dns::DnsAnswer("relay.example.com", {"192.0.2.20"});
     };
 
     const tailgate::net::dns::DnsTarget target =
@@ -242,11 +237,11 @@ TEST(Given_UntrustedCanonicalDnsTarget, When_Resolving_Then_CanonicalNameIsUsedF
     EXPECT_EQ(target.ConnectAddress, "relay.example.com");
 }
 
-TEST(Given_TrustedDnsTargetWithoutAddress, When_Resolving_Then_ItIsRejected)
+TEST(Given_Dns, When_TrustedDnsTargetWithoutAddressAndResolving_Then_ItIsRejected)
 {
     const auto query = [](const std::string& name)
     {
-        return tailgate::net::dns::DnsAnswer{.CanonicalName = name, .Addresses = {}};
+        return tailgate::net::dns::DnsAnswer(name, {});
     };
     const auto resolve = [&query]()
     {

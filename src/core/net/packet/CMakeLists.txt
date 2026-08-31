@@ -4,3 +4,4 @@ tailgate_add_library(
     Ipv4.cpp
     Tsmp.cpp
 )
+target_link_libraries(tailgate_core_net_packet PUBLIC tailgate_core_net)

@@ -1,12 +1,15 @@
+add_subdirectory(tstun)
+
 tailgate_uwp_add_test_library(
     tailgate_tests_uwp_bg
+    Given_ControlRegistrationNotification.cpp
     Given_DataPlaneManager.cpp
-    Given_DI.cpp
     Given_ExitNodeService.cpp
     Given_HostedDnsService.cpp
     Given_NetworkService.cpp
     Given_PingService.cpp
     Given_SessionManager.cpp
+    Given_UwpBackgroundBindings.cpp
 )
 target_include_directories(
     tailgate_tests_uwp_bg

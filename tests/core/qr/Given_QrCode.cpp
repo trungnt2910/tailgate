@@ -5,22 +5,9 @@
 
 #include <tailgate/qr/QrCode.h>
 
-TEST(Given_LoginUrl, When_EncodingQrCode_Then_SquareModuleMatrixIsReturned)
-{
-    const tailgate::qr::QrCode code =
-        tailgate::qr::EncodeQrCode("https://login.tailscale.com/a/fake-login-code");
-
-    const std::size_t darkModules =
-        static_cast<std::size_t>(std::count(code.Modules.begin(), code.Modules.end(), 1));
-    EXPECT_GT(code.Size, 0);
-    EXPECT_EQ(code.Modules.size(), static_cast<std::size_t>(code.Size * code.Size));
-    EXPECT_GT(darkModules, 0U);
-    EXPECT_LT(darkModules, code.Modules.size());
-}
-
 TEST(Given_QrCode, When_ReadingFinderPattern_Then_ExpectedModulesArePresent)
 {
-    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode("Tailgate");
+    const tailgate::qr::QrCode code = tailgate::qr::QrCode::Encode("Tailgate");
 
     const bool topLeftCorner = code.Module(0, 0);
     const bool topLeftInnerBorder = code.Module(1, 1);
@@ -33,21 +20,40 @@ TEST(Given_QrCode, When_ReadingFinderPattern_Then_ExpectedModulesArePresent)
 
 TEST(Given_QrCode, When_ReadingOutsideMatrix_Then_AccessIsRejected)
 {
-    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode("Tailgate");
+    const tailgate::qr::QrCode code = tailgate::qr::QrCode::Encode("Tailgate");
     const auto readOutside = [&]()
     {
-        (void)code.Module(code.Size, 0);
+        (void)code.Module(code.Size(), 0);
     };
 
     EXPECT_THROW(readOutside(), std::out_of_range);
 }
 
-TEST(Given_EmptyText, When_EncodingQrCode_Then_InputIsRejected)
+TEST(Given_QrCode, When_EncodingEmptyText_Then_InputIsRejected)
 {
     const auto encode = []()
     {
-        (void)tailgate::qr::EncodeQrCode("");
+        (void)tailgate::qr::QrCode::Encode("");
     };
 
     EXPECT_THROW(encode(), std::invalid_argument);
+}
+
+TEST(Given_QrCode, When_EncodingLoginUrl_Then_SquareModuleMatrixIsReturned)
+{
+    const tailgate::qr::QrCode code =
+        tailgate::qr::QrCode::Encode("https://login.tailscale.com/a/fake-login-code");
+
+    std::size_t darkModules = 0;
+    for (int y = 0; y < code.Size(); ++y)
+    {
+        for (int x = 0; x < code.Size(); ++x)
+        {
+            darkModules += code.Module(x, y) ? 1U : 0U;
+        }
+    }
+
+    EXPECT_GT(code.Size(), 0);
+    EXPECT_GT(darkModules, 0U);
+    EXPECT_LT(darkModules, static_cast<std::size_t>(code.Size() * code.Size()));
 }

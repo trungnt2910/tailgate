@@ -22,6 +22,7 @@ target_link_libraries(
     Tailgate.Uwp.Background.Service
     PUBLIC
         Tailgate.Uwp.Background.Manager
+        Tailgate.Uwp.Background.Tstun
         Tailgate.Uwp.Common
         tailgate_core
     PRIVATE

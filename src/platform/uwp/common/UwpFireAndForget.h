@@ -15,8 +15,9 @@ namespace tailgate::uwp
 // recording the exception in Tailgate's log first.
 struct FireAndForget
 {
-    struct promise_type
+    class promise_type
     {
+    public:
         [[nodiscard]] FireAndForget get_return_object() const noexcept
         {
             return {};

@@ -7,8 +7,12 @@
 namespace tailgate::control::client
 {
 
-[[nodiscard]] tailgate::types::netmap::NetworkConfig ParseNetworkMap(const std::string& json);
-[[nodiscard]] bool ApplyNetworkMapUpdate(tailgate::types::netmap::NetworkConfig& config,
-                                         const std::string& json);
+class NetworkMapParser final
+{
+public:
+    [[nodiscard]] static tailgate::types::netmap::NetworkConfig Parse(const std::string& json);
+    [[nodiscard]] static bool ApplyUpdate(tailgate::types::netmap::NetworkConfig& config,
+                                          const std::string& json);
+};
 
 } // namespace tailgate::control::client

@@ -20,12 +20,17 @@ public:
         tailgate::crypto::Bytes32 Peer{};
         std::vector<std::uint8_t> Payload;
         bool Control = false;
+        bool ExpectResponse = true;
+        bool Handshake = false;
     };
 
     struct ReceiveResult
     {
+        tailgate::crypto::Bytes32 Source{};
         std::vector<TransportPacket> Outbound;
         std::vector<std::vector<std::uint8_t>> Plaintext;
+        bool SessionEstablished = false;
+        bool Accepted = false;
     };
 
     WireGuardRouter(const tailgate::crypto::Bytes32& nodePrivateKey,
@@ -40,9 +45,14 @@ public:
     void UpdatePeers(const std::vector<tailgate::types::netmap::PeerConfig>& peers,
                      std::string exitNode = {});
     [[nodiscard]] std::vector<TransportPacket> Send(const std::vector<std::uint8_t>& plaintext);
+    [[nodiscard]] std::vector<TransportPacket> SendTo(const tailgate::crypto::Bytes32& peer,
+                                                      const std::vector<std::uint8_t>& plaintext);
+    [[nodiscard]] std::vector<TransportPacket> Start(const tailgate::crypto::Bytes32& peer);
     [[nodiscard]] ReceiveResult Receive(const tailgate::crypto::Bytes32& source,
                                         const std::vector<std::uint8_t>& packet);
+    [[nodiscard]] ReceiveResult Receive(const std::vector<std::uint8_t>& packet);
     [[nodiscard]] std::vector<TransportPacket> UpdateTimers();
+    [[nodiscard]] bool HasSession(const tailgate::crypto::Bytes32& peer) const;
 
 private:
     class Impl;

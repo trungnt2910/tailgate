@@ -52,22 +52,22 @@ std::string FirstIpv6(const std::vector<std::string>& addresses)
 std::vector<StateDevice> DevicesFromNetworkMap(const tailgate::types::netmap::NetworkConfig& config)
 {
     std::vector<StateDevice> devices;
-    devices.push_back(StateDevice{.Group = config.AccountDisplayName,
-                                  .Name = config.SelfName,
-                                  .Address = config.SelfAddress,
-                                  .Ipv6 = FirstIpv6(config.SelfAddresses),
-                                  .OperatingSystem = BuildHostInfo().OperatingSystem,
+    devices.push_back(StateDevice{.Group = config.AccountDisplayName(),
+                                  .Name = config.SelfName(),
+                                  .Address = config.SelfAddress(),
+                                  .Ipv6 = FirstIpv6(config.SelfAddresses()),
+                                  .OperatingSystem = BuildHostInfo().OperatingSystem(),
                                   .Online = true,
                                   .ExitNodeOption = false});
-    for (const auto& peer : config.Peers)
+    for (const auto& peer : config.Peers())
     {
-        devices.push_back(StateDevice{.Group = peer.Owner,
-                                      .Name = peer.Name,
-                                      .Address = peer.Address,
-                                      .Ipv6 = FirstIpv6(peer.Addresses),
-                                      .OperatingSystem = peer.OperatingSystem,
-                                      .Online = peer.Online,
-                                      .ExitNodeOption = peer.ExitNodeOption});
+        devices.push_back(StateDevice{.Group = peer.Owner(),
+                                      .Name = peer.Name(),
+                                      .Address = peer.Address(),
+                                      .Ipv6 = FirstIpv6(peer.Addresses()),
+                                      .OperatingSystem = peer.OperatingSystem(),
+                                      .Online = peer.Online(),
+                                      .ExitNodeOption = peer.ExitNodeOption()});
     }
     return devices;
 }
@@ -235,14 +235,14 @@ void SessionManagerImpl::WriteState(const tailgate::types::netmap::NetworkConfig
                                {"Online", device.Online}});
     }
     const nlohmann::json json{
-        {"TailnetName", config.Domain},
+        {"TailnetName", config.Domain()},
         {"TailnetDisplayName",
-         config.TailnetDisplayName.empty() ? config.Domain : config.TailnetDisplayName},
-        {"AccountName", config.AccountName},
-        {"AccountDisplayName", config.AccountDisplayName},
-        {"ProfilePicUrl", config.AccountProfilePicUrl},
+         config.TailnetDisplayName().empty() ? config.Domain() : config.TailnetDisplayName()},
+        {"AccountName", config.AccountName()},
+        {"AccountDisplayName", config.AccountDisplayName()},
+        {"ProfilePicUrl", config.AccountProfilePicUrl()},
         {"TailgateServer", winrt::to_string(Settings::GetString(L"TailgateServer"))},
-        {"SelfAddress", config.SelfAddress},
+        {"SelfAddress", config.SelfAddress()},
         {"Devices", std::move(devicesJson)},
     };
 

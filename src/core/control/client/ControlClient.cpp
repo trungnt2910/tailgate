@@ -1,4 +1,4 @@
-#include <tailgate/control/client/ControlClient.h>
+#include "tailgate/control/client/ControlClient.h"
 
 #include <algorithm>
 #include <charconv>
@@ -22,10 +22,12 @@
 #include <tailgate/crypto/Base64.h>
 #include <tailgate/crypto/Crypto.h>
 
+#include "MapStreamResponse.h"
+
 namespace tailgate::control::client
 {
 
-using tailgate::base::IByteStream;
+using tailgate::base::ByteStream;
 using tailgate::base::Log;
 using tailgate::base::LogLevel;
 using tailgate::base::TrimEnd;
@@ -341,7 +343,8 @@ NetworkConfig ParseMapResponseBody(const std::vector<std::uint8_t>& body)
             jsonLength = framedLength;
         }
     }
-    return ParseNetworkMap(std::string(start, start + static_cast<std::ptrdiff_t>(jsonLength)));
+    return NetworkMapParser::Parse(
+        std::string(start, start + static_cast<std::ptrdiff_t>(jsonLength)));
 }
 
 void LogMapResponse(const NetworkConfig& config, std::string_view source)
@@ -350,18 +353,18 @@ void LogMapResponse(const NetworkConfig& config, std::string_view source)
         "control",
         std::format("{}: address={} name={} peers={} derp={} dns={} cert-domains={}",
                     source,
-                    config.SelfAddress,
-                    config.SelfName,
-                    config.Peers.size(),
-                    config.DerpCode,
-                    config.DnsResolver,
-                    config.CertDomains.size()));
-    for (const std::string& domain : config.CertDomains)
+                    config.SelfAddress(),
+                    config.SelfName(),
+                    config.Peers().size(),
+                    config.DerpCode(),
+                    config.DnsResolver(),
+                    config.CertDomains().size()));
+    for (const std::string& domain : config.CertDomains())
     {
         Log(LogLevel::Info, "control", "cert domain available: " + domain);
     }
-    if (config.SelfIngressEnabled || config.SelfWireIngress || config.SelfPeerApi4Port != 0 ||
-        config.SelfPeerApi6Port != 0)
+    if (config.SelfIngressEnabled() || config.SelfWireIngress() || config.SelfPeerApi4Port() != 0 ||
+        config.SelfPeerApi6Port() != 0)
     {
         Log(LogLevel::Info,
             "control",
@@ -369,11 +372,11 @@ void LogMapResponse(const NetworkConfig& config, std::string_view source)
                 "{} self ingress metadata: version={} ingress={} wire-ingress={} peerapi4={} "
                 "peerapi6={}",
                 source,
-                config.SelfClientVersion,
-                config.SelfIngressEnabled ? 1 : 0,
-                config.SelfWireIngress ? 1 : 0,
-                config.SelfPeerApi4Port,
-                config.SelfPeerApi6Port));
+                config.SelfClientVersion(),
+                config.SelfIngressEnabled() ? 1 : 0,
+                config.SelfWireIngress() ? 1 : 0,
+                config.SelfPeerApi4Port(),
+                config.SelfPeerApi6Port()));
     }
 }
 
@@ -382,7 +385,7 @@ void LogMapResponse(const NetworkConfig& config, std::string_view source)
 class ControlClient::Impl
 {
 public:
-    Impl(IByteStream& stream,
+    Impl(ByteStream& stream,
          const tailgate::crypto::Bytes32& machinePrivateKey,
          const tailgate::crypto::Bytes32& nodePublicKey,
          tailgate::control::client::HostInfo host)
@@ -396,7 +399,7 @@ public:
             handshake.Run(stream, tailgate::control::base::ControlHandshake::DefaultHost);
         Transport =
             std::make_unique<tailgate::control::base::NoiseTransport>(stream, std::move(result));
-        Transport->Send(tailgate::control::base::BuildH2Preface(InitialH2WindowSize));
+        Transport->Send(tailgate::control::base::H2Codec::BuildPreface(InitialH2WindowSize));
     }
 
     std::vector<std::uint8_t> Request(std::uint32_t streamId,
@@ -404,7 +407,7 @@ public:
                                       const std::vector<std::uint8_t>& body,
                                       bool waitForResponse)
     {
-        std::vector<std::uint8_t> request = tailgate::control::base::BuildH2Headers(
+        std::vector<std::uint8_t> request = tailgate::control::base::H2Codec::BuildHeaders(
             "POST",
             path,
             tailgate::control::base::ControlHandshake::DefaultHost,
@@ -412,7 +415,8 @@ public:
             {{"ts-lb", NodeKey}},
             streamId,
             false);
-        std::vector<std::uint8_t> data = tailgate::control::base::BuildH2Data(body, streamId, true);
+        std::vector<std::uint8_t> data =
+            tailgate::control::base::H2Codec::BuildData(body, streamId, true);
         request.insert(request.end(), data.begin(), data.end());
         Transport->Send(request);
         if (!waitForResponse)
@@ -432,12 +436,12 @@ public:
             }
             H2Buffer.insert(H2Buffer.end(), plaintext.begin(), plaintext.end());
             for (const tailgate::control::base::H2Frame& frame :
-                 tailgate::control::base::TakeCompleteH2Frames(H2Buffer))
+                 tailgate::control::base::H2Codec::TakeCompleteFrames(H2Buffer))
             {
                 if (frame.Type == tailgate::control::base::H2FrameType::Settings &&
                     (frame.Flags & H2EndOrAckFlag) == 0)
                 {
-                    Transport->Send(tailgate::control::base::BuildH2SettingsAck());
+                    Transport->Send(tailgate::control::base::H2Codec::BuildSettingsAck());
                 }
                 if (frame.Type == tailgate::control::base::H2FrameType::Headers)
                 {
@@ -445,7 +449,8 @@ public:
                     if (headers && frame.StreamId == streamId)
                     {
                         responseHeaders.insert(headers->begin(), headers->end());
-                        if (const auto decodedStatus = tailgate::control::base::H2Status(*headers))
+                        if (const auto decodedStatus =
+                                tailgate::control::base::H2Codec::Status(*headers))
                         {
                             status = decodedStatus;
                         }
@@ -515,7 +520,7 @@ public:
         }
         const std::uint32_t streamId = NextStreamId;
         NextStreamId += 2;
-        std::vector<std::uint8_t> request = tailgate::control::base::BuildH2Headers(
+        std::vector<std::uint8_t> request = tailgate::control::base::H2Codec::BuildHeaders(
             "POST",
             path,
             tailgate::control::base::ControlHandshake::DefaultHost,
@@ -524,7 +529,7 @@ public:
             streamId,
             false);
         std::vector<std::uint8_t> data =
-            tailgate::control::base::BuildH2Data(*response, streamId, true);
+            tailgate::control::base::H2Codec::BuildData(*response, streamId, true);
         request.insert(request.end(), data.begin(), data.end());
         Transport->Send(request);
         Log(LogLevel::Info,
@@ -535,56 +540,53 @@ public:
     std::optional<NetworkConfig> TakeNetworkMapUpdate()
     {
         for (const tailgate::control::base::H2Frame& frame :
-             tailgate::control::base::TakeCompleteH2Frames(H2Buffer))
+             tailgate::control::base::H2Codec::TakeCompleteFrames(H2Buffer))
         {
             if (frame.Type == tailgate::control::base::H2FrameType::Settings &&
                 (frame.Flags & H2EndOrAckFlag) == 0)
             {
-                Transport->Send(tailgate::control::base::BuildH2SettingsAck());
+                Transport->Send(tailgate::control::base::H2Codec::BuildSettingsAck());
             }
             else if (frame.Type == tailgate::control::base::H2FrameType::Ping &&
                      (frame.Flags & H2EndOrAckFlag) == 0)
             {
-                Transport->Send(tailgate::control::base::BuildH2PingAck(frame.Payload));
+                Transport->Send(tailgate::control::base::H2Codec::BuildPingAck(frame.Payload));
             }
             else if (frame.Type == tailgate::control::base::H2FrameType::GoAway)
             {
                 throw std::runtime_error("Control server closed the HTTP/2 connection.");
             }
-            else if (frame.Type == tailgate::control::base::H2FrameType::Data &&
-                     frame.StreamId == MapStreamId)
+            else if (frame.Type == tailgate::control::base::H2FrameType::Headers &&
+                     MapResponse.Handles(frame.StreamId))
             {
-                MapBody.insert(MapBody.end(), frame.Payload.begin(), frame.Payload.end());
+                const auto headers = HeaderDecoder.Decode(frame.Payload);
+                if (headers)
+                {
+                    MapResponse.ReceiveHeaders(*headers);
+                }
+            }
+            else if (frame.Type == tailgate::control::base::H2FrameType::Data &&
+                     MapResponse.Handles(frame.StreamId))
+            {
+                MapResponse.ReceiveData(frame.Payload);
                 if (!frame.Payload.empty())
                 {
-                    Transport->Send(tailgate::control::base::BuildH2WindowUpdate(
+                    Transport->Send(tailgate::control::base::H2Codec::BuildWindowUpdate(
                         0, static_cast<std::uint32_t>(frame.Payload.size())));
-                    Transport->Send(tailgate::control::base::BuildH2WindowUpdate(
+                    Transport->Send(tailgate::control::base::H2Codec::BuildWindowUpdate(
                         frame.StreamId, static_cast<std::uint32_t>(frame.Payload.size())));
                 }
             }
+            if (MapResponse.Handles(frame.StreamId) && (frame.Flags & H2EndOrAckFlag) != 0)
+            {
+                MapResponse.Finish();
+            }
         }
-        while (MapBody.size() >= MapLengthSize)
+        while (std::optional<std::string> json = MapResponse.TakeMap(MaximumStreamingMapSize))
         {
-            const std::size_t mapSize = MapBody[0] | (static_cast<std::size_t>(MapBody[1]) << 8U) |
-                                        (static_cast<std::size_t>(MapBody[2]) << 16U) |
-                                        (static_cast<std::size_t>(MapBody[3]) << 24U);
-            if (mapSize > MaximumStreamingMapSize)
-            {
-                throw std::runtime_error("Streaming network map exceeds the protocol limit.");
-            }
-            if (MapBody.size() < MapLengthSize + mapSize)
-            {
-                return std::nullopt;
-            }
-            const std::string json(MapBody.begin() + static_cast<std::ptrdiff_t>(MapLengthSize),
-                                   MapBody.begin() +
-                                       static_cast<std::ptrdiff_t>(MapLengthSize + mapSize));
-            MapBody.erase(MapBody.begin(),
-                          MapBody.begin() + static_cast<std::ptrdiff_t>(MapLengthSize + mapSize));
             try
             {
-                AnswerControlPing(json);
+                AnswerControlPing(*json);
             }
             catch (const std::exception& error)
             {
@@ -592,10 +594,10 @@ public:
                     "control",
                     std::format("failed to answer control ping request: {}", error.what()));
             }
-            if (std::optional<std::string> incremental = DescribeIncrementalNetworkMap(json))
+            if (std::optional<std::string> incremental = DescribeIncrementalNetworkMap(*json))
             {
                 Log(LogLevel::Debug, "control", *incremental);
-                if (CurrentMap && ApplyNetworkMapUpdate(*CurrentMap, json))
+                if (CurrentMap && NetworkMapParser::ApplyUpdate(*CurrentMap, *json))
                 {
                     return CurrentMap;
                 }
@@ -603,7 +605,7 @@ public:
             }
             try
             {
-                NetworkConfig config = ParseNetworkMap(json);
+                NetworkConfig config = NetworkMapParser::Parse(*json);
                 LogMapResponse(config, "streaming network map received");
                 CurrentMap = config;
                 return config;
@@ -624,9 +626,8 @@ public:
     tailgate::crypto::Bytes32 DiscoPrivate{};
     std::string DiscoKey;
     std::uint32_t NextStreamId = 1;
-    std::uint32_t MapStreamId = 0;
     std::vector<std::uint8_t> H2Buffer;
-    std::vector<std::uint8_t> MapBody;
+    tailgate::control::client::MapStreamResponse MapResponse;
     std::vector<tailgate::control::client::MapEndpoint> Endpoints;
     std::optional<NetworkConfig> CurrentMap;
     std::string LastPingUrl;
@@ -634,7 +635,7 @@ public:
     std::unique_ptr<tailgate::control::base::NoiseTransport> Transport;
 };
 
-ControlClient::ControlClient(IByteStream& stream,
+ControlClient::ControlClient(ByteStream& stream,
                              const tailgate::crypto::Bytes32& machinePrivateKey,
                              const tailgate::crypto::Bytes32& nodePrivateKey,
                              const tailgate::control::client::HostInfo& host)
@@ -646,7 +647,7 @@ ControlClient::ControlClient(IByteStream& stream,
 {
 }
 
-ControlClient::ControlClient(IByteStream& stream,
+ControlClient::ControlClient(ByteStream& stream,
                              const tailgate::crypto::Bytes32& machinePrivateKey,
                              ExternalNodePublicKey nodePublicKey,
                              const tailgate::control::client::HostInfo& host)
@@ -666,41 +667,41 @@ RegistrationResult ControlClient::Register(const std::string& authKey,
     const std::vector<std::uint8_t> registration = Implementation->Request(
         streamId,
         "/machine/register",
-        tailgate::control::client::BuildRegisterRequest(
+        tailgate::control::client::ControlRequest::BuildRegister(
             Implementation->NodeKey, authKey, followupUrl, Implementation->Host),
         true);
     const std::optional<tailgate::control::client::RegisterResponse> response =
-        tailgate::control::client::ParseRegisterResponse(registration);
+        tailgate::control::client::RegisterResponse::Parse(registration);
     if (!response)
     {
         throw std::runtime_error("Control returned an invalid node registration response.");
     }
-    if (!response->Error.empty())
+    if (!response->Error().empty())
     {
-        throw std::runtime_error(std::format("Node registration failed: {}.", response->Error));
+        throw std::runtime_error(std::format("Node registration failed: {}.", response->Error()));
     }
-    if (response->NodeKeyExpired)
+    if (response->NodeKeyExpired())
     {
         throw std::runtime_error("Control rejected the newly generated node key as expired.");
     }
-    if (!response->AuthUrl.empty())
+    if (!response->AuthUrl().empty())
     {
-        if (!tailgate::control::client::IsValidAuthorizationUrl(response->AuthUrl))
+        if (!tailgate::control::client::IsValidAuthorizationUrl(response->AuthUrl()))
         {
             throw std::runtime_error("Control returned an unsafe node authorization URL.");
         }
         Log(LogLevel::Info, "control", "interactive node login is required");
         return RegistrationResult{
             .State = RegistrationState::LoginRequired,
-            .AuthorizationUrl = response->AuthUrl,
-            .AuthorizationCode = tailgate::control::client::AuthorizationCode(response->AuthUrl),
+            .AuthorizationUrl = response->AuthUrl(),
+            .AuthorizationCode = tailgate::control::client::AuthorizationCode(response->AuthUrl()),
             .ApprovalUrl = {},
             .Network = std::nullopt};
     }
     Log(LogLevel::Info,
         "control",
         std::format("node registration accepted machine-authorized={}",
-                    response->MachineAuthorized));
+                    response->MachineAuthorized()));
     if (std::all_of(Implementation->DiscoPrivate.begin(),
                     Implementation->DiscoPrivate.end(),
                     [](std::uint8_t byte)
@@ -715,15 +716,15 @@ RegistrationResult ControlClient::Register(const std::string& authKey,
     Implementation->DiscoKey =
         "discokey:" + tailgate::crypto::BytesToHex(discoPublic.data(), discoPublic.size());
     NetworkConfig network = RequestNetworkMap();
-    network.SelfMachineAuthorized = response->MachineAuthorized;
+    network.SelfMachineAuthorized(response->MachineAuthorized());
     return RegistrationResult{
-        .State = response->MachineAuthorized ? RegistrationState::Complete
-                                             : RegistrationState::MachineApprovalRequired,
+        .State = response->MachineAuthorized() ? RegistrationState::Complete
+                                               : RegistrationState::MachineApprovalRequired,
         .AuthorizationUrl = {},
         .AuthorizationCode = {},
-        .ApprovalUrl = response->MachineAuthorized
+        .ApprovalUrl = response->MachineAuthorized()
                            ? std::string{}
-                           : tailgate::control::client::MachineApprovalUrl(network.SelfAddress),
+                           : tailgate::control::client::MachineApprovalUrl(network.SelfAddress()),
         .Network = std::move(network)};
 }
 
@@ -753,9 +754,9 @@ RegistrationResult ControlClient::RegisterUntilAuthorized(const std::string& aut
                     std::format("node registration rate limited; retrying after {} milliseconds",
                                 retryDelay.count()));
                 bool shouldContinue = true;
-                if (options.WaitForRetry)
+                if (options.Handler != nullptr)
                 {
-                    shouldContinue = options.WaitForRetry(retryDelay);
+                    shouldContinue = options.Handler->WaitForRetry(retryDelay);
                 }
                 else
                 {
@@ -786,18 +787,19 @@ RegistrationResult ControlClient::RegisterUntilAuthorized(const std::string& aut
             registration = registerWithRateLimitRetry(options.ReauthorizationKey, {});
             continue;
         }
-        if (options.StateChanged)
+        if (options.Handler != nullptr)
         {
-            options.StateChanged(registration);
+            options.Handler->StateChanged(registration);
         }
         if (registration.State == RegistrationState::LoginRequired)
         {
             if (registration.AuthorizationUrl == followedAuthorizationUrl)
             {
                 bool shouldContinue = true;
-                if (options.WaitForRetry)
+                if (options.Handler != nullptr)
                 {
-                    shouldContinue = options.WaitForRetry(UnchangedAuthorizationUrlRetryDelay);
+                    shouldContinue =
+                        options.Handler->WaitForRetry(UnchangedAuthorizationUrlRetryDelay);
                 }
                 else
                 {
@@ -816,9 +818,9 @@ RegistrationResult ControlClient::RegisterUntilAuthorized(const std::string& aut
         {
             throw std::runtime_error("Machine approval requires a network map.");
         }
-        SetPreferredDerp(registration.Network->DerpRegion);
+        SetPreferredDerp(registration.Network->DerpRegion());
         registration.NetworkMapStreaming = true;
-        while (!registration.Network->SelfMachineAuthorized)
+        while (!registration.Network->SelfMachineAuthorized())
         {
             registration.Network = WaitForNetworkMap();
         }
@@ -841,7 +843,7 @@ NetworkConfig ControlClient::RequestNetworkMap()
             body = Implementation->Request(
                 streamId,
                 "/machine/map",
-                tailgate::control::client::BuildReadOnlyMapRequest(
+                tailgate::control::client::ControlRequest::BuildReadOnlyMap(
                     Implementation->NodeKey, Implementation->DiscoKey, Implementation->Host),
                 true);
             break;
@@ -869,11 +871,12 @@ NetworkConfig ControlClient::RequestNetworkMap()
 
 FeatureEnablement ControlClient::QueryFeature(const std::string& feature)
 {
-    const std::vector<std::uint8_t> body = Implementation->Request(
-        Implementation->NextStreamId,
-        "/machine/feature/query",
-        tailgate::control::client::BuildQueryFeatureRequest(Implementation->NodeKey, feature),
-        true);
+    const std::vector<std::uint8_t> body =
+        Implementation->Request(Implementation->NextStreamId,
+                                "/machine/feature/query",
+                                tailgate::control::client::ControlRequest::BuildQueryFeature(
+                                    Implementation->NodeKey, feature),
+                                true);
     Implementation->NextStreamId += 2;
 
     const nlohmann::json json = nlohmann::json::parse(body, nullptr, false);
@@ -893,31 +896,31 @@ void ControlClient::SetDnsTxt(const std::string& name, const std::string& value)
     {
         throw std::invalid_argument("DNS TXT name and value must not be empty.");
     }
-    (void)Implementation->Request(
-        Implementation->NextStreamId,
-        "/machine/set-dns",
-        tailgate::control::client::BuildSetDnsRequest(Implementation->NodeKey, name, value),
-        true);
+    (void)Implementation->Request(Implementation->NextStreamId,
+                                  "/machine/set-dns",
+                                  tailgate::control::client::ControlRequest::BuildSetDns(
+                                      Implementation->NodeKey, name, value),
+                                  true);
     Implementation->NextStreamId += 2;
 }
 
 void ControlClient::UpdateHostInfo(int preferredDerp)
 {
     const std::vector<std::uint8_t> body =
-        tailgate::control::client::BuildMapRequest(Implementation->NodeKey,
-                                                   Implementation->DiscoKey,
-                                                   Implementation->Host,
-                                                   preferredDerp,
-                                                   false,
-                                                   true,
-                                                   Implementation->Endpoints,
-                                                   true);
+        tailgate::control::client::ControlRequest::BuildMap(Implementation->NodeKey,
+                                                            Implementation->DiscoKey,
+                                                            Implementation->Host,
+                                                            preferredDerp,
+                                                            false,
+                                                            true,
+                                                            Implementation->Endpoints,
+                                                            true);
     Log(LogLevel::Info,
         "control",
         std::format("sending hostinfo update: ingress={} peerapi-services={} endpoints={} "
                     "preferred-derp={}",
-                    Implementation->Host.IngressEnabled ? 1 : 0,
-                    Implementation->Host.Services.size(),
+                    Implementation->Host.IngressEnabled() ? 1 : 0,
+                    Implementation->Host.Services().size(),
                     Implementation->Endpoints.size(),
                     preferredDerp));
     const std::vector<std::uint8_t> response =
@@ -944,26 +947,27 @@ void ControlClient::SetEndpoints(std::vector<tailgate::control::client::MapEndpo
 
 void ControlClient::SetPreferredDerp(int region)
 {
-    (void)Implementation->Request(
-        Implementation->NextStreamId,
-        "/machine/map",
-        tailgate::control::client::BuildMapRequest(Implementation->NodeKey,
-                                                   Implementation->DiscoKey,
-                                                   Implementation->Host,
-                                                   region,
-                                                   true,
-                                                   false,
-                                                   Implementation->Endpoints),
-        false);
-    Implementation->MapStreamId = Implementation->NextStreamId;
+    const std::uint32_t streamId = Implementation->NextStreamId;
     Implementation->NextStreamId += 2;
+    Implementation->MapResponse.Start(streamId);
+    (void)Implementation->Request(
+        streamId,
+        "/machine/map",
+        tailgate::control::client::ControlRequest::BuildMap(Implementation->NodeKey,
+                                                            Implementation->DiscoKey,
+                                                            Implementation->Host,
+                                                            region,
+                                                            true,
+                                                            false,
+                                                            Implementation->Endpoints),
+        false);
     Log(LogLevel::Info,
         "control",
         std::format("streaming network map started with preferred DERP {} ingress={} "
                     "peerapi-services={}",
                     region,
-                    Implementation->Host.IngressEnabled ? 1 : 0,
-                    Implementation->Host.Services.size()));
+                    Implementation->Host.IngressEnabled() ? 1 : 0,
+                    Implementation->Host.Services().size()));
 }
 
 std::optional<NetworkConfig> ControlClient::PollNetworkMap()
@@ -998,11 +1002,16 @@ NetworkConfig ControlClient::WaitForNetworkMap()
     }
 }
 
+bool ControlClient::HasPendingOutput() const
+{
+    return Implementation->Transport->HasPendingOutput();
+}
+
 void ControlClient::Logout()
 {
     (void)Implementation->Request(Implementation->NextStreamId,
                                   "/machine/register",
-                                  tailgate::control::client::BuildLogoutRequest(
+                                  tailgate::control::client::ControlRequest::BuildLogout(
                                       Implementation->NodeKey, Implementation->Host),
                                   true);
     Implementation->NextStreamId += 2;

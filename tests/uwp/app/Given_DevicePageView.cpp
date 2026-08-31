@@ -31,13 +31,13 @@ protected:
         m_devicePage->GetState().SelectedDeviceId(L"peer.example.ts.net");
         m_settings->GetState().SelfAddress(L"100.64.0.1");
         m_settings->GetState().Devices(std::vector<UwpDevice>{
-            UwpDevice{.Group = L"Example User",
-                      .Name = L"peer.example.ts.net",
-                      .Address = L"100.64.0.2",
-                      .Ipv6 = L"fd7a:115c:a1e0::2",
-                      .OperatingSystem = L"Linux",
-                      .Online = true,
-                      .ExitNodeOption = false},
+            UwpDevice(L"Example User",
+                      L"peer.example.ts.net",
+                      L"100.64.0.2",
+                      L"fd7a:115c:a1e0::2",
+                      L"Linux",
+                      true,
+                      false),
         });
         m_subject = m_dependencies.Create<DevicePageViewImpl>(
             di::bind<ClipboardController>.to(

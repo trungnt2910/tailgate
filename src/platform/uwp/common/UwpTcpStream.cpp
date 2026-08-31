@@ -154,23 +154,24 @@ void UwpTcpStream::SetNonBlockingReads(bool enabled)
     m_nonBlockingReads = enabled;
 }
 
-void UwpTcpStream::WaitForPendingRead()
+void UwpTcpStream::SetWriteInterest(bool)
 {
-    if (!m_pendingRead)
-    {
-        return;
-    }
-    if (m_pendingRead.wait_for(m_ioTimeout) == foundation::AsyncStatus::Started)
-    {
-        m_pendingRead.Cancel();
-        m_pendingRead = nullptr;
-        throw std::runtime_error("TCP read timed out.");
-    }
 }
 
-void UwpTcpStream::Close()
+void UwpTcpStream::SetNonBlocking(bool enabled)
 {
-    m_socket.Close();
+    SetNonBlockingReads(enabled);
+}
+
+void UwpTcpStream::Close() noexcept
+{
+    try
+    {
+        m_socket.Close();
+    }
+    catch (...)
+    {
+    }
 }
 
 } // namespace tailgate::uwp

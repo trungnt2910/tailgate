@@ -26,8 +26,9 @@ namespace core = winrt::Windows::ApplicationModel::Core;
 namespace foundation = winrt::Windows::Foundation;
 namespace vpn = winrt::Windows::Networking::Vpn;
 
-struct VpnBackgroundTask : winrt::implements<VpnBackgroundTask, background::IBackgroundTask>
+class VpnBackgroundTask : public winrt::implements<VpnBackgroundTask, background::IBackgroundTask>
 {
+public:
     void Run(const background::IBackgroundTaskInstance& taskInstance)
     {
         m_logger.LogDebug("VpnBackgroundTask.Run entered instance={}", taskInstance.InstanceId());

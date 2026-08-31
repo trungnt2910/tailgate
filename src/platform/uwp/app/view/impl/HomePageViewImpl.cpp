@@ -337,7 +337,7 @@ xaml::UIElement HomePageViewImpl::BuildExitNodeCard()
                                            m_state.Devices().end(),
                                            [](const UwpDevice& device)
                                            {
-                                               return device.ExitNodeOption;
+                                               return device.ExitNodeOption();
                                            });
     winrt::hstring selected = m_exitNodeController.GetState().Selection();
     const auto selectedDevice = std::find_if(m_state.Devices().begin(),
@@ -356,7 +356,8 @@ xaml::UIElement HomePageViewImpl::BuildExitNodeCard()
         return controls::StackPanel();
     }
     const bool enabled = !active.empty() && !selected.empty();
-    const bool selectedOnline = selectedDevice == m_state.Devices().end() || selectedDevice->Online;
+    const bool selectedOnline =
+        selectedDevice == m_state.Devices().end() || selectedDevice->Online();
     const bool errorState = !selectedOnline;
     const bool emphasized = enabled || errorState;
     controls::Grid card;
@@ -469,9 +470,9 @@ void HomePageViewImpl::RebuildDeviceItems()
     for (const UwpDevice& device : m_state.Devices())
     {
         const std::wstring_view searchText(m_pageState.SearchText());
-        if (!boost::algorithm::icontains(std::wstring_view(device.Name), searchText) &&
-            !boost::algorithm::icontains(std::wstring_view(device.Address), searchText) &&
-            !boost::algorithm::icontains(std::wstring_view(device.Group), searchText))
+        if (!boost::algorithm::icontains(std::wstring_view(device.Name()), searchText) &&
+            !boost::algorithm::icontains(std::wstring_view(device.Address()), searchText) &&
+            !boost::algorithm::icontains(std::wstring_view(device.Group()), searchText))
         {
             continue;
         }
@@ -479,11 +480,11 @@ void HomePageViewImpl::RebuildDeviceItems()
                                         groups.end(),
                                         [&device](const auto& group)
                                         {
-                                            return group.first == device.Group;
+                                            return group.first == device.Group();
                                         });
         if (found == groups.end())
         {
-            groups.push_back({device.Group, {&device}});
+            groups.push_back({device.Group(), {&device}});
         }
         else
         {
@@ -491,7 +492,7 @@ void HomePageViewImpl::RebuildDeviceItems()
         }
     }
     const winrt::hstring selfAddress =
-        m_state.Devices().empty() ? winrt::hstring{} : m_state.Devices().front().Address;
+        m_state.Devices().empty() ? winrt::hstring{} : m_state.Devices().front().Address();
     auto groupedItems = winrt::single_threaded_observable_vector<foundation::IInspectable>();
     for (const auto& [groupName, devices] : groups)
     {
@@ -501,13 +502,13 @@ void HomePageViewImpl::RebuildDeviceItems()
             const UwpDevice device = *devicePointer;
             controls::StackPanel row;
             row.Orientation(controls::Orientation::Horizontal);
-            row.Children().Append(m_uiFactory.StatusDot(device.Online));
+            row.Children().Append(m_uiFactory.StatusDot(device.Online()));
             controls::StackPanel labels;
             labels.Margin(m_resources.Thickness(AppThickness::DeviceLabelsMargin));
             labels.Children().Append(
-                m_uiFactory.Text(device.Name.empty() ? device.Address : device.ShortName(),
+                m_uiFactory.Text(device.Name().empty() ? device.Address() : device.ShortName(),
                                  AppStyle::TextBodyStrong));
-            auto address = m_uiFactory.Text(device.Address, AppStyle::TextSecondaryCaption);
+            auto address = m_uiFactory.Text(device.Address(), AppStyle::TextSecondaryCaption);
             labels.Children().Append(address);
             row.Children().Append(labels);
 
@@ -515,17 +516,17 @@ void HomePageViewImpl::RebuildDeviceItems()
             item.Tapped(
                 [this, device](const auto&, const auto&)
                 {
-                    m_devicePageController.SelectDevice(device.Address);
+                    m_devicePageController.SelectDevice(device.Address());
                     m_navigationController.OpenPage(NavigationControllerState::Device);
                 });
 
-            const bool isSelf = !device.Address.empty() && device.Address == selfAddress;
+            const bool isSelf = !device.Address().empty() && device.Address() == selfAddress;
             controls::MenuFlyout menu;
             controls::MenuFlyoutItem copyItem;
             copyItem.Text(m_resourceLoader.Get(Resources::Home::CopyIpAddress));
             copyItem.Icon(m_uiFactory.FluentIcon(Glyphs::Copy));
             copyItem.Click(
-                [this, address = device.Address](const auto&, const auto&)
+                [this, address = device.Address()](const auto&, const auto&)
                 {
                     m_clipboardController.SetText(address);
                 });
@@ -539,8 +540,8 @@ void HomePageViewImpl::RebuildDeviceItems()
                     [this, device, selfAddress](const auto&, const auto&)
                     {
                         const winrt::hstring deviceName =
-                            device.Name.empty() ? device.Address : device.ShortName();
-                        m_pingDialogController.Show(deviceName, device.Address, selfAddress);
+                            device.Name().empty() ? device.Address() : device.ShortName();
+                        m_pingDialogController.Show(deviceName, device.Address(), selfAddress);
                     });
                 menu.Items().Append(pingItem);
             }

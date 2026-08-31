@@ -1,4 +1,4 @@
-#include <tailgate/wgengine/wireguard/Router.h>
+#include "tailgate/wgengine/wireguard/Router.h"
 
 #include <algorithm>
 #include <deque>
@@ -9,6 +9,7 @@
 #include <utility>
 
 #include <tailgate/base/Logging.h>
+#include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 #include <tailgate/wgengine/wireguard/Tunnel.h>
 
@@ -80,7 +81,7 @@ public:
             Bytes32 publicKey{};
             try
             {
-                publicKey = ParseNodeKey(config.Key);
+                publicKey = ParseNodeKey(config.Key());
             }
             catch (const std::exception&)
             {
@@ -114,7 +115,7 @@ public:
     Peer* FindRoute(const std::vector<std::uint8_t>& packet)
     {
         const std::optional<std::uint32_t> destination =
-            tailgate::net::packet::Ipv4Destination(packet);
+            tailgate::net::packet::Ipv4Packet::Destination(packet);
         if (!destination)
         {
             return nullptr;
@@ -125,11 +126,11 @@ public:
         {
             configs.push_back(peer->Config);
         }
+        tailgate::types::netmap::NetworkConfig network;
+        network.Peers(std::move(configs));
         const std::optional<std::size_t> exit =
-            ExitNode.empty() ? std::nullopt
-                             : tailgate::types::netmap::FindExitNode(configs, ExitNode, true);
-        const std::optional<std::size_t> route =
-            tailgate::types::netmap::FindRoute(configs, *destination, exit);
+            ExitNode.empty() ? std::nullopt : network.FindExitNode(ExitNode, true);
+        const std::optional<std::size_t> route = network.FindRoute(*destination, exit);
         return route ? Routes[*route] : nullptr;
     }
 
@@ -144,6 +145,17 @@ public:
         return found == Peers.end() ? nullptr : &*found;
     }
 
+    Peer* FindPeer(WireGuardTunnel::PeerId tunnelPeer)
+    {
+        const auto found = std::find_if(Peers.begin(),
+                                        Peers.end(),
+                                        [&](const Peer& peer)
+                                        {
+                                            return peer.Active && peer.TunnelPeer == tunnelPeer;
+                                        });
+        return found == Peers.end() ? nullptr : &*found;
+    }
+
     void Queue(Peer& peer, std::vector<std::uint8_t> plaintext)
     {
         while (!peer.Pending.empty() &&
@@ -154,7 +166,7 @@ public:
             peer.Pending.pop_front();
             Log(LogLevel::Warning,
                 "wireguard",
-                "pending plaintext queue limit reached peer=" + peer.Config.Name);
+                "pending plaintext queue limit reached peer=" + peer.Config.Name());
         }
         if (plaintext.size() <= MaximumPendingBytesPerPeer)
         {
@@ -163,10 +175,19 @@ public:
         }
     }
 
-    TransportPacket Wrap(const Peer& peer, std::vector<std::uint8_t> payload, bool control) const
+    TransportPacket Wrap(const Peer& peer,
+                         std::vector<std::uint8_t> payload,
+                         bool control,
+                         bool expectResponse = true,
+                         bool handshake = false) const
     {
         return TransportPacket{
-            .Peer = peer.PublicKey, .Payload = std::move(payload), .Control = control};
+            .Peer = peer.PublicKey,
+            .Payload = std::move(payload),
+            .Control = control,
+            .ExpectResponse = expectResponse,
+            .Handshake = handshake,
+        };
     }
 
     std::vector<TransportPacket> Flush(Peer& peer)
@@ -178,6 +199,54 @@ public:
             peer.Pending.pop_front();
             peer.PendingBytes -= plaintext.size();
             result.push_back(Wrap(peer, Tunnel.Encrypt(peer.TunnelPeer, plaintext), false));
+        }
+        return result;
+    }
+
+    std::vector<TransportPacket> Send(Peer& peer, const std::vector<std::uint8_t>& plaintext)
+    {
+        if (Tunnel.HasSession(peer.TunnelPeer))
+        {
+            return {Wrap(peer, Tunnel.Encrypt(peer.TunnelPeer, plaintext), false)};
+        }
+        Queue(peer, plaintext);
+        return Start(peer);
+    }
+
+    std::vector<TransportPacket> Start(Peer& peer)
+    {
+        if (Tunnel.HasSession(peer.TunnelPeer) ||
+            Tunnel.UpdateTimers(peer.TunnelPeer) != WireGuardTunnel::TimerAction::SendHandshake)
+        {
+            return {};
+        }
+        return {Wrap(peer, Tunnel.CreateHandshake(peer.TunnelPeer), true, true, true)};
+    }
+
+    WireGuardRouter::ReceiveResult Receive(Peer& peer, WireGuardTunnel::ReceivedPacket received)
+    {
+        WireGuardRouter::ReceiveResult result{
+            .Source = peer.PublicKey,
+            .Outbound = {},
+            .Plaintext = {},
+            .SessionEstablished = received.SessionEstablished,
+            .Accepted = true,
+        };
+        if (!received.Reply.empty())
+        {
+            result.Outbound.push_back(Wrap(peer, std::move(received.Reply), true, false));
+        }
+        if (received.SessionEstablished)
+        {
+            Log(LogLevel::Debug, "wireguard", "session established peer=" + peer.Config.Name());
+            std::vector<TransportPacket> pending = Flush(peer);
+            result.Outbound.insert(result.Outbound.end(),
+                                   std::make_move_iterator(pending.begin()),
+                                   std::make_move_iterator(pending.end()));
+        }
+        if (!received.Plaintext.empty())
+        {
+            result.Plaintext.push_back(std::move(received.Plaintext));
         }
         return result;
     }
@@ -213,7 +282,7 @@ WireGuardRouter::Send(const std::vector<std::uint8_t>& plaintext)
     if (peer == nullptr)
     {
         const std::optional<std::uint32_t> destination =
-            tailgate::net::packet::Ipv4Destination(plaintext);
+            tailgate::net::packet::Ipv4Packet::Destination(plaintext);
         const unsigned version = plaintext.empty() ? 0U : plaintext.front() >> 4U;
         if (m_impl->ReportedUnroutableDestinations.emplace(version, destination.value_or(0)).second)
         {
@@ -221,37 +290,40 @@ WireGuardRouter::Send(const std::vector<std::uint8_t>& plaintext)
                 "wireguard",
                 std::format("dropping plaintext packet without a peer route destination={} "
                             "version={} bytes={}",
-                            destination ? tailgate::net::packet::FormatIpv4(*destination)
-                                        : "non-ipv4",
+                            destination
+                                ? tailgate::net::Ipv4Address::FromHostOrder(*destination).ToString()
+                                : "non-ipv4",
                             version,
                             plaintext.size()));
         }
         return {};
     }
-    if (m_impl->Tunnel.HasSession(peer->TunnelPeer))
-    {
-        return {m_impl->Wrap(*peer, m_impl->Tunnel.Encrypt(peer->TunnelPeer, plaintext), false)};
-    }
-    m_impl->Queue(*peer, plaintext);
-    if (m_impl->Tunnel.UpdateTimers(peer->TunnelPeer) ==
-        WireGuardTunnel::TimerAction::SendHandshake)
-    {
-        return {m_impl->Wrap(*peer, m_impl->Tunnel.CreateHandshake(peer->TunnelPeer), true)};
-    }
-    return {};
+    return m_impl->Send(*peer, plaintext);
+}
+
+std::vector<WireGuardRouter::TransportPacket>
+WireGuardRouter::SendTo(const Bytes32& peer, const std::vector<std::uint8_t>& plaintext)
+{
+    Impl::Peer* found = m_impl->FindPeer(peer);
+    return found == nullptr ? std::vector<TransportPacket>{} : m_impl->Send(*found, plaintext);
+}
+
+std::vector<WireGuardRouter::TransportPacket> WireGuardRouter::Start(const Bytes32& peer)
+{
+    Impl::Peer* found = m_impl->FindPeer(peer);
+    return found == nullptr ? std::vector<TransportPacket>{} : m_impl->Start(*found);
 }
 
 WireGuardRouter::ReceiveResult WireGuardRouter::Receive(const Bytes32& source,
                                                         const std::vector<std::uint8_t>& packet)
 {
-    ReceiveResult result;
     Impl::Peer* peer = m_impl->FindPeer(source);
     if (peer == nullptr)
     {
         Log(LogLevel::Warning, "wireguard", "dropping transport packet from unknown peer");
-        return result;
+        return {};
     }
-    const std::optional<WireGuardTunnel::ReceivedPacket> received =
+    std::optional<WireGuardTunnel::ReceivedPacket> received =
         m_impl->Tunnel.ProcessPacket(peer->TunnelPeer, packet);
     if (!received)
     {
@@ -259,28 +331,29 @@ WireGuardRouter::ReceiveResult WireGuardRouter::Receive(const Bytes32& source,
         Log(LogLevel::Debug,
             "wireguard",
             std::format("rejected transport packet peer={} type={} bytes={}",
-                        peer->Config.Name,
+                        peer->Config.Name(),
                         type,
                         packet.size()));
-        return result;
+        return ReceiveResult{
+            .Source = source,
+            .Outbound = {},
+            .Plaintext = {},
+            .SessionEstablished = false,
+            .Accepted = false,
+        };
     }
-    if (!received->Reply.empty())
+    return m_impl->Receive(*peer, std::move(*received));
+}
+
+WireGuardRouter::ReceiveResult WireGuardRouter::Receive(const std::vector<std::uint8_t>& packet)
+{
+    std::optional<WireGuardTunnel::ReceivedPacket> received = m_impl->Tunnel.ProcessPacket(packet);
+    if (!received)
     {
-        result.Outbound.push_back(m_impl->Wrap(*peer, received->Reply, true));
+        return {};
     }
-    if (received->SessionEstablished)
-    {
-        Log(LogLevel::Debug, "wireguard", "session established peer=" + peer->Config.Name);
-        std::vector<TransportPacket> pending = m_impl->Flush(*peer);
-        result.Outbound.insert(result.Outbound.end(),
-                               std::make_move_iterator(pending.begin()),
-                               std::make_move_iterator(pending.end()));
-    }
-    if (!received->Plaintext.empty())
-    {
-        result.Plaintext.push_back(received->Plaintext);
-    }
-    return result;
+    Impl::Peer* peer = m_impl->FindPeer(received->Peer);
+    return peer == nullptr ? ReceiveResult{} : m_impl->Receive(*peer, std::move(*received));
 }
 
 std::vector<WireGuardRouter::TransportPacket> WireGuardRouter::UpdateTimers()
@@ -297,10 +370,16 @@ std::vector<WireGuardRouter::TransportPacket> WireGuardRouter::UpdateTimers()
         else if (action == WireGuardTunnel::TimerAction::SendKeepalive)
         {
             result.push_back(
-                m_impl->Wrap(*peer, m_impl->Tunnel.Encrypt(peer->TunnelPeer, {}), true));
+                m_impl->Wrap(*peer, m_impl->Tunnel.Encrypt(peer->TunnelPeer, {}), true, false));
         }
     }
     return result;
+}
+
+bool WireGuardRouter::HasSession(const Bytes32& peer) const
+{
+    Impl::Peer* found = m_impl->FindPeer(peer);
+    return found != nullptr && m_impl->Tunnel.HasSession(found->TunnelPeer);
 }
 
 } // namespace tailgate::wgengine::wireguard

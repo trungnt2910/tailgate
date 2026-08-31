@@ -12,21 +12,39 @@
 namespace tailgate::uwp
 {
 
-struct UwpDevice
+class UwpDevice
 {
+public:
+    UwpDevice() = default;
+    UwpDevice(winrt::hstring group,
+              winrt::hstring name,
+              winrt::hstring address,
+              winrt::hstring ipv6,
+              winrt::hstring operatingSystem,
+              bool online,
+              bool exitNodeOption);
+
     bool operator==(const UwpDevice&) const = default;
 
     [[nodiscard]] winrt::hstring MagicDnsName() const;
     [[nodiscard]] bool MatchesExitNode(const winrt::hstring& nameOrAddress) const;
     [[nodiscard]] winrt::hstring ShortName() const;
+    [[nodiscard]] const winrt::hstring& Group() const noexcept;
+    [[nodiscard]] const winrt::hstring& Name() const noexcept;
+    [[nodiscard]] const winrt::hstring& Address() const noexcept;
+    [[nodiscard]] const winrt::hstring& Ipv6() const noexcept;
+    [[nodiscard]] const winrt::hstring& OperatingSystem() const noexcept;
+    [[nodiscard]] bool Online() const noexcept;
+    [[nodiscard]] bool ExitNodeOption() const noexcept;
 
-    winrt::hstring Group;
-    winrt::hstring Name;
-    winrt::hstring Address;
-    winrt::hstring Ipv6;
-    winrt::hstring OperatingSystem;
-    bool Online = false;
-    bool ExitNodeOption = false;
+private:
+    winrt::hstring m_group;
+    winrt::hstring m_name;
+    winrt::hstring m_address;
+    winrt::hstring m_ipv6;
+    winrt::hstring m_operatingSystem;
+    bool m_online = false;
+    bool m_exitNodeOption = false;
 };
 
 struct ConnectionSettingsSnapshot

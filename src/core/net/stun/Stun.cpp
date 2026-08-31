@@ -1,10 +1,9 @@
-#include <tailgate/net/stun/Stun.h>
+#include "tailgate/net/stun/Stun.h"
 
 #include <algorithm>
 #include <cstddef>
-#include <format>
 
-#include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/net/Ipv4Address.h>
 
 namespace tailgate::net::stun
 {
@@ -67,7 +66,14 @@ std::uint32_t Crc32(const std::vector<std::uint8_t>& input)
 
 } // namespace
 
-std::vector<std::uint8_t> BuildBindingRequest(const TransactionId& transactionId)
+TransactionId TransactionId::Generate(tailgate::crypto::Random& random)
+{
+    std::array<std::uint8_t, Size> value{};
+    random.Fill(value);
+    return TransactionId(value);
+}
+
+std::vector<std::uint8_t> TransactionId::BuildBindingRequest() const
 {
     constexpr std::uint16_t SoftwareLength = sizeof(Software) - 1;
     constexpr std::uint16_t AttributeLength = 4 + SoftwareLength + 8;
@@ -76,7 +82,7 @@ std::vector<std::uint8_t> BuildBindingRequest(const TransactionId& transactionId
     Write16(request, BindingRequest);
     Write16(request, AttributeLength);
     Write32(request, MagicCookie);
-    request.insert(request.end(), transactionId.begin(), transactionId.end());
+    request.insert(request.end(), begin(), end());
     Write16(request, SoftwareAttribute);
     Write16(request, SoftwareLength);
     request.insert(request.end(), Software, Software + SoftwareLength);
@@ -86,12 +92,11 @@ std::vector<std::uint8_t> BuildBindingRequest(const TransactionId& transactionId
     return request;
 }
 
-std::optional<std::string> ParseMappedIpv4Endpoint(const std::vector<std::uint8_t>& response,
-                                                   const TransactionId& transactionId)
+std::optional<tailgate::net::Endpoint>
+TransactionId::ParseMappedIpv4Endpoint(const std::vector<std::uint8_t>& response) const
 {
     if (response.size() < HeaderSize || Read16(response, 0) != BindingSuccessResponse ||
-        Read32(response, 4) != MagicCookie ||
-        !std::equal(transactionId.begin(), transactionId.end(), response.begin() + 8))
+        Read32(response, 4) != MagicCookie || !std::equal(begin(), end(), response.begin() + 8))
     {
         return std::nullopt;
     }
@@ -116,7 +121,8 @@ std::optional<std::string> ParseMappedIpv4Endpoint(const std::vector<std::uint8_
             const std::uint16_t port =
                 static_cast<std::uint16_t>(Read16(response, offset + 2) ^ (MagicCookie >> 16U));
             const std::uint32_t address = Read32(response, offset + 4) ^ MagicCookie;
-            return std::format("{}:{}", tailgate::net::packet::FormatIpv4(address), port);
+            return tailgate::net::Endpoint(tailgate::net::Ipv4Address::FromHostOrder(address),
+                                           port);
         }
         offset += (static_cast<std::size_t>(length) + 3U) & ~std::size_t{3U};
     }

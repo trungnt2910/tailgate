@@ -5,6 +5,7 @@ tailgate_add_library(
     STATIC
     FunnelConfig.cpp
     HandshakeLimiter.cpp
+    PeerApiConnection.cpp
     PeerApiIngress.cpp
 )
 target_include_directories(

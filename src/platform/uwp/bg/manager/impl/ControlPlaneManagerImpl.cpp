@@ -10,21 +10,19 @@
 #include <vector>
 
 #include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.Networking.Sockets.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/base.h>
 
-#include <tailgate/control/base/ControlHandshake.h>
-#include <tailgate/control/client/ControlDialer.h>
 #include <tailgate/control/client/RetryBackoff.h>
 
-#include "common/HostInfo.h"
 #include "common/Settings.h"
-#include "common/UwpTcpStream.h"
+#include "common/TcpSocketFactory.h"
+#include "common/UwpFormat.h"
+
+#include "manager/ControlRegistrationNotification.h"
 
 namespace tailgate::uwp::bg::manager
 {
-namespace sockets = winrt::Windows::Networking::Sockets;
 namespace storage = winrt::Windows::Storage;
 using namespace std::chrono_literals;
 
@@ -33,10 +31,8 @@ namespace
 
 constexpr std::chrono::seconds ControlIoTimeout(90);
 constexpr std::chrono::seconds PlaintextControlConnectTimeout(5);
-constexpr std::chrono::milliseconds RetryWaitSlice(100);
 constexpr std::chrono::seconds ReconnectMinimumBackoff(5);
 constexpr std::chrono::seconds ReconnectMaximumBackoff(60);
-constexpr std::chrono::milliseconds ReconnectPollInterval(100);
 
 winrt::hstring GeneratePrivateKeyText()
 {
@@ -91,8 +87,9 @@ tailgate::crypto::Bytes32 LoadOrCreatePrivateKey(const winrt::hstring& name)
     return *DecodePrivateKey(replacement);
 }
 
-struct IdentityStorageError final : std::runtime_error
+class IdentityStorageError final : public std::runtime_error
 {
+public:
     IdentityStorageError()
         : std::runtime_error("The registered UWP node identity is missing or invalid.")
     {
@@ -101,8 +98,55 @@ struct IdentityStorageError final : std::runtime_error
 
 } // namespace
 
-ControlPlaneManagerImpl::ControlPlaneManagerImpl(SessionManager& sessionManager)
-    : m_sessionManager(sessionManager)
+class ControlPlaneManagerImpl::RegistrationHandler final
+    : public tailgate::control::client::RegistrationHandler
+{
+public:
+    explicit RegistrationHandler(ControlPlaneManagerImpl& owner) noexcept : m_owner(owner)
+    {
+    }
+
+    void StateChanged(const tailgate::control::client::RegistrationResult& state) override
+    {
+        const std::optional<ForegroundConnectionNotification> notification =
+            BuildAuthenticationNotification(
+                state, winrt::to_string(Settings::GetString(L"TailgateServer")));
+        if (!notification)
+        {
+            return;
+        }
+        const bool loginRequired = notification->Kind == ForegroundConnectionKind::LoginRequired;
+        if (loginRequired)
+        {
+            Settings::SetString(L"NodeFollowupUrl", winrt::to_hstring(state.AuthorizationUrl));
+            m_owner.m_logger.LogInfo(
+                "waiting for interactive login code={}",
+                state.AuthorizationCode.empty() ? "unavailable" : state.AuthorizationCode.c_str());
+        }
+        else
+        {
+            m_owner.m_logger.LogInfo("waiting for machine approval url={}", state.ApprovalUrl);
+        }
+        m_owner.Report(SessionEventKind::AuthenticationRequired);
+        m_owner.m_sessionManager.Notify(m_owner.m_generation, *notification);
+    }
+
+    bool WaitForRetry(std::chrono::milliseconds delay) override
+    {
+        return m_owner.WaitForRetry(delay);
+    }
+
+private:
+    ControlPlaneManagerImpl& m_owner;
+};
+
+ControlPlaneManagerImpl::ControlPlaneManagerImpl(
+    SessionManager& sessionManager,
+    tailgate::control::client::SessionFactory& controlSessionFactory,
+    TcpSocketFactory& socketFactory)
+    : m_sessionManager(sessionManager),
+      m_controlSessionFactory(controlSessionFactory),
+      m_socketFactory(socketFactory)
 {
 }
 
@@ -143,113 +187,70 @@ tailgate::control::client::RegistrationResult
 ControlPlaneManagerImpl::Connect(const std::string& authKey)
 {
     m_logger.LogInfo("starting control registration");
-    std::unique_ptr<tailgate::control::client::ControlClient> client;
-    tailgate::control::client::ControlDialOutcome<std::unique_ptr<UwpTcpStream>> dialed =
-        tailgate::control::client::DialControlStream(
-            []
-            {
-                return std::make_unique<UwpTcpStream>(
-                    tailgate::control::base::ControlHandshake::DefaultHost,
-                    tailgate::control::base::ControlHandshake::PlaintextService,
-                    sockets::SocketProtectionLevel::PlainSocket,
-                    ControlIoTimeout,
-                    PlaintextControlConnectTimeout);
+    std::unique_ptr<tailgate::control::client::Session> controlSession =
+        m_controlSessionFactory.CreateSession(
+            tailgate::control::client::SessionOptions{
+                .Host = {},
+                .MachinePrivateKey = m_machinePrivateKey,
+                .NodePrivateKey = m_nodePrivateKey,
+                .ExternalNodePublicKey = std::nullopt,
+                .NetworkInterface = {},
+                .ReadinessToken = {},
+                .IoTimeout = ControlIoTimeout,
+                .PlaintextConnectTimeout = PlaintextControlConnectTimeout,
             },
-            []
-            {
-                return std::make_unique<UwpTcpStream>(
-                    tailgate::control::base::ControlHandshake::DefaultHost,
-                    tailgate::control::base::ControlHandshake::TlsService,
-                    sockets::SocketProtectionLevel::Tls12,
-                    ControlIoTimeout);
-            },
-            [&](tailgate::base::IByteStream& stream)
-            {
-                client = std::make_unique<tailgate::control::client::ControlClient>(
-                    stream, m_machinePrivateKey, m_nodePrivateKey, BuildHostInfo());
-            });
-    m_logger.LogInfo("{}",
-                     dialed.UsedTls ? "control connected through the TLS fallback"
-                                    : "control connected through plaintext ts2021");
-    client->SetDiscoPrivateKey(m_discoPrivateKey);
+            m_socketFactory);
+    controlSession->SetDiscoPrivateKey(m_discoPrivateKey);
     {
         std::lock_guard lock(m_mutex);
         if (m_stopping)
         {
             throw std::runtime_error("Control maintenance is stopping.");
         }
-        m_client = std::move(client);
-        m_stream = std::move(dialed.Stream);
+        m_controlSession = std::move(controlSession);
     }
-    m_stream->SetReadTimeout(std::nullopt);
-    tailgate::control::client::RegistrationOptions options;
-    options.InitialFollowupUrl = winrt::to_string(Settings::GetString(L"NodeFollowupUrl"));
-    options.StateChanged = [&](const tailgate::control::client::RegistrationResult& state)
-    {
-        const bool loginRequired =
-            state.State == tailgate::control::client::RegistrationState::LoginRequired;
-        const std::string actionUrl = loginRequired ? state.AuthorizationUrl : state.ApprovalUrl;
-        if (loginRequired)
-        {
-            Settings::SetString(L"NodeFollowupUrl", winrt::to_hstring(state.AuthorizationUrl));
-            m_logger.LogInfo("waiting for interactive login code={}",
-                             state.AuthorizationCode.empty() ? "unavailable"
-                                                             : state.AuthorizationCode.c_str());
-        }
-        else
-        {
-            m_logger.LogInfo("waiting for machine approval url={}", state.ApprovalUrl);
-        }
-        Report(SessionEventKind::AuthenticationRequired);
-        m_sessionManager.Notify(
-            m_generation,
-            ForegroundConnectionNotification{
-                .Kind = loginRequired ? ForegroundConnectionKind::LoginRequired
-                                      : ForegroundConnectionKind::MachineApprovalRequired,
-                .Url = actionUrl,
-                .TailgateServer = winrt::to_string(Settings::GetString(L"TailgateServer")),
-            });
-    };
-    options.WaitForRetry = [&](std::chrono::milliseconds delay)
-    {
-        return WaitForRetry(delay);
+    m_controlSession->SetReadTimeout(std::nullopt);
+    RegistrationHandler registrationHandler(*this);
+    const tailgate::control::client::RegistrationOptions options{
+        .InitialFollowupUrl = winrt::to_string(Settings::GetString(L"NodeFollowupUrl")),
+        .ReauthorizationKey = {},
+        .Handler = &registrationHandler,
     };
     tailgate::control::client::RegistrationResult registration;
     try
     {
-        registration = m_client->RegisterUntilAuthorized(authKey, options);
+        registration = m_controlSession->RegisterUntilAuthorized(authKey, options);
     }
     catch (...)
     {
-        m_stream->SetReadTimeout(ControlIoTimeout);
+        m_controlSession->SetReadTimeout(ControlIoTimeout);
         throw;
     }
-    m_stream->SetReadTimeout(ControlIoTimeout);
+    m_controlSession->SetReadTimeout(std::nullopt);
     if (!registration.Network)
     {
         throw std::runtime_error("Control registration completed without a network map.");
     }
     const tailgate::types::netmap::NetworkConfig& config = *registration.Network;
     const std::string key =
-        "nodekey:" + tailgate::crypto::BytesToHex(m_client->NodePublicKey().data(),
-                                                  m_client->NodePublicKey().size());
-    if (config.SelfKey != key)
+        "nodekey:" + tailgate::crypto::BytesToHex(m_controlSession->NodePublicKey().data(),
+                                                  m_controlSession->NodePublicKey().size());
+    if (config.SelfKey() != key)
     {
         throw ControlIdentityChangedError();
     }
-    m_nodePublicKey = m_client->NodePublicKey();
+    m_nodePublicKey = m_controlSession->NodePublicKey();
     Settings::SetString(L"RegistrationComplete", L"true");
     Settings::Remove(L"AuthKey");
     Settings::Remove(L"NodeFollowupUrl");
     storage::ApplicationData::Current().SignalDataChanged();
-    m_client->UpdateHostInfo(config.DerpRegion);
+    m_controlSession->UpdateHostInfo(config.DerpRegion());
     if (!registration.NetworkMapStreaming)
     {
-        m_client->SetPreferredDerp(config.DerpRegion);
+        m_controlSession->SetPreferredDerp(config.DerpRegion());
     }
-    m_stream->SetNonBlockingReads(true);
     Report(SessionEventKind::Ready);
-    m_logger.LogInfo("control registration completed address={}", config.SelfAddress);
+    m_logger.LogInfo("control registration completed address={}", config.SelfAddress());
     return registration;
 }
 
@@ -284,14 +285,9 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
                         reconnectBackoff.Reset();
                         m_logger.LogInfo("control stream reconnected");
                     }
-                    if (std::optional<tailgate::types::netmap::NetworkConfig> update =
-                            m_client->PollNetworkMap())
-                    {
-                        networkMapHandler(std::move(*update));
-                        continue;
-                    }
-                    m_stream->WaitForPendingRead();
-                    continue;
+                    tailgate::types::netmap::NetworkConfig update =
+                        m_controlSession->WaitForNetworkMap();
+                    networkMapHandler(std::move(update));
                 }
                 catch (const ControlIdentityChangedError& error)
                 {
@@ -319,10 +315,9 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
                 connected = false;
                 const std::chrono::milliseconds retryDelay = reconnectBackoff.NextDelay();
                 m_logger.LogInfo("reconnecting control stream in {}ms", retryDelay.count());
-                for (auto waited = std::chrono::milliseconds(0); waited < retryDelay && !m_stopping;
-                     waited += ReconnectPollInterval)
+                if (!WaitForRetry(retryDelay))
                 {
-                    std::this_thread::sleep_for(ReconnectPollInterval);
+                    break;
                 }
             }
             winrt::uninit_apartment();
@@ -341,12 +336,13 @@ void ControlPlaneManagerImpl::StopMaintenance()
 void ControlPlaneManagerImpl::RequestStop()
 {
     m_stopping = true;
+    m_stopChanged.notify_all();
     std::lock_guard lock(m_mutex);
-    if (m_stream)
+    if (m_controlSession)
     {
         try
         {
-            m_stream->Close();
+            m_controlSession->Close();
         }
         catch (const winrt::hresult_error& error)
         {
@@ -364,8 +360,7 @@ void ControlPlaneManagerImpl::Reset()
 {
     StopMaintenance();
     std::lock_guard lock(m_mutex);
-    m_client.reset();
-    m_stream.reset();
+    m_controlSession.reset();
 }
 
 bool ControlPlaneManagerImpl::IsStopping() const
@@ -390,14 +385,13 @@ const tailgate::crypto::Bytes32& ControlPlaneManagerImpl::DiscoPrivateKey() cons
 
 bool ControlPlaneManagerImpl::WaitForRetry(std::chrono::milliseconds delay) const
 {
-    std::chrono::milliseconds waited(0);
-    while (waited < delay && !m_stopping)
-    {
-        const std::chrono::milliseconds slice = std::min(RetryWaitSlice, delay - waited);
-        std::this_thread::sleep_for(slice);
-        waited += slice;
-    }
-    return !m_stopping;
+    std::unique_lock lock(m_mutex);
+    return !m_stopChanged.wait_for(lock,
+                                   delay,
+                                   [this]()
+                                   {
+                                       return m_stopping.load();
+                                   });
 }
 
 void ControlPlaneManagerImpl::Report(SessionEventKind kind)

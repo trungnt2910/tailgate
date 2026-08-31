@@ -43,27 +43,22 @@ protected:
         m_settings->GetState().HasStoredProfile(true);
         m_settings->GetState().SelfAddress(L"100.64.0.1");
         m_settings->GetState().Devices(std::vector<UwpDevice>{
-            UwpDevice{.Group = L"Example User",
-                      .Name = L"local.example.ts.net",
-                      .Address = L"100.64.0.1",
-                      .Ipv6 = L"",
-                      .OperatingSystem = L"Windows",
-                      .Online = true,
-                      .ExitNodeOption = false},
-            UwpDevice{.Group = L"Example User",
-                      .Name = L"peer.example.ts.net",
-                      .Address = L"100.64.0.2",
-                      .Ipv6 = L"",
-                      .OperatingSystem = L"Linux",
-                      .Online = true,
-                      .ExitNodeOption = true},
-            UwpDevice{.Group = L"Example User",
-                      .Name = L"offline.example.ts.net",
-                      .Address = L"100.64.0.3",
-                      .Ipv6 = L"",
-                      .OperatingSystem = L"Linux",
-                      .Online = false,
-                      .ExitNodeOption = false},
+            UwpDevice(L"Example User",
+                      L"local.example.ts.net",
+                      L"100.64.0.1",
+                      {},
+                      L"Windows",
+                      true,
+                      false),
+            UwpDevice(
+                L"Example User", L"peer.example.ts.net", L"100.64.0.2", {}, L"Linux", true, true),
+            UwpDevice(L"Example User",
+                      L"offline.example.ts.net",
+                      L"100.64.0.3",
+                      {},
+                      L"Linux",
+                      false,
+                      false),
         });
         m_session->GetState().Connected(true);
         m_exitNode->GetState().Current(L"peer.example.ts.net");

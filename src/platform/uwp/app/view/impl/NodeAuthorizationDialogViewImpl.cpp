@@ -24,8 +24,8 @@ constexpr int QrQuietZoneModules = 4;
 
 controls::Canvas LoginQrCanvas(const std::string& authorizationUrl, AppResources& resources)
 {
-    const tailgate::qr::QrCode code = tailgate::qr::EncodeQrCode(authorizationUrl);
-    const int totalModules = code.Size + (QrQuietZoneModules * 2);
+    const tailgate::qr::QrCode code = tailgate::qr::QrCode::Encode(authorizationUrl);
+    const int totalModules = code.Size() + (QrQuietZoneModules * 2);
     const double moduleSize = resources.Double(AppDouble::QrModuleSize);
     controls::Canvas canvas;
     canvas.Width(totalModules * moduleSize);
@@ -33,9 +33,9 @@ controls::Canvas LoginQrCanvas(const std::string& authorizationUrl, AppResources
     canvas.Background(resources.Brush(AppBrush::QrBackground));
     canvas.HorizontalAlignment(xaml::HorizontalAlignment::Center);
     canvas.VerticalAlignment(xaml::VerticalAlignment::Center);
-    for (int y = 0; y < code.Size; ++y)
+    for (int y = 0; y < code.Size(); ++y)
     {
-        for (int x = 0; x < code.Size; ++x)
+        for (int x = 0; x < code.Size(); ++x)
         {
             if (!code.Module(x, y))
             {

@@ -8,21 +8,21 @@
 namespace
 {
 
-tailgate::types::netmap::PeerConfig MakeDiscoPeer(const tailgate::crypto::Bytes32& nodePublicKey,
-                                                  const tailgate::crypto::Bytes32& discoPublicKey)
+[[maybe_unused]] tailgate::types::netmap::PeerConfig
+MakeDiscoPeer(const tailgate::crypto::Bytes32& nodePublicKey,
+              const tailgate::crypto::Bytes32& discoPublicKey)
 {
     tailgate::types::netmap::PeerConfig peer;
-    peer.Key =
-        "nodekey:" + tailgate::crypto::BytesToHex(nodePublicKey.data(), nodePublicKey.size());
-    peer.DiscoKey =
-        "discokey:" + tailgate::crypto::BytesToHex(discoPublicKey.data(), discoPublicKey.size());
-    peer.Online = true;
+    peer.Key("nodekey:" + tailgate::crypto::BytesToHex(nodePublicKey.data(), nodePublicKey.size()));
+    peer.DiscoKey("discokey:" +
+                  tailgate::crypto::BytesToHex(discoPublicKey.data(), discoPublicKey.size()));
+    peer.Online(true);
     return peer;
 }
 
 } // namespace
 
-TEST(Given_OnlineDiscoPeer, When_BuildingDiscoProbes_Then_PingTargetsThatPeer)
+TEST(Given_HostedDiscoProbes, When_OnlineDiscoPeerAndBuildingDiscoProbes_Then_PingTargetsThatPeer)
 {
     const auto senderNode = tailgate::crypto::GeneratePrivateKey();
     const auto peerNode = tailgate::crypto::GeneratePrivateKey();
@@ -38,9 +38,9 @@ TEST(Given_OnlineDiscoPeer, When_BuildingDiscoProbes_Then_PingTargetsThatPeer)
     const std::vector<tailgate::hosted::PeerPacket> probes =
         tailgate::hosted::BuildDiscoProbes(sender, peers);
     const std::optional<tailgate::disco::Disco::Message> message =
-        probes.empty() ? std::nullopt : receiver.Parse(probes.front().Payload);
-    const bool targetsPeer = !probes.empty() && probes.front().Peer == peerNodePublic;
-    const bool isDisco = !probes.empty() && probes.front().Disco;
+        probes.empty() ? std::nullopt : receiver.Parse(probes.front().Payload());
+    const bool targetsPeer = !probes.empty() && probes.front().Peer() == peerNodePublic;
+    const bool isDisco = !probes.empty() && probes.front().Disco();
     const bool isPing =
         message.has_value() && message->Type == tailgate::disco::Disco::MessageType::Ping;
     const bool identifiesSender = message.has_value() && message->Sender == sender.PublicKey();
@@ -53,7 +53,7 @@ TEST(Given_OnlineDiscoPeer, When_BuildingDiscoProbes_Then_PingTargetsThatPeer)
     EXPECT_TRUE(identifiesSender);
 }
 
-TEST(Given_OfflineDiscoPeer, When_BuildingDiscoProbes_Then_NoPingIsBuilt)
+TEST(Given_HostedDiscoProbes, When_OfflineDiscoPeerAndBuildingDiscoProbes_Then_NoPingIsBuilt)
 {
     const tailgate::disco::Disco sender(
         tailgate::crypto::GeneratePrivateKey(),
@@ -61,7 +61,7 @@ TEST(Given_OfflineDiscoPeer, When_BuildingDiscoProbes_Then_NoPingIsBuilt)
     tailgate::types::netmap::PeerConfig peer = MakeDiscoPeer(
         tailgate::crypto::X25519PublicFromPrivate(tailgate::crypto::GeneratePrivateKey()),
         sender.PublicKey());
-    peer.Online = false;
+    peer.Online(false);
     const std::vector<tailgate::types::netmap::PeerConfig> peers{peer};
 
     const std::vector<tailgate::hosted::PeerPacket> probes =
@@ -70,7 +70,7 @@ TEST(Given_OfflineDiscoPeer, When_BuildingDiscoProbes_Then_NoPingIsBuilt)
     EXPECT_TRUE(probes.empty());
 }
 
-TEST(Given_PeerWithMalformedKeys, When_BuildingDiscoProbes_Then_NoPingIsBuilt)
+TEST(Given_HostedDiscoProbes, When_PeerWithMalformedKeysAndBuildingDiscoProbes_Then_NoPingIsBuilt)
 {
     const tailgate::disco::Disco sender(
         tailgate::crypto::GeneratePrivateKey(),
@@ -78,11 +78,11 @@ TEST(Given_PeerWithMalformedKeys, When_BuildingDiscoProbes_Then_NoPingIsBuilt)
     tailgate::types::netmap::PeerConfig missingPrefix = MakeDiscoPeer(
         tailgate::crypto::X25519PublicFromPrivate(tailgate::crypto::GeneratePrivateKey()),
         sender.PublicKey());
-    missingPrefix.Key = "machinekey:00";
+    missingPrefix.Key("machinekey:00");
     tailgate::types::netmap::PeerConfig shortDiscoKey = MakeDiscoPeer(
         tailgate::crypto::X25519PublicFromPrivate(tailgate::crypto::GeneratePrivateKey()),
         sender.PublicKey());
-    shortDiscoKey.DiscoKey = "discokey:0011";
+    shortDiscoKey.DiscoKey("discokey:0011");
     const std::vector<tailgate::types::netmap::PeerConfig> peers{missingPrefix, shortDiscoKey};
 
     const std::vector<tailgate::hosted::PeerPacket> probes =

@@ -1,0 +1,10 @@
+tailgate_add_test_library(
+    tailgate_tests_core_wgengine_ping
+    Given_PingTracker.cpp
+)
+target_link_libraries(
+    tailgate_tests_core_wgengine_ping
+    PRIVATE
+        tailgate_core
+        tailgate_tests_core_fakes
+)

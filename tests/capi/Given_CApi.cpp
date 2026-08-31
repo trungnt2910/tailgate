@@ -26,7 +26,8 @@ struct AsyncStreamContext
     std::vector<std::uint8_t> Written;
 };
 
-tg_stream_result TryWrite(void* context, const std::uint8_t* data, size_t size, size_t* written)
+[[maybe_unused]] tg_stream_result
+TryWrite(void* context, const std::uint8_t* data, size_t size, size_t* written)
 {
     auto& stream = *static_cast<AsyncStreamContext*>(context);
     if (!stream.Writable)
@@ -38,14 +39,14 @@ tg_stream_result TryWrite(void* context, const std::uint8_t* data, size_t size, 
     return TG_STREAM_READY;
 }
 
-tg_stream_result TryRead(void*, std::uint8_t*, size_t, size_t*)
+[[maybe_unused]] tg_stream_result TryRead(void*, std::uint8_t*, size_t, size_t*)
 {
     return TG_STREAM_WOULD_BLOCK;
 }
 
 } // namespace
 
-TEST(Given_CDiscoApi, When_Pinging_Then_PortableHandlesRoundTrip)
+TEST(Given_CApi, When_CDiscoApi_And_Pinging_Then_PortableHandlesRoundTrip)
 {
     std::array<uint8_t, 32> privateA{};
     std::array<uint8_t, 32> privateB{};
@@ -78,7 +79,7 @@ TEST(Given_CDiscoApi, When_Pinging_Then_PortableHandlesRoundTrip)
     EXPECT_TRUE(std::equal(transaction.begin(), transaction.end(), message.transaction_id));
 }
 
-TEST(Given_AsyncCStreamWouldBlock, When_DerpSends_Then_OutputRemainsQueuedUntilFlush)
+TEST(Given_CApi, When_AsyncCStreamWouldBlockAndDerpSends_Then_OutputRemainsQueuedUntilFlush)
 {
     AsyncStreamContext stream;
     std::array<std::uint8_t, 32> privateKey{};

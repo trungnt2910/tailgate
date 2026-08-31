@@ -49,15 +49,14 @@ void AddDevice(std::vector<UwpDevice>& devices,
                const json::JsonObject& object,
                const winrt::hstring& groupName)
 {
-    UwpDevice device;
-    device.Group = StringValue(object, L"Group", groupName);
-    device.Name = StringValue(object, L"Name");
-    device.Address = StringValue(object, L"Address");
-    device.Ipv6 = StringValue(object, L"IPv6");
-    device.OperatingSystem = StringValue(object, L"OS");
-    device.Online = BoolValue(object, L"Online");
-    device.ExitNodeOption = BoolValue(object, L"ExitNodeOption");
-    if (!device.Name.empty() || !device.Address.empty())
+    UwpDevice device(StringValue(object, L"Group", groupName),
+                     StringValue(object, L"Name"),
+                     StringValue(object, L"Address"),
+                     StringValue(object, L"IPv6"),
+                     StringValue(object, L"OS"),
+                     BoolValue(object, L"Online"),
+                     BoolValue(object, L"ExitNodeOption"));
+    if (!device.Name().empty() || !device.Address().empty())
     {
         devices.push_back(std::move(device));
     }

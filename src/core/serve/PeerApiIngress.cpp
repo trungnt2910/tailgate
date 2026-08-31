@@ -1,4 +1,4 @@
-#include <tailgate/serve/PeerApiIngress.h>
+#include "tailgate/serve/PeerApiIngress.h"
 
 #include <cstring>
 #include <format>
@@ -23,7 +23,7 @@
 namespace tailgate::serve
 {
 
-using tailgate::base::IByteStream;
+using tailgate::base::ByteStream;
 
 namespace
 {
@@ -94,7 +94,7 @@ bool ParseHeaders(const std::string& request,
     return true;
 }
 
-std::string ReadHeaderBlock(IByteStream& stream)
+std::string ReadHeaderBlock(ByteStream& stream)
 {
     std::string request;
     while (request.find("\r\n\r\n") == std::string::npos)
@@ -186,7 +186,7 @@ private:
 
 struct TlsStreamContext
 {
-    IByteStream* Stream = nullptr;
+    ByteStream* Stream = nullptr;
 };
 
 int TlsSend(void* context, const unsigned char* data, std::size_t size)
@@ -228,10 +228,10 @@ int TlsReceive(void* context, unsigned char* data, std::size_t size)
 
 } // namespace
 
-class IngressTlsStream final : public IByteStream
+class IngressTlsStream final : public ByteStream
 {
 public:
-    IngressTlsStream(IByteStream& peer, mbedtls_ssl_config* config) : m_context{&peer}
+    IngressTlsStream(ByteStream& peer, mbedtls_ssl_config* config) : m_context{&peer}
     {
         mbedtls_ssl_init(&m_tls);
         int result = mbedtls_ssl_setup(&m_tls, config);
@@ -240,14 +240,28 @@ public:
             throw TlsError("TLS ingress setup failed", result);
         }
         mbedtls_ssl_set_bio(&m_tls, &m_context, TlsSend, TlsReceive, nullptr);
-        do
+        AdvanceHandshake();
+    }
+
+    bool AdvanceHandshake()
+    {
+        if (m_handshakeComplete)
         {
-            result = mbedtls_ssl_handshake(&m_tls);
-        } while (result == TlsIoWantRead || result == TlsIoWantWrite);
+            return true;
+        }
+        const int result = mbedtls_ssl_handshake(&m_tls);
+        m_handshakeWantsRead = result == TlsIoWantRead;
+        m_handshakeWantsWrite = result == TlsIoWantWrite;
+        if (m_handshakeWantsRead || m_handshakeWantsWrite)
+        {
+            return false;
+        }
         if (result != 0)
         {
             throw TlsError("TLS ingress handshake failed", result);
         }
+        m_handshakeComplete = true;
+        return true;
     }
 
     ~IngressTlsStream() override
@@ -258,6 +272,10 @@ public:
 
     std::optional<std::size_t> TryWriteSome(const std::uint8_t* data, std::size_t size) override
     {
+        if (!AdvanceHandshake())
+        {
+            return std::nullopt;
+        }
         const int result = mbedtls_ssl_write(&m_tls, data, size);
         if (result == TlsIoWantRead || result == TlsIoWantWrite)
         {
@@ -272,6 +290,10 @@ public:
 
     std::optional<std::vector<std::uint8_t>> TryReadSome(std::size_t maxBytes) override
     {
+        if (!AdvanceHandshake())
+        {
+            return std::nullopt;
+        }
         std::vector<std::uint8_t> buffer(maxBytes);
         const int result = mbedtls_ssl_read(&m_tls, buffer.data(), buffer.size());
         if (result == TlsIoWantRead || result == TlsIoWantWrite)
@@ -296,9 +318,22 @@ public:
         return mbedtls_ssl_get_bytes_avail(&m_tls) != 0;
     }
 
+    bool ReadNeedsWrite() const override
+    {
+        return m_handshakeWantsWrite;
+    }
+
+    bool WriteNeedsRead() const override
+    {
+        return m_handshakeWantsRead;
+    }
+
 private:
     TlsStreamContext m_context;
     mbedtls_ssl_context m_tls{};
+    bool m_handshakeComplete = false;
+    bool m_handshakeWantsRead = false;
+    bool m_handshakeWantsWrite = false;
 };
 
 class PeerApiIngressHandler::Impl
@@ -311,7 +346,7 @@ public:
     {
     }
 
-    PeerApiIngressRequest ReadRequestAndRespond(IByteStream& peer)
+    PeerApiIngressRequest ReadRequestAndRespond(ByteStream& peer)
     {
         const std::string requestText = ReadHeaderBlock(peer);
         PeerApiIngressRequest request;
@@ -350,7 +385,7 @@ public:
         return request;
     }
 
-    std::unique_ptr<IByteStream> OpenTlsStream(IByteStream& peer)
+    std::unique_ptr<ByteStream> OpenTlsStream(ByteStream& peer)
     {
         std::lock_guard lock(IdentityMutex);
         if (!Identity)
@@ -377,12 +412,12 @@ PeerApiIngressHandler::PeerApiIngressHandler(std::string funnelTarget,
 
 PeerApiIngressHandler::~PeerApiIngressHandler() = default;
 
-PeerApiIngressRequest PeerApiIngressHandler::ReadRequestAndRespond(IByteStream& peer)
+PeerApiIngressRequest PeerApiIngressHandler::ReadRequestAndRespond(ByteStream& peer)
 {
     return Implementation->ReadRequestAndRespond(peer);
 }
 
-std::unique_ptr<IByteStream> PeerApiIngressHandler::OpenTlsStream(IByteStream& peer)
+std::unique_ptr<ByteStream> PeerApiIngressHandler::OpenTlsStream(ByteStream& peer)
 {
     return Implementation->OpenTlsStream(peer);
 }

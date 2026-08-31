@@ -13,7 +13,7 @@ class PingDialogController;
 class ResourceLoader;
 class SettingsController;
 class UiFactory;
-struct UwpDevice;
+class UwpDevice;
 
 class DevicePageViewImpl final : public DevicePageView
 {

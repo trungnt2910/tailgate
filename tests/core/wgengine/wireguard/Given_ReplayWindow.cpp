@@ -2,7 +2,8 @@
 
 #include <tailgate/wgengine/wireguard/ReplayWindow.h>
 
-TEST(Given_AuthenticatedCountersBeyondThirtyTwoPackets, When_Reordered_Then_TheyAreAccepted)
+TEST(Given_ReplayWindow,
+     When_AuthenticatedCountersBeyondThirtyTwoPacketsAndReordered_Then_TheyAreAccepted)
 {
     tailgate::wgengine::wireguard::ReplayWindow window;
 
@@ -13,7 +14,7 @@ TEST(Given_AuthenticatedCountersBeyondThirtyTwoPackets, When_Reordered_Then_They
     EXPECT_TRUE(reorderedAccepted);
 }
 
-TEST(Given_AuthenticatedCounter, When_ReceivedTwice_Then_ReplayIsRejected)
+TEST(Given_ReplayWindow, When_AuthenticatedCounterAndReceivedTwice_Then_ReplayIsRejected)
 {
     tailgate::wgengine::wireguard::ReplayWindow window;
     ASSERT_TRUE(window.Accept(42));
@@ -23,7 +24,7 @@ TEST(Given_AuthenticatedCounter, When_ReceivedTwice_Then_ReplayIsRejected)
     EXPECT_FALSE(replayAccepted);
 }
 
-TEST(Given_CounterOlderThanWireGuardWindow, When_Received_Then_ItIsRejected)
+TEST(Given_ReplayWindow, When_CounterOlderThanWireGuardWindowAndReceived_Then_ItIsRejected)
 {
     tailgate::wgengine::wireguard::ReplayWindow window;
     ASSERT_TRUE(window.Accept(tailgate::wgengine::wireguard::ReplayWindow::WindowSize));
@@ -33,7 +34,8 @@ TEST(Given_CounterOlderThanWireGuardWindow, When_Received_Then_ItIsRejected)
     EXPECT_FALSE(staleAccepted);
 }
 
-TEST(Given_WindowCrossingBitmapBoundary, When_CountersAreReordered_Then_BitsRemainDistinct)
+TEST(Given_ReplayWindow,
+     When_WindowCrossingBitmapBoundaryAndCountersAreReordered_Then_BitsRemainDistinct)
 {
     tailgate::wgengine::wireguard::ReplayWindow window;
     ASSERT_TRUE(window.Accept(8191));

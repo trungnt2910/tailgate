@@ -13,7 +13,7 @@
 namespace tailgate::test
 {
 
-class ScriptedByteStream final : public tailgate::base::IByteStream
+class ScriptedByteStream final : public tailgate::base::ByteStream
 {
 public:
     [[nodiscard]] std::optional<std::size_t> TryWriteSome(const std::uint8_t* data,

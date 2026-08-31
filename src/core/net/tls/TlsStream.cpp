@@ -1,4 +1,4 @@
-#include <tailgate/net/tls/TlsStream.h>
+#include "tailgate/net/tls/TlsStream.h"
 
 #include <algorithm>
 #include <format>
@@ -16,7 +16,7 @@
 namespace tailgate::net::tls
 {
 
-using tailgate::base::IByteStream;
+using tailgate::base::ByteStream;
 using tailgate::base::StreamWouldBlock;
 
 namespace
@@ -34,7 +34,7 @@ std::runtime_error TlsError(const std::string& operation, int error)
 class TlsStream::Impl
 {
 public:
-    Impl(IByteStream& transport,
+    Impl(ByteStream& transport,
          const std::string& hostname,
          const std::vector<std::uint8_t>& caPem,
          bool allowTls13)
@@ -80,10 +80,22 @@ public:
             throw TlsError("TLS hostname setup failed", result);
         }
         mbedtls_ssl_set_bio(&Ssl, this, Send, Receive, nullptr);
-        do
+        AdvanceHandshake();
+    }
+
+    bool AdvanceHandshake()
+    {
+        if (HandshakeFinished)
         {
-            result = mbedtls_ssl_handshake(&Ssl);
-        } while (result == MBEDTLS_ERR_SSL_WANT_READ || result == MBEDTLS_ERR_SSL_WANT_WRITE);
+            return true;
+        }
+        const int result = mbedtls_ssl_handshake(&Ssl);
+        HandshakeWantsRead = result == MBEDTLS_ERR_SSL_WANT_READ;
+        HandshakeWantsWrite = result == MBEDTLS_ERR_SSL_WANT_WRITE;
+        if (HandshakeWantsRead || HandshakeWantsWrite)
+        {
+            return false;
+        }
         if (result != 0)
         {
             throw TlsError("TLS handshake failed", result);
@@ -92,6 +104,8 @@ public:
         {
             throw std::runtime_error("TLS certificate verification failed.");
         }
+        HandshakeFinished = true;
+        return true;
     }
 
     ~Impl()
@@ -141,16 +155,20 @@ public:
     }
 
     tailgate::crypto::detail::PsaCryptoContext CryptoContext;
-    IByteStream& Transport;
+    ByteStream& Transport;
     mbedtls_ssl_context Ssl{};
     mbedtls_ssl_config Config{};
     mbedtls_x509_crt Certificates{};
     bool ReadWantsWrite = false;
     bool WriteWantsRead = false;
+    bool HandshakeFinished = false;
+    bool HandshakeWantsRead = false;
+    bool HandshakeWantsWrite = false;
     std::uint64_t TransportReadGeneration = 0;
+    std::vector<std::uint8_t> ReadBuffer;
 };
 
-TlsStream::TlsStream(IByteStream& transport,
+TlsStream::TlsStream(ByteStream& transport,
                      const std::string& hostname,
                      const std::vector<std::uint8_t>& caPem,
                      bool allowTls13)
@@ -162,6 +180,10 @@ TlsStream::~TlsStream() = default;
 
 std::optional<std::size_t> TlsStream::TryWriteSome(const std::uint8_t* data, std::size_t size)
 {
+    if (!Implementation->AdvanceHandshake())
+    {
+        return std::nullopt;
+    }
     const int result = detail::WriteWithReadProgress(
         [&]()
         {
@@ -183,11 +205,27 @@ std::optional<std::size_t> TlsStream::TryWriteSome(const std::uint8_t* data, std
 
 std::optional<std::vector<std::uint8_t>> TlsStream::TryReadSome(std::size_t maxBytes)
 {
-    std::vector<std::uint8_t> data(maxBytes);
+    if (!Implementation->AdvanceHandshake())
+    {
+        return std::nullopt;
+    }
+    const int maximumRecordPayload = mbedtls_ssl_get_max_in_record_payload(&Implementation->Ssl);
+    if (maximumRecordPayload < 0)
+    {
+        throw TlsError("TLS incoming record size query failed", maximumRecordPayload);
+    }
+    const std::size_t readSize = std::min(maxBytes, static_cast<std::size_t>(maximumRecordPayload));
+    // Use a fixed read-buffer. This matters a lot in Debug mode with sanitizers to avoid absurd
+    // overhead caused by per-element std::vector construction and destruction.
+    if (Implementation->ReadBuffer.size() < readSize)
+    {
+        Implementation->ReadBuffer.resize(readSize);
+    }
     int result = 0;
     do
     {
-        result = mbedtls_ssl_read(&Implementation->Ssl, data.data(), data.size());
+        result =
+            mbedtls_ssl_read(&Implementation->Ssl, Implementation->ReadBuffer.data(), readSize);
     } while (result == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET);
     Implementation->ReadWantsWrite = result == MBEDTLS_ERR_SSL_WANT_WRITE;
     if (result == MBEDTLS_ERR_SSL_WANT_READ || result == MBEDTLS_ERR_SSL_WANT_WRITE)
@@ -202,8 +240,9 @@ std::optional<std::vector<std::uint8_t>> TlsStream::TryReadSome(std::size_t maxB
     {
         throw TlsError("TLS read failed", result);
     }
-    data.resize(static_cast<std::size_t>(result));
-    return data;
+    return std::vector<std::uint8_t>(Implementation->ReadBuffer.begin(),
+                                     Implementation->ReadBuffer.begin() +
+                                         static_cast<std::ptrdiff_t>(result));
 }
 
 bool TlsStream::HasBufferedInput() const
@@ -213,12 +252,17 @@ bool TlsStream::HasBufferedInput() const
 
 bool TlsStream::ReadNeedsWrite() const
 {
-    return Implementation->ReadWantsWrite;
+    return Implementation->HandshakeWantsWrite || Implementation->ReadWantsWrite;
 }
 
 bool TlsStream::WriteNeedsRead() const
 {
-    return Implementation->WriteWantsRead;
+    return Implementation->HandshakeWantsRead || Implementation->WriteWantsRead;
+}
+
+bool TlsStream::HandshakeComplete() const noexcept
+{
+    return Implementation->HandshakeFinished;
 }
 
 } // namespace tailgate::net::tls

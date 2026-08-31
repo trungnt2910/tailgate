@@ -8,8 +8,8 @@
 #include <winrt/Windows.Networking.Sockets.h>
 #include <winrt/Windows.Storage.Streams.h>
 
-#include <tailgate/base/ByteStream.h>
 #include <tailgate/base/Logger.h>
+#include <tailgate/types/nettype/TcpSocket.h>
 
 #include "common/UwpFormat.h"
 
@@ -19,7 +19,7 @@ namespace tailgate::uwp
 // TCP stream over a WinRT StreamSocket. TLS always uses a plain TCP connect followed by an
 // explicit UpgradeToSslAsync handshake: connecting with a TLS protection level directly defers
 // the handshake to the first I/O, which hangs inside the VPN background process.
-class UwpTcpStream final : public tailgate::base::IByteStream
+class UwpTcpStream final : public tailgate::types::nettype::TcpSocket
 {
 public:
     // An unset connect timeout uses the I/O timeout. A short connect timeout lets dial-with-
@@ -43,12 +43,14 @@ public:
                                                           std::size_t size) override;
     [[nodiscard]] std::optional<std::vector<std::uint8_t>>
     TryReadSome(std::size_t maxBytes) override;
-    void SetReadTimeout(std::optional<std::chrono::seconds> timeout);
-    void SetNonBlockingReads(bool enabled);
-    void WaitForPendingRead();
-    void Close();
+    void SetReadTimeout(std::optional<std::chrono::seconds> timeout) override;
+    void SetWriteInterest(bool enabled) override;
+    void SetNonBlocking(bool enabled) override;
+    void Close() noexcept override;
 
 private:
+    void SetNonBlockingReads(bool enabled);
+
     winrt::Windows::Networking::Sockets::StreamSocket m_socket;
     winrt::Windows::Storage::Streams::IInputStream m_input{nullptr};
     winrt::Windows::Storage::Streams::IOutputStream m_output{nullptr};

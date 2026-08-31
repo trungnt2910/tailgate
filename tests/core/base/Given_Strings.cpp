@@ -4,7 +4,7 @@
 
 #include <tailgate/base/Strings.h>
 
-TEST(Given_StringWithTrailingWhitespace, When_TrimmingEnd_Then_RemovesWhitespace)
+TEST(Given_Strings, When_StringWithTrailingWhitespaceAndTrimmingEnd_Then_RemovesWhitespace)
 {
     constexpr std::string_view value = "response body \t\r\n";
 
@@ -13,7 +13,7 @@ TEST(Given_StringWithTrailingWhitespace, When_TrimmingEnd_Then_RemovesWhitespace
     EXPECT_EQ(result, "response body");
 }
 
-TEST(Given_StringWithLeadingWhitespace, When_TrimmingEnd_Then_PreservesLeadingWhitespace)
+TEST(Given_Strings, When_StringWithLeadingWhitespaceAndTrimmingEnd_Then_PreservesLeadingWhitespace)
 {
     constexpr std::string_view value = "\t response body";
 
@@ -22,7 +22,7 @@ TEST(Given_StringWithLeadingWhitespace, When_TrimmingEnd_Then_PreservesLeadingWh
     EXPECT_EQ(result, value);
 }
 
-TEST(Given_StringWithoutTrailingWhitespace, When_TrimmingEnd_Then_PreservesString)
+TEST(Given_Strings, When_StringWithoutTrailingWhitespaceAndTrimmingEnd_Then_PreservesString)
 {
     constexpr std::string_view value = "response body";
 
@@ -31,7 +31,7 @@ TEST(Given_StringWithoutTrailingWhitespace, When_TrimmingEnd_Then_PreservesStrin
     EXPECT_EQ(result, value);
 }
 
-TEST(Given_WhitespaceOnlyString, When_TrimmingEnd_Then_ReturnsEmptyString)
+TEST(Given_Strings, When_WhitespaceOnlyStringAndTrimmingEnd_Then_ReturnsEmptyString)
 {
     constexpr std::string_view value = " \t\r\n\f\v";
 

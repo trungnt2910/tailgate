@@ -10,12 +10,12 @@ bool PeerPathState::HasDirectPath() const noexcept
     return m_directEndpoint.has_value();
 }
 
-const std::optional<Endpoint>& PeerPathState::DirectEndpoint() const noexcept
+const std::optional<tailgate::net::Endpoint>& PeerPathState::DirectEndpoint() const noexcept
 {
     return m_directEndpoint;
 }
 
-bool PeerPathState::IsVerified(const Endpoint& endpoint) const noexcept
+bool PeerPathState::IsVerified(const tailgate::net::Endpoint& endpoint) const noexcept
 {
     return std::find(m_verifiedEndpoints.begin(), m_verifiedEndpoints.end(), endpoint) !=
            m_verifiedEndpoints.end();
@@ -31,7 +31,7 @@ bool PeerPathState::TryBeginProbe(TimePoint now) noexcept
     return true;
 }
 
-bool PeerPathState::MarkDirect(const Endpoint& endpoint)
+bool PeerPathState::MarkDirect(const tailgate::net::Endpoint& endpoint)
 {
     const bool changed = m_directEndpoint != endpoint;
     m_directEndpoint = endpoint;
@@ -75,7 +75,7 @@ void PeerPathState::Reset(ResetMode mode) noexcept
     }
 }
 
-void PeerPathState::RememberVerified(const Endpoint& endpoint)
+void PeerPathState::RememberVerified(const tailgate::net::Endpoint& endpoint)
 {
     if (IsVerified(endpoint))
     {

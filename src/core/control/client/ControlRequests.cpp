@@ -1,13 +1,160 @@
-#include <tailgate/control/client/ControlRequests.h>
+#include "tailgate/control/client/ControlRequests.h"
 
 #include <algorithm>
 #include <cctype>
+#include <iterator>
+#include <utility>
 
 #include <boost/algorithm/string/case_conv.hpp>
 #include <nlohmann/json.hpp>
 
 namespace tailgate::control::client
 {
+
+HostInfo::HostInfo(std::string hostname,
+                   std::string operatingSystem,
+                   std::string operatingSystemVersion,
+                   std::string architecture)
+    : m_hostname(std::move(hostname)),
+      m_operatingSystem(std::move(operatingSystem)),
+      m_operatingSystemVersion(std::move(operatingSystemVersion)),
+      m_architecture(std::move(architecture))
+{
+}
+
+void HostInfo::ApplySessionConfig(HostInfo config)
+{
+    if (!config.m_hostname.empty())
+    {
+        m_hostname = std::move(config.m_hostname);
+    }
+    m_services.insert(m_services.end(),
+                      std::make_move_iterator(config.m_services.begin()),
+                      std::make_move_iterator(config.m_services.end()));
+    m_wireIngress = m_wireIngress || config.m_wireIngress;
+    m_ingressEnabled = m_ingressEnabled || config.m_ingressEnabled;
+}
+
+void HostInfo::SetHostname(std::string hostname)
+{
+    m_hostname = std::move(hostname);
+}
+
+void HostInfo::SetClientMetadata(std::string clientVersion,
+                                 std::string frontendLogId,
+                                 std::string backendLogId)
+{
+    m_clientVersion = std::move(clientVersion);
+    m_frontendLogId = std::move(frontendLogId);
+    m_backendLogId = std::move(backendLogId);
+}
+
+void HostInfo::AddService(HostService service)
+{
+    m_services.push_back(std::move(service));
+}
+
+void HostInfo::SetIngress(bool wireIngress, bool ingressEnabled) noexcept
+{
+    m_wireIngress = wireIngress;
+    m_ingressEnabled = ingressEnabled;
+}
+
+const std::string& HostInfo::Hostname() const noexcept
+{
+    return m_hostname;
+}
+
+const std::string& HostInfo::OperatingSystem() const noexcept
+{
+    return m_operatingSystem;
+}
+
+const std::string& HostInfo::OperatingSystemVersion() const noexcept
+{
+    return m_operatingSystemVersion;
+}
+
+const std::string& HostInfo::Architecture() const noexcept
+{
+    return m_architecture;
+}
+
+const std::string& HostInfo::ClientVersion() const noexcept
+{
+    return m_clientVersion;
+}
+
+const std::string& HostInfo::FrontendLogId() const noexcept
+{
+    return m_frontendLogId;
+}
+
+const std::string& HostInfo::BackendLogId() const noexcept
+{
+    return m_backendLogId;
+}
+
+const std::vector<HostService>& HostInfo::Services() const noexcept
+{
+    return m_services;
+}
+
+bool HostInfo::WireIngress() const noexcept
+{
+    return m_wireIngress;
+}
+
+bool HostInfo::IngressEnabled() const noexcept
+{
+    return m_ingressEnabled;
+}
+
+bool HostInfo::NetInfoMappingVariesByDestIp() const noexcept
+{
+    return m_netInfoMappingVariesByDestIp;
+}
+
+bool HostInfo::NetInfoWorkingIpv6() const noexcept
+{
+    return m_netInfoWorkingIpv6;
+}
+
+bool HostInfo::NetInfoOsHasIpv6() const noexcept
+{
+    return m_netInfoOsHasIpv6;
+}
+
+bool HostInfo::NetInfoWorkingUdp() const noexcept
+{
+    return m_netInfoWorkingUdp;
+}
+
+bool HostInfo::NetInfoWorkingIcmpV4() const noexcept
+{
+    return m_netInfoWorkingIcmpV4;
+}
+
+bool HostInfo::NetInfoUpnp() const noexcept
+{
+    return m_netInfoUpnp;
+}
+
+bool HostInfo::NetInfoPmp() const noexcept
+{
+    return m_netInfoPmp;
+}
+
+bool HostInfo::NetInfoPcp() const noexcept
+{
+    return m_netInfoPcp;
+}
+
+const std::string& HostInfo::NetInfoFirewallMode() const noexcept
+{
+    return m_netInfoFirewallMode;
+}
+
 namespace
 {
 
@@ -16,50 +163,50 @@ constexpr int ControlCapabilityVersion = 141;
 nlohmann::json EncodeHost(const HostInfo& host, int preferredDerp)
 {
     nlohmann::json result = {
-        {"Hostname", host.Hostname},
-        {"OS", host.OperatingSystem},
-        {"OSVersion", host.OperatingSystemVersion},
-        {"GoArch", host.Architecture},
-        {"IPNVersion", host.ClientVersion},
+        {"Hostname", host.Hostname()},
+        {"OS", host.OperatingSystem()},
+        {"OSVersion", host.OperatingSystemVersion()},
+        {"GoArch", host.Architecture()},
+        {"IPNVersion", host.ClientVersion()},
     };
-    if (!host.FrontendLogId.empty())
+    if (!host.FrontendLogId().empty())
     {
-        result["FrontendLogID"] = host.FrontendLogId;
+        result["FrontendLogID"] = host.FrontendLogId();
     }
-    if (!host.BackendLogId.empty())
+    if (!host.BackendLogId().empty())
     {
-        result["BackendLogID"] = host.BackendLogId;
+        result["BackendLogID"] = host.BackendLogId();
     }
     if (preferredDerp > 0)
     {
         result["NetInfo"] = {
-            {"MappingVariesByDestIP", host.NetInfoMappingVariesByDestIp},
-            {"WorkingIPv6", host.NetInfoWorkingIpv6},
-            {"OSHasIPv6", host.NetInfoOsHasIpv6},
-            {"WorkingUDP", host.NetInfoWorkingUdp},
-            {"WorkingICMPv4", host.NetInfoWorkingIcmpV4},
-            {"UPnP", host.NetInfoUpnp},
-            {"PMP", host.NetInfoPmp},
-            {"PCP", host.NetInfoPcp},
+            {"MappingVariesByDestIP", host.NetInfoMappingVariesByDestIp()},
+            {"WorkingIPv6", host.NetInfoWorkingIpv6()},
+            {"OSHasIPv6", host.NetInfoOsHasIpv6()},
+            {"WorkingUDP", host.NetInfoWorkingUdp()},
+            {"WorkingICMPv4", host.NetInfoWorkingIcmpV4()},
+            {"UPnP", host.NetInfoUpnp()},
+            {"PMP", host.NetInfoPmp()},
+            {"PCP", host.NetInfoPcp()},
             {"PreferredDERP", preferredDerp},
         };
-        if (!host.NetInfoFirewallMode.empty())
+        if (!host.NetInfoFirewallMode().empty())
         {
-            result["NetInfo"]["FirewallMode"] = host.NetInfoFirewallMode;
+            result["NetInfo"]["FirewallMode"] = host.NetInfoFirewallMode();
         }
     }
-    if (host.WireIngress)
+    if (host.WireIngress())
     {
         result["WireIngress"] = true;
     }
-    if (host.IngressEnabled)
+    if (host.IngressEnabled())
     {
         result["IngressEnabled"] = true;
     }
-    if (!host.Services.empty())
+    if (!host.Services().empty())
     {
         nlohmann::json services = nlohmann::json::array();
-        for (const HostService& service : host.Services)
+        for (const HostService& service : host.Services())
         {
             services.push_back({
                 {"Proto", service.Protocol},
@@ -126,16 +273,17 @@ nlohmann::json EncodeMapRequest(const std::string& nodeKey,
 
 } // namespace
 
-std::vector<std::uint8_t>
-BuildRegisterRequest(const std::string& nodeKey, const std::string& authKey, const HostInfo& host)
+std::vector<std::uint8_t> ControlRequest::BuildRegister(const std::string& nodeKey,
+                                                        const std::string& authKey,
+                                                        const HostInfo& host)
 {
-    return BuildRegisterRequest(nodeKey, authKey, {}, host);
+    return ControlRequest::BuildRegister(nodeKey, authKey, {}, host);
 }
 
-std::vector<std::uint8_t> BuildRegisterRequest(const std::string& nodeKey,
-                                               const std::string& authKey,
-                                               const std::string& followupUrl,
-                                               const HostInfo& host)
+std::vector<std::uint8_t> ControlRequest::BuildRegister(const std::string& nodeKey,
+                                                        const std::string& authKey,
+                                                        const std::string& followupUrl,
+                                                        const HostInfo& host)
 {
     nlohmann::json request = {
         {"Version", ControlCapabilityVersion},
@@ -237,7 +385,7 @@ std::string MachineApprovalUrl(std::string_view address)
     return std::string(MachinesUrl) + '/' + std::string(address);
 }
 
-std::optional<RegisterResponse> ParseRegisterResponse(const std::vector<std::uint8_t>& response)
+std::optional<RegisterResponse> RegisterResponse::Parse(const std::vector<std::uint8_t>& response)
 {
     const nlohmann::json json = nlohmann::json::parse(response, nullptr, false);
     if (!json.is_object())
@@ -245,11 +393,31 @@ std::optional<RegisterResponse> ParseRegisterResponse(const std::vector<std::uin
         return std::nullopt;
     }
     RegisterResponse result;
-    result.MachineAuthorized = json.value("MachineAuthorized", false);
-    result.NodeKeyExpired = json.value("NodeKeyExpired", false);
-    result.AuthUrl = json.value("AuthURL", "");
-    result.Error = json.value("Error", "");
+    result.m_machineAuthorized = json.value("MachineAuthorized", false);
+    result.m_nodeKeyExpired = json.value("NodeKeyExpired", false);
+    result.m_authUrl = json.value("AuthURL", "");
+    result.m_error = json.value("Error", "");
     return result;
+}
+
+bool RegisterResponse::MachineAuthorized() const noexcept
+{
+    return m_machineAuthorized;
+}
+
+bool RegisterResponse::NodeKeyExpired() const noexcept
+{
+    return m_nodeKeyExpired;
+}
+
+const std::string& RegisterResponse::AuthUrl() const noexcept
+{
+    return m_authUrl;
+}
+
+const std::string& RegisterResponse::Error() const noexcept
+{
+    return m_error;
 }
 
 bool IsRetryableInitialMapError(int status, std::string_view response)
@@ -258,7 +426,8 @@ bool IsRetryableInitialMapError(int status, std::string_view response)
     return status == NotFoundStatus && response.find("node not found") != std::string_view::npos;
 }
 
-std::vector<std::uint8_t> BuildLogoutRequest(const std::string& nodeKey, const HostInfo& host)
+std::vector<std::uint8_t> ControlRequest::BuildLogout(const std::string& nodeKey,
+                                                      const HostInfo& host)
 {
     return Encode({
         {"Version", ControlCapabilityVersion},
@@ -268,28 +437,28 @@ std::vector<std::uint8_t> BuildLogoutRequest(const std::string& nodeKey, const H
     });
 }
 
-std::vector<std::uint8_t> BuildMapRequest(const std::string& nodeKey,
-                                          const std::string& discoKey,
-                                          const HostInfo& host,
-                                          int preferredDerp,
-                                          bool stream,
-                                          bool omitPeers,
-                                          const std::vector<MapEndpoint>& endpoints,
-                                          bool keepAlive)
+std::vector<std::uint8_t> ControlRequest::BuildMap(const std::string& nodeKey,
+                                                   const std::string& discoKey,
+                                                   const HostInfo& host,
+                                                   int preferredDerp,
+                                                   bool stream,
+                                                   bool omitPeers,
+                                                   const std::vector<MapEndpoint>& endpoints,
+                                                   bool keepAlive)
 {
     return Encode(EncodeMapRequest(
         nodeKey, discoKey, host, preferredDerp, stream, omitPeers, endpoints, keepAlive, false));
 }
 
-std::vector<std::uint8_t> BuildReadOnlyMapRequest(const std::string& nodeKey,
-                                                  const std::string& discoKey,
-                                                  const HostInfo& host)
+std::vector<std::uint8_t> ControlRequest::BuildReadOnlyMap(const std::string& nodeKey,
+                                                           const std::string& discoKey,
+                                                           const HostInfo& host)
 {
     return Encode(EncodeMapRequest(nodeKey, discoKey, host, 0, false, false, {}, true, true));
 }
 
-std::vector<std::uint8_t> BuildQueryFeatureRequest(const std::string& nodeKey,
-                                                   const std::string& feature)
+std::vector<std::uint8_t> ControlRequest::BuildQueryFeature(const std::string& nodeKey,
+                                                            const std::string& feature)
 {
     return Encode({
         {"Feature", feature},
@@ -297,8 +466,9 @@ std::vector<std::uint8_t> BuildQueryFeatureRequest(const std::string& nodeKey,
     });
 }
 
-std::vector<std::uint8_t>
-BuildSetDnsRequest(const std::string& nodeKey, const std::string& name, const std::string& value)
+std::vector<std::uint8_t> ControlRequest::BuildSetDns(const std::string& nodeKey,
+                                                      const std::string& name,
+                                                      const std::string& value)
 {
     return Encode({{"Version", ControlCapabilityVersion},
                    {"NodeKey", nodeKey},

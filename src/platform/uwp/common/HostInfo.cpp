@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <format>
 #include <string>
+#include <utility>
 
 #include <winrt/Windows.System.Profile.h>
 
@@ -38,23 +39,26 @@ tailgate::control::client::HostInfo BuildHostInfo()
         hostname = hostnameOverride;
     }
 
-    tailgate::control::client::HostInfo host;
-    host.Hostname = hostname;
-    host.OperatingSystem = "UWP";
-    host.OperatingSystemVersion = HostVersion();
+    std::string architecture;
     // Official Tailscale architecture names (GOARCH).
 #if defined(_M_ARM64) || defined(__aarch64__)
-    host.Architecture = "arm64";
+    architecture = "arm64";
 #elif defined(_M_X64) || defined(__x86_64__)
-    host.Architecture = "amd64";
+    architecture = "amd64";
 #elif defined(_M_ARM) || defined(__arm__)
-    host.Architecture = "arm";
+    architecture = "arm";
 #elif defined(_M_IX86) || defined(__i386__)
-    host.Architecture = "386";
+    architecture = "386";
 #else
-    host.Architecture = "unknown";
+    architecture = "unknown";
 #endif
-    return host;
+    return tailgate::control::client::HostInfo(
+        std::move(hostname), "UWP", HostVersion(), std::move(architecture));
+}
+
+tailgate::control::client::HostInfo HostInfoProvider::GetHostInfo()
+{
+    return BuildHostInfo();
 }
 
 } // namespace tailgate::uwp

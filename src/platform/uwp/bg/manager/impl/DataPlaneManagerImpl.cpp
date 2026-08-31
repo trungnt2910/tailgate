@@ -7,6 +7,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.h>
 
+#include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 
 #include "common/Settings.h"
@@ -51,7 +52,8 @@ std::optional<RelayResolution> LoadRelayResolution(const winrt::hstring& server)
         winrt::unbox_value_or<winrt::hstring>(value.TryLookup(RelayResolutionAddressField), L""));
     result.ValidationHost = winrt::to_string(winrt::unbox_value_or<winrt::hstring>(
         value.TryLookup(RelayResolutionValidationHostField), L""));
-    if (!tailgate::net::packet::ParseIpv4(result.ConnectAddress) || result.ValidationHost.empty())
+    if (!tailgate::net::Ipv4Address::TryParse(result.ConnectAddress) ||
+        result.ValidationHost.empty())
     {
         Settings::Remove(RelayResolutionSetting);
         return std::nullopt;

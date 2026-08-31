@@ -1,17 +1,30 @@
 tailgate_add_library(
     tailgate_core_hosted
     STATIC
+    Client.cpp
+    ClientSession.cpp
+    Connection.cpp
     DiscoProbes.cpp
+    Dns.cpp
     Protocol.cpp
+    ServerSession.cpp
 )
 target_link_libraries(
     tailgate_core_hosted
     PUBLIC
         tailgate_core_base
         tailgate_core_crypto
+        tailgate_core_derp
         tailgate_core_disco
+        tailgate_core_net_dns
+        tailgate_core_net_packet
         tailgate_core_types_netmap
+        tailgate_core_types_nettype
+        tailgate_core_wgengine_tstun
+        tailgate_core_wgengine_wireguard
     PRIVATE
         sodium
         nlohmann_json::nlohmann_json
 )
+
+add_subdirectory(impl)

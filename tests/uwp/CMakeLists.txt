@@ -36,6 +36,7 @@ target_link_libraries(
         tailgate_tests
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_app>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_bg>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_bg_tstun>"
         Boost.DI
         mapbox::pixelmatch
         Tailgate.Uwp.App.Controller.Impl

@@ -27,19 +27,54 @@
 namespace tailgate::uwp
 {
 
-struct ExitNodeChangeState
+class ExitNodeChangeState
 {
-    explicit ExitNodeChangeState(std::uint64_t expectedSequence) : Sequence(expectedSequence)
+public:
+    explicit ExitNodeChangeState(std::uint64_t expectedSequence) : m_sequence(expectedSequence)
     {
     }
 
-    std::mutex Mutex;
-    std::optional<app_service::ExitNodeResponse> Response;
-    // After construction, written only by RequestChangeAsync and read only by ChangeAsync after
-    // the request has completed.
-    ExitNodeChangeStatus Result = ExitNodeChangeStatus::Failed;
-    std::uint64_t Sequence = 0;
-    EventSignal ResponseEvent;
+    [[nodiscard]] std::uint64_t Sequence() const noexcept
+    {
+        return m_sequence;
+    }
+
+    void StoreResponse(app_service::ExitNodeResponse response)
+    {
+        {
+            std::lock_guard lock(m_mutex);
+            m_response = std::move(response);
+        }
+        m_responseEvent.Set();
+    }
+
+    [[nodiscard]] std::optional<app_service::ExitNodeResponse> Response()
+    {
+        std::lock_guard lock(m_mutex);
+        return m_response;
+    }
+
+    [[nodiscard]] HANDLE ResponseHandle() const noexcept
+    {
+        return m_responseEvent.Handle();
+    }
+
+    void Result(ExitNodeChangeStatus result) noexcept
+    {
+        m_result = result;
+    }
+
+    [[nodiscard]] ExitNodeChangeStatus Result() const noexcept
+    {
+        return m_result;
+    }
+
+private:
+    std::mutex m_mutex;
+    std::optional<app_service::ExitNodeResponse> m_response;
+    ExitNodeChangeStatus m_result = ExitNodeChangeStatus::Failed;
+    std::uint64_t m_sequence = 0;
+    EventSignal m_responseEvent;
 };
 
 namespace
@@ -76,15 +111,11 @@ void HandleExitNodeResponse(const tailgate::base::Logger& logger,
         const std::optional<app_service::Message> message = app_service::DecodeMessage(payload);
         const std::optional<app_service::ExitNodeResponse> response =
             message ? app_service::DecodeExitNodeResponse(*message) : std::nullopt;
-        if (!response || response->Sequence != state->Sequence)
+        if (!response || response->Sequence != state->Sequence())
         {
             return;
         }
-        {
-            std::lock_guard lock(state->Mutex);
-            state->Response = response;
-        }
-        state->ResponseEvent.Set();
+        state->StoreResponse(std::move(*response));
     }
     catch (const winrt::hresult_error& error)
     {
@@ -177,7 +208,7 @@ void ExitNodeControllerImpl::StartChange(winrt::hstring nodeName, bool preserveS
     winrt::hstring selfAddress = m_settingsController.GetState().SelfAddress();
     if (selfAddress.empty() && !m_settingsController.GetState().Devices().empty())
     {
-        selfAddress = m_settingsController.GetState().Devices().front().Address;
+        selfAddress = m_settingsController.GetState().Devices().front().Address();
     }
     m_sessionController.BeginExitNodeChange();
     if (selfAddress.empty())
@@ -200,7 +231,7 @@ FireAndForget ExitNodeControllerImpl::ChangeAsync(winrt::hstring nodeName,
         RequestChangeAsync(std::move(nodeName), preserveSelection, std::move(selfAddress), state));
     co_await uiThread;
 
-    const ExitNodeChangeStatus result = state->Result;
+    const ExitNodeChangeStatus result = state->Result();
     m_state.ChangeStatus(result);
     Reload();
     std::optional<UwpError::Code> error;
@@ -245,44 +276,40 @@ ExitNodeControllerImpl::RequestChangeAsync(winrt::hstring nodeName,
         streams::DataWriter writer(socket.OutputStream());
         const std::vector<std::uint8_t> request =
             app_service::EncodeExitNodeRequest(app_service::ExitNodeRequest{
-                .Sequence = state->Sequence,
+                .Sequence = state->Sequence(),
                 .ExitNode = winrt::to_string(nodeName),
                 .PreserveSelection = preserveSelection,
             });
         writer.WriteBytes(winrt::array_view(request));
         (void)co_await writer.StoreAsync();
-        co_await winrt::resume_on_signal(state->ResponseEvent.Handle(), ExitNodeChangeTimeout);
+        co_await winrt::resume_on_signal(state->ResponseHandle(), ExitNodeChangeTimeout);
 
-        std::optional<app_service::ExitNodeResponse> response;
-        {
-            std::lock_guard lock(state->Mutex);
-            response = state->Response;
-        }
+        const std::optional<app_service::ExitNodeResponse> response = state->Response();
         if (!response)
         {
-            state->Result = ExitNodeChangeStatus::Timeout;
+            state->Result(ExitNodeChangeStatus::Timeout);
             co_return;
         }
         if (response->Result != app_service::Status::Ok)
         {
-            state->Result = ExitNodeChangeStatus::Rejected;
+            state->Result(ExitNodeChangeStatus::Rejected);
             co_return;
         }
         m_logger.LogInfo("background restart completed exit-node={}",
                          response->ExitNode.empty() ? "<none>" : response->ExitNode.c_str());
-        state->Result = ExitNodeChangeStatus::Success;
+        state->Result(ExitNodeChangeStatus::Success);
         co_return;
     }
     catch (const winrt::hresult_error& error)
     {
         const bool timeout = error.code() == HRESULT_FROM_WIN32(ERROR_TIMEOUT);
         m_logger.LogWarning("change failed hresult={} message={}", error.code(), error.message());
-        state->Result = timeout ? ExitNodeChangeStatus::Timeout : ExitNodeChangeStatus::Failed;
+        state->Result(timeout ? ExitNodeChangeStatus::Timeout : ExitNodeChangeStatus::Failed);
     }
     catch (const std::exception& error)
     {
         m_logger.LogWarning("change failed: {}", error.what());
-        state->Result = ExitNodeChangeStatus::Failed;
+        state->Result(ExitNodeChangeStatus::Failed);
     }
 }
 

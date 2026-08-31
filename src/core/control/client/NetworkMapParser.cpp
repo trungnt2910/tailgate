@@ -1,4 +1,4 @@
-#include <tailgate/control/client/NetworkMapParser.h>
+#include "tailgate/control/client/NetworkMapParser.h"
 
 #include <algorithm>
 #include <charconv>
@@ -8,6 +8,9 @@
 #include <string_view>
 
 #include <nlohmann/json.hpp>
+
+#include <tailgate/net/Endpoint.h>
+#include <tailgate/net/Ipv4Address.h>
 
 namespace tailgate::control::client
 {
@@ -74,23 +77,13 @@ std::optional<std::string> KeyText(const nlohmann::json& value, const char* pref
 
 int EndpointPreference(const std::string& endpoint)
 {
-    const std::size_t colon = endpoint.rfind(':');
-    if (colon == std::string::npos || endpoint.find('[') != std::string::npos)
+    const std::optional<tailgate::net::Endpoint> parsed =
+        tailgate::net::Endpoint::TryParse(endpoint);
+    if (!parsed)
     {
         return 100;
     }
-    const std::string host = endpoint.substr(0, colon);
-    const std::optional<std::uint32_t> address = tailgate::net::packet::ParseIpv4(host);
-    if (!address)
-    {
-        return 100;
-    }
-    if ((*address & 0xff000000U) == 0x0a000000U || (*address & 0xfff00000U) == 0xac100000U ||
-        (*address & 0xffff0000U) == 0xc0a80000U)
-    {
-        return 1;
-    }
-    return 0;
+    return parsed->Address().IsPrivate() ? 1 : 0;
 }
 
 std::string DerpHost(const nlohmann::json& region)
@@ -258,7 +251,7 @@ void ApplyAccountMetadata(NetworkConfig& config, const nlohmann::json& map)
     const std::string tailnetDisplayName = TailnetDisplayName(map);
     if (!tailnetDisplayName.empty())
     {
-        config.TailnetDisplayName = tailnetDisplayName;
+        config.TailnetDisplayName(tailnetDisplayName);
     }
     const auto node = map.find("Node");
     const std::uint64_t userId =
@@ -268,21 +261,21 @@ void ApplyAccountMetadata(NetworkConfig& config, const nlohmann::json& map)
     {
         return;
     }
-    config.AccountName = profile->value("LoginName", "");
-    config.AccountDisplayName = profile->value("DisplayName", "");
-    config.AccountProfilePicUrl = profile->value("ProfilePicURL", "");
+    config.AccountName(profile->value("LoginName", ""));
+    config.AccountDisplayName(profile->value("DisplayName", ""));
+    config.AccountProfilePicUrl(profile->value("ProfilePicURL", ""));
     // Tag-authenticated nodes belong to the synthetic "tagged-devices" user; surface the human
     // account when the map includes one.
-    if (config.AccountName.find('@') == std::string::npos)
+    if (config.AccountName().find('@') == std::string::npos)
     {
         for (const nlohmann::json& candidate : map.at("UserProfiles"))
         {
             const std::string login = candidate.value("LoginName", "");
             if (login.find('@') != std::string::npos)
             {
-                config.AccountName = login;
-                config.AccountDisplayName = candidate.value("DisplayName", "");
-                config.AccountProfilePicUrl = candidate.value("ProfilePicURL", "");
+                config.AccountName(login);
+                config.AccountDisplayName(candidate.value("DisplayName", ""));
+                config.AccountProfilePicUrl(candidate.value("ProfilePicURL", ""));
                 break;
             }
         }
@@ -295,6 +288,7 @@ bool MergeUserProfiles(NetworkConfig& config, const nlohmann::json& map)
     {
         return false;
     }
+    std::vector<UserProfile> profiles = config.UserProfiles();
     for (const nlohmann::json& source : map.at("UserProfiles"))
     {
         const std::uint64_t id = source.value("ID", 0ULL);
@@ -306,21 +300,22 @@ bool MergeUserProfiles(NetworkConfig& config, const nlohmann::json& map)
                             .LoginName = source.value("LoginName", ""),
                             .DisplayName = source.value("DisplayName", ""),
                             .ProfilePicUrl = source.value("ProfilePicURL", "")};
-        const auto existing = std::find_if(config.UserProfiles.begin(),
-                                           config.UserProfiles.end(),
+        const auto existing = std::find_if(profiles.begin(),
+                                           profiles.end(),
                                            [id](const UserProfile& candidate)
                                            {
                                                return candidate.Id == id;
                                            });
-        if (existing == config.UserProfiles.end())
+        if (existing == profiles.end())
         {
-            config.UserProfiles.push_back(std::move(profile));
+            profiles.push_back(std::move(profile));
         }
         else
         {
             *existing = std::move(profile);
         }
     }
+    config.UserProfiles(std::move(profiles));
     return true;
 }
 
@@ -341,27 +336,29 @@ std::string OwnerName(const std::vector<UserProfile>& profiles, std::uint64_t ow
 
 void RefreshPeerOwners(NetworkConfig& config)
 {
-    for (PeerConfig& peer : config.Peers)
+    std::vector<PeerConfig> peers = config.Peers();
+    for (PeerConfig& peer : peers)
     {
-        const std::string owner = OwnerName(config.UserProfiles, peer.OwnerId);
+        const std::string owner = OwnerName(config.UserProfiles(), peer.OwnerId());
         if (!owner.empty())
         {
-            peer.Owner = owner;
+            peer.Owner(owner);
         }
     }
+    config.Peers(std::move(peers));
 }
 
 void ApplyDerpMetadata(PeerConfig& peer, const nlohmann::json& regions)
 {
-    if (peer.DerpRegion == 0)
+    if (peer.DerpRegion() == 0)
     {
         return;
     }
-    const auto region = regions.find(std::format("{}", peer.DerpRegion));
+    const auto region = regions.find(std::format("{}", peer.DerpRegion()));
     if (region != regions.end())
     {
-        peer.DerpCode = region->value("RegionCode", std::format("derp-{}", peer.DerpRegion));
-        peer.DerpHost = DerpHost(*region);
+        peer.DerpCode(region->value("RegionCode", std::format("derp-{}", peer.DerpRegion())));
+        peer.DerpHost(DerpHost(*region));
     }
 }
 
@@ -372,11 +369,11 @@ void ApplyHostInfoMetadata(NetworkConfig& config, const nlohmann::json& node)
         return;
     }
     const nlohmann::json& hostInfo = node.at("Hostinfo");
-    config.SelfClientVersion = hostInfo.value("IPNVersion", "");
-    config.SelfWireIngress = hostInfo.value("WireIngress", false);
-    config.SelfIngressEnabled = hostInfo.value("IngressEnabled", false);
-    config.SelfPeerApi4Port = 0;
-    config.SelfPeerApi6Port = 0;
+    config.SelfClientVersion(hostInfo.value("IPNVersion", ""));
+    config.SelfWireIngress(hostInfo.value("WireIngress", false));
+    config.SelfIngressEnabled(hostInfo.value("IngressEnabled", false));
+    config.SelfPeerApi4Port(0);
+    config.SelfPeerApi6Port(0);
     if (!hostInfo.contains("Services") || !hostInfo.at("Services").is_array())
     {
         return;
@@ -386,11 +383,11 @@ void ApplyHostInfoMetadata(NetworkConfig& config, const nlohmann::json& node)
         const std::string protocol = service.value("Proto", "");
         if (protocol == "peerapi4")
         {
-            config.SelfPeerApi4Port = service.value("Port", 0);
+            config.SelfPeerApi4Port(service.value("Port", 0));
         }
         else if (protocol == "peerapi6")
         {
-            config.SelfPeerApi6Port = service.value("Port", 0);
+            config.SelfPeerApi6Port(service.value("Port", 0));
         }
     }
 }
@@ -399,38 +396,40 @@ PeerConfig Peer(const nlohmann::json& node,
                 const nlohmann::json& regions,
                 const std::vector<UserProfile>& profiles)
 {
-    const auto addresses = StringArray(node, "Addresses");
+    const auto addressTexts = StringArray(node, "Addresses");
     PeerConfig peer;
-    peer.NodeId = NodeId(node);
-    peer.Name = node.value("Name", "");
-    peer.OwnerId = node.value("User", 0ULL);
-    peer.Owner = OwnerName(profiles, peer.OwnerId);
-    for (const std::string& address : addresses)
+    peer.NodeId(NodeId(node));
+    peer.Name(node.value("Name", ""));
+    peer.OwnerId(node.value("User", 0ULL));
+    peer.Owner(OwnerName(profiles, peer.OwnerId()));
+    std::vector<std::string> addresses;
+    for (const std::string& address : addressTexts)
     {
-        peer.Addresses.push_back(address.substr(0, address.find('/')));
+        addresses.push_back(address.substr(0, address.find('/')));
     }
-    if (!peer.Addresses.empty())
+    if (!addresses.empty())
     {
-        const auto ipv4 = std::find_if(peer.Addresses.begin(),
-                                       peer.Addresses.end(),
+        const auto ipv4 = std::find_if(addresses.begin(),
+                                       addresses.end(),
                                        [](const std::string& address)
                                        {
                                            return address.find(':') == std::string::npos;
                                        });
-        peer.Address = ipv4 == peer.Addresses.end() ? peer.Addresses.front() : *ipv4;
+        peer.Address(ipv4 == addresses.end() ? addresses.front() : *ipv4);
     }
-    peer.Key = node.value("Key", "");
-    peer.DiscoKey = node.value("DiscoKey", "");
-    peer.Online = node.value("Online", false);
-    peer.LastSeen = node.value("LastSeen", "");
-    peer.KeyExpiry = node.value("KeyExpiry", "");
+    peer.Addresses(std::move(addresses));
+    peer.Key(node.value("Key", ""));
+    peer.DiscoKey(node.value("DiscoKey", ""));
+    peer.Online(node.value("Online", false));
+    peer.LastSeen(node.value("LastSeen", ""));
+    peer.KeyExpiry(node.value("KeyExpiry", ""));
     if (node.contains("Hostinfo") && node.at("Hostinfo").is_object())
     {
         const nlohmann::json& hostInfo = node.at("Hostinfo");
-        peer.OperatingSystem = hostInfo.value("OS", "");
-        peer.ClientVersion = hostInfo.value("IPNVersion", "");
-        peer.WireIngress = hostInfo.value("WireIngress", false);
-        peer.IngressEnabled = hostInfo.value("IngressEnabled", false);
+        peer.OperatingSystem(hostInfo.value("OS", ""));
+        peer.ClientVersion(hostInfo.value("IPNVersion", ""));
+        peer.WireIngress(hostInfo.value("WireIngress", false));
+        peer.IngressEnabled(hostInfo.value("IngressEnabled", false));
         if (hostInfo.contains("Services") && hostInfo.at("Services").is_array())
         {
             for (const nlohmann::json& service : hostInfo.at("Services"))
@@ -438,11 +437,11 @@ PeerConfig Peer(const nlohmann::json& node,
                 const std::string protocol = service.value("Proto", "");
                 if (protocol == "peerapi4")
                 {
-                    peer.PeerApi4Port = service.value("Port", 0);
+                    peer.PeerApi4Port(service.value("Port", 0));
                 }
                 else if (protocol == "peerapi6")
                 {
-                    peer.PeerApi6Port = service.value("Port", 0);
+                    peer.PeerApi6Port(service.value("Port", 0));
                 }
             }
         }
@@ -451,36 +450,40 @@ PeerConfig Peer(const nlohmann::json& node,
     const std::size_t colon = derp.rfind(':');
     if (colon != std::string::npos)
     {
-        peer.DerpRegion = std::stoi(derp.substr(colon + 1));
+        peer.DerpRegion(std::stoi(derp.substr(colon + 1)));
         ApplyDerpMetadata(peer, regions);
     }
+    std::vector<std::string> endpoints;
     for (const std::string& endpoint : StringArray(node, "Endpoints"))
     {
         if (EndpointPreference(endpoint) < 100)
         {
-            peer.Endpoints.push_back(endpoint);
+            endpoints.push_back(endpoint);
         }
     }
-    std::stable_sort(peer.Endpoints.begin(),
-                     peer.Endpoints.end(),
+    std::stable_sort(endpoints.begin(),
+                     endpoints.end(),
                      [](const std::string& left, const std::string& right)
                      {
                          return EndpointPreference(left) < EndpointPreference(right);
                      });
+    peer.Endpoints(std::move(endpoints));
     std::vector<std::string> allowed = StringArray(node, "AllowedIPs");
-    allowed.insert(allowed.end(), addresses.begin(), addresses.end());
+    allowed.insert(allowed.end(), addressTexts.begin(), addressTexts.end());
+    std::vector<tailgate::net::packet::Ipv4Prefix> allowedPrefixes;
     for (const std::string& text : allowed)
     {
-        const auto prefix = tailgate::net::packet::ParseIpv4Prefix(text);
-        if (prefix && prefix->PrefixLength == 0)
+        const auto prefix = tailgate::net::packet::Ipv4Prefix::Parse(text);
+        if (prefix && prefix->PrefixLength() == 0)
         {
-            peer.ExitNodeOption = true;
+            peer.ExitNodeOption(true);
         }
         else if (prefix)
         {
-            peer.AllowedPrefixes.push_back(*prefix);
+            allowedPrefixes.push_back(*prefix);
         }
     }
+    peer.AllowedPrefixes(std::move(allowedPrefixes));
     return peer;
 }
 
@@ -500,145 +503,151 @@ std::vector<PeerConfig> Peers(const nlohmann::json& map, const std::vector<UserP
     return result;
 }
 
-std::vector<PeerConfig>::iterator FindPeer(NetworkConfig& config, std::uint64_t nodeId)
+std::vector<PeerConfig>::iterator FindPeer(std::vector<PeerConfig>& peers, std::uint64_t nodeId)
 {
-    return std::find_if(config.Peers.begin(),
-                        config.Peers.end(),
+    return std::find_if(peers.begin(),
+                        peers.end(),
                         [nodeId](const PeerConfig& peer)
                         {
-                            return peer.NodeId == nodeId;
+                            return peer.NodeId() == nodeId;
                         });
 }
 
 void ApplyDnsConfig(NetworkConfig& config, const nlohmann::json& dns)
 {
-    config.DnsDomains = DnsDomains(dns);
-    config.CertDomains = StringArray(dns, "CertDomains");
-    config.DnsDefaultResolvers = ResolverArray(dns.value("Resolvers", nlohmann::json::array()));
-    if (config.DnsDefaultResolvers.empty())
+    config.DnsDomains(DnsDomains(dns));
+    config.CertDomains(StringArray(dns, "CertDomains"));
+    std::vector<std::string> defaultResolvers =
+        ResolverArray(dns.value("Resolvers", nlohmann::json::array()));
+    if (defaultResolvers.empty())
     {
-        config.DnsDefaultResolvers =
-            ResolverArray(dns.value("FallbackResolvers", nlohmann::json::array()));
+        defaultResolvers = ResolverArray(dns.value("FallbackResolvers", nlohmann::json::array()));
     }
-    config.DnsRoutes.clear();
+    config.DnsDefaultResolvers(std::move(defaultResolvers));
+    std::vector<NetworkConfig::DnsRoute> routes;
     for (const auto& [suffix, resolvers] : dns.at("Routes").items())
     {
-        config.DnsRoutes.push_back(
+        routes.push_back(
             NetworkConfig::DnsRoute{.Suffix = suffix, .Resolvers = ResolverArray(resolvers)});
     }
+    config.DnsRoutes(std::move(routes));
 }
 
 } // namespace
 
-NetworkConfig ParseNetworkMap(const std::string& text)
+NetworkConfig NetworkMapParser::Parse(const std::string& text)
 {
     const nlohmann::json map = nlohmann::json::parse(text);
     NetworkConfig result;
-    result.Domain = map.value("Domain", "");
+    result.Domain(map.value("Domain", ""));
     (void)MergeUserProfiles(result, map);
     ApplyAccountMetadata(result, map);
     const nlohmann::json& node = map.at("Node");
-    result.SelfNodeId = NodeId(node);
-    result.SelfKey = node.value("Key", "");
-    result.SelfName = TrimTrailingDot(node.value("Name", ""));
-    result.SelfMachineAuthorized = node.value("MachineAuthorized", false);
-    result.MagicDnsDomain = MagicDnsDomainFromNodeName(result.SelfName);
-    result.Capabilities = Capabilities(map);
+    result.SelfNodeId(NodeId(node));
+    result.SelfKey(node.value("Key", ""));
+    result.SelfName(TrimTrailingDot(node.value("Name", "")));
+    result.SelfMachineAuthorized(node.value("MachineAuthorized", false));
+    result.MagicDnsDomain(MagicDnsDomainFromNodeName(result.SelfName()));
+    result.Capabilities(Capabilities(map));
     ApplyHostInfoMetadata(result, node);
+    std::vector<std::string> selfAddresses;
     for (const std::string& address : StringArray(node, "Addresses"))
     {
-        result.SelfAddresses.push_back(address.substr(0, address.find('/')));
+        selfAddresses.push_back(address.substr(0, address.find('/')));
     }
     const auto selfIpv4 =
-        std::find_if(result.SelfAddresses.begin(),
-                     result.SelfAddresses.end(),
+        std::find_if(selfAddresses.begin(),
+                     selfAddresses.end(),
                      [](const std::string& address)
                      {
-                         return tailgate::net::packet::ParseIpv4(address).has_value();
+                         return tailgate::net::Ipv4Address::TryParse(address).has_value();
                      });
-    if (selfIpv4 != result.SelfAddresses.end())
+    if (selfIpv4 != selfAddresses.end())
     {
-        result.SelfAddress = *selfIpv4;
+        result.SelfAddress(*selfIpv4);
     }
-    else if (!result.SelfAddresses.empty())
+    else if (!selfAddresses.empty())
     {
-        result.SelfAddress = result.SelfAddresses.front();
+        result.SelfAddress(selfAddresses.front());
     }
+    result.SelfAddresses(std::move(selfAddresses));
     const nlohmann::json& dns = map.at("DNSConfig");
     ApplyDnsConfig(result, dns);
-    result.Peers = Peers(map, result.UserProfiles);
+    result.Peers(Peers(map, result.UserProfiles()));
 
     for (const std::string& resolverText : DnsResolvers(dns))
     {
-        const auto resolver = tailgate::net::packet::ParseIpv4(resolverText);
+        const auto resolver = tailgate::net::Ipv4Address::TryParse(resolverText);
         if (!resolver)
         {
             continue;
         }
-        for (const PeerConfig& peer : result.Peers)
+        for (const PeerConfig& peer : result.Peers())
         {
-            if (std::any_of(peer.AllowedPrefixes.begin(),
-                            peer.AllowedPrefixes.end(),
+            if (std::any_of(peer.AllowedPrefixes().begin(),
+                            peer.AllowedPrefixes().end(),
                             [&](const tailgate::net::packet::Ipv4Prefix& prefix)
                             {
-                                return tailgate::net::packet::Contains(prefix, *resolver);
+                                return prefix.Contains(resolver->HostOrder());
                             }))
             {
-                result.DnsResolver = resolverText;
-                result.DerpRegion = peer.DerpRegion;
+                result.DnsResolver(resolverText);
+                result.DerpRegion(peer.DerpRegion());
                 break;
             }
         }
-        if (!result.DnsResolver.empty())
+        if (!result.DnsResolver().empty())
         {
             break;
         }
     }
-    if (result.DnsResolver.empty())
+    if (result.DnsResolver().empty())
     {
         throw std::runtime_error("Network map did not provide a reachable IPv4 DNS resolver.");
     }
-    if (result.DerpRegion == 0)
+    if (result.DerpRegion() == 0)
     {
-        const auto peer = std::find_if(result.Peers.begin(),
-                                       result.Peers.end(),
+        const auto peer = std::find_if(result.Peers().begin(),
+                                       result.Peers().end(),
                                        [](const PeerConfig& value)
                                        {
-                                           return value.DerpRegion != 0;
+                                           return value.DerpRegion() != 0;
                                        });
-        if (peer == result.Peers.end())
+        if (peer == result.Peers().end())
         {
             throw std::runtime_error("Network map did not provide a DERP region.");
         }
-        result.DerpRegion = peer->DerpRegion;
+        result.DerpRegion(peer->DerpRegion());
     }
     const nlohmann::json& region =
-        map.at("DERPMap").at("Regions").at(std::format("{}", result.DerpRegion));
-    result.DerpCode = region.value("RegionCode", std::format("derp-{}", result.DerpRegion));
-    result.DerpHost = DerpHost(region);
+        map.at("DERPMap").at("Regions").at(std::format("{}", result.DerpRegion()));
+    result.DerpCode(region.value("RegionCode", std::format("derp-{}", result.DerpRegion())));
+    result.DerpHost(DerpHost(region));
     const auto [stunHost, stunPort] = StunEndpoint(region);
-    result.StunHost = stunHost;
-    result.StunPort = stunPort;
-    if (result.DerpHost.empty())
+    result.StunHost(stunHost);
+    result.StunPort(stunPort);
+    if (result.DerpHost().empty())
     {
         throw std::runtime_error("Selected DERP region has no usable hostname.");
     }
     return result;
 }
 
-bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
+bool NetworkMapParser::ApplyUpdate(NetworkConfig& config, const std::string& text)
 {
     const nlohmann::json map = nlohmann::json::parse(text);
-    config.RemovedPeerNodeIds.clear();
+    config.RemovedPeerNodeIds({});
     if (map.value("KeepAlive", false))
     {
         return false;
     }
 
+    std::vector<PeerConfig> peers = config.Peers();
+    std::vector<std::uint64_t> removedPeerNodeIds;
     bool changed = false;
     if (map.contains("Domain"))
     {
-        config.Domain = map.value("Domain", "");
+        config.Domain(map.value("Domain", ""));
         changed = true;
     }
     const bool userProfilesChanged = MergeUserProfiles(config, map);
@@ -646,18 +655,18 @@ bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
     {
         if (map.contains("Node") && map.at("Node").is_object() && map.at("Node").contains("Name"))
         {
-            config.SelfName = TrimTrailingDot(map.at("Node").value("Name", ""));
-            config.SelfKey = map.at("Node").value("Key", config.SelfKey);
-            config.MagicDnsDomain = MagicDnsDomainFromNodeName(config.SelfName);
+            config.SelfName(TrimTrailingDot(map.at("Node").value("Name", "")));
+            config.SelfKey(map.at("Node").value("Key", config.SelfKey()));
+            config.MagicDnsDomain(MagicDnsDomainFromNodeName(config.SelfName()));
         }
         if (map.contains("Node") && map.at("Node").is_object() &&
             map.at("Node").contains("MachineAuthorized"))
         {
-            config.SelfMachineAuthorized = map.at("Node").value("MachineAuthorized", false);
+            config.SelfMachineAuthorized(map.at("Node").value("MachineAuthorized", false));
         }
         if (map.contains("Node") && map.at("Node").is_object() && map.at("Node").contains("CapMap"))
         {
-            config.Capabilities = Capabilities(map);
+            config.Capabilities(Capabilities(map));
         }
         ApplyAccountMetadata(config, map);
         changed = true;
@@ -673,17 +682,17 @@ bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
     }
     if (!updateRegions.empty())
     {
-        const auto homeRegion = updateRegions.find(std::format("{}", config.DerpRegion));
+        const auto homeRegion = updateRegions.find(std::format("{}", config.DerpRegion()));
         if (homeRegion != updateRegions.end())
         {
-            config.DerpCode =
-                homeRegion->value("RegionCode", std::format("derp-{}", config.DerpRegion));
-            config.DerpHost = DerpHost(*homeRegion);
+            config.DerpCode(
+                homeRegion->value("RegionCode", std::format("derp-{}", config.DerpRegion())));
+            config.DerpHost(DerpHost(*homeRegion));
             const auto [stunHost, stunPort] = StunEndpoint(*homeRegion);
-            config.StunHost = stunHost;
-            config.StunPort = stunPort;
+            config.StunHost(stunHost);
+            config.StunPort(stunPort);
         }
-        for (PeerConfig& peer : config.Peers)
+        for (PeerConfig& peer : peers)
         {
             ApplyDerpMetadata(peer, updateRegions);
         }
@@ -694,14 +703,14 @@ bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
         for (const nlohmann::json& id : map.at("PeersRemoved"))
         {
             const std::uint64_t nodeId = id.get<std::uint64_t>();
-            config.RemovedPeerNodeIds.push_back(nodeId);
-            config.Peers.erase(std::remove_if(config.Peers.begin(),
-                                              config.Peers.end(),
-                                              [nodeId](const PeerConfig& peer)
-                                              {
-                                                  return peer.NodeId == nodeId;
-                                              }),
-                               config.Peers.end());
+            removedPeerNodeIds.push_back(nodeId);
+            peers.erase(std::remove_if(peers.begin(),
+                                       peers.end(),
+                                       [nodeId](const PeerConfig& peer)
+                                       {
+                                           return peer.NodeId() == nodeId;
+                                       }),
+                        peers.end());
         }
         changed = true;
     }
@@ -709,23 +718,23 @@ bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
     {
         for (const nlohmann::json& node : map.at("PeersChanged"))
         {
-            PeerConfig peer = Peer(node, updateRegions, config.UserProfiles);
-            auto existing = FindPeer(config, peer.NodeId);
-            if (existing == config.Peers.end())
+            PeerConfig peer = Peer(node, updateRegions, config.UserProfiles());
+            auto existing = FindPeer(peers, peer.NodeId());
+            if (existing == peers.end())
             {
-                config.Peers.push_back(std::move(peer));
+                peers.push_back(std::move(peer));
             }
             else
             {
-                if (peer.DerpRegion == existing->DerpRegion && peer.DerpCode.empty())
+                if (peer.DerpRegion() == existing->DerpRegion() && peer.DerpCode().empty())
                 {
-                    peer.DerpCode = existing->DerpCode;
-                    peer.DerpHost = existing->DerpHost;
+                    peer.DerpCode(existing->DerpCode());
+                    peer.DerpHost(existing->DerpHost());
                 }
-                if (peer.Owner.empty())
+                if (peer.Owner().empty())
                 {
                     // Incremental updates usually omit UserProfiles; keep the known owner.
-                    peer.Owner = existing->Owner;
+                    peer.Owner(existing->Owner());
                 }
                 *existing = std::move(peer);
             }
@@ -736,10 +745,10 @@ bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
     {
         for (const auto& [id, online] : map.at("OnlineChange").items())
         {
-            auto peer = FindPeer(config, std::stoull(id));
-            if (peer != config.Peers.end())
+            auto peer = FindPeer(peers, std::stoull(id));
+            if (peer != peers.end())
             {
-                peer->Online = online.get<bool>();
+                peer->Online(online.get<bool>());
                 changed = true;
             }
         }
@@ -751,10 +760,10 @@ bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
         // previously made peers flicker between states in the UI.
         for (const auto& [id, seen] : map.at("PeerSeenChange").items())
         {
-            auto peer = FindPeer(config, std::stoull(id));
-            if (peer != config.Peers.end())
+            auto peer = FindPeer(peers, std::stoull(id));
+            if (peer != peers.end())
             {
-                peer->LastSeen = seen.get<bool>() ? CurrentRfc3339Time() : std::string();
+                peer->LastSeen(seen.get<bool>() ? CurrentRfc3339Time() : std::string());
                 changed = true;
             }
         }
@@ -763,67 +772,70 @@ bool ApplyNetworkMapUpdate(NetworkConfig& config, const std::string& text)
     {
         for (const nlohmann::json& patch : map.at("PeersChangedPatch"))
         {
-            auto peer = FindPeer(config, patch.value("NodeID", 0ULL));
-            if (peer == config.Peers.end())
+            auto peer = FindPeer(peers, patch.value("NodeID", 0ULL));
+            if (peer == peers.end())
             {
                 continue;
             }
             if (patch.contains("DERPRegion"))
             {
-                peer->DerpRegion = patch.at("DERPRegion").get<int>();
-                peer->DerpCode.clear();
-                peer->DerpHost.clear();
+                peer->DerpRegion(patch.at("DERPRegion").get<int>());
+                peer->DerpCode({});
+                peer->DerpHost({});
                 ApplyDerpMetadata(*peer, updateRegions);
             }
             if (patch.contains("Endpoints"))
             {
-                peer->Endpoints.clear();
+                std::vector<std::string> endpoints;
                 for (const std::string& endpoint :
                      patch.at("Endpoints").get<std::vector<std::string>>())
                 {
                     if (EndpointPreference(endpoint) < 100)
                     {
-                        peer->Endpoints.push_back(endpoint);
+                        endpoints.push_back(endpoint);
                     }
                 }
-                std::stable_sort(peer->Endpoints.begin(),
-                                 peer->Endpoints.end(),
+                std::stable_sort(endpoints.begin(),
+                                 endpoints.end(),
                                  [](const std::string& left, const std::string& right)
                                  {
                                      return EndpointPreference(left) < EndpointPreference(right);
                                  });
+                peer->Endpoints(std::move(endpoints));
             }
             if (patch.contains("Key"))
             {
                 if (std::optional<std::string> key = KeyText(patch.at("Key"), "nodekey:"))
                 {
-                    peer->Key = *key;
+                    peer->Key(*key);
                 }
             }
             if (patch.contains("DiscoKey"))
             {
                 if (std::optional<std::string> key = KeyText(patch.at("DiscoKey"), "discokey:"))
                 {
-                    peer->DiscoKey = *key;
+                    peer->DiscoKey(*key);
                 }
             }
             if (patch.contains("Online") && patch.at("Online").is_boolean())
             {
-                peer->Online = patch.at("Online").get<bool>();
+                peer->Online(patch.at("Online").get<bool>());
             }
             if (patch.contains("LastSeen"))
             {
-                peer->LastSeen = TimeText(patch.at("LastSeen"));
+                peer->LastSeen(TimeText(patch.at("LastSeen")));
             }
             if (patch.contains("KeyExpiry"))
             {
-                peer->KeyExpiry = TimeText(patch.at("KeyExpiry"));
+                peer->KeyExpiry(TimeText(patch.at("KeyExpiry")));
             }
             // Cap and CapMap changes are intentionally not modeled: Tailgate consumes no
             // per-peer capability metadata.
             changed = true;
         }
     }
+    config.Peers(std::move(peers));
+    config.RemovedPeerNodeIds(std::move(removedPeerNodeIds));
     if (userProfilesChanged)
     {
         RefreshPeerOwners(config);

@@ -1,0 +1,18 @@
+tailgate_uwp_add_library(
+    Tailgate.Uwp.Background.Tstun
+    STATIC
+    PacketDevice.cpp
+    PacketDevice.h
+)
+target_include_directories(
+    Tailgate.Uwp.Background.Tstun
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(
+    Tailgate.Uwp.Background.Tstun
+    PUBLIC
+        tailgate_core
+    PRIVATE
+        Tailgate.Uwp.Common
+)

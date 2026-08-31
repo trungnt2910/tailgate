@@ -10,25 +10,25 @@
 
 #include <tailgate/control/base/H2.h>
 
-TEST(Given_HuffmanEncoded410Status, When_DecodingH2Headers_Then_StatusIsReturned)
+TEST(Given_H2, When_HuffmanEncoded410StatusAndDecodingH2Headers_Then_StatusIsReturned)
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x82, 0x68, 0x20};
 
-    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::H2Codec::DecodeStatus(headerBlock);
 
     EXPECT_EQ(status, 410);
 }
 
-TEST(Given_HuffmanEncoded429Status, When_DecodingH2Headers_Then_StatusIsReturned)
+TEST(Given_H2, When_HuffmanEncoded429StatusAndDecodingH2Headers_Then_StatusIsReturned)
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x83, 0x68, 0x4f, 0xff};
 
-    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::H2Codec::DecodeStatus(headerBlock);
 
     EXPECT_EQ(status, 429);
 }
 
-TEST(Given_HuffmanEncodedRetryAfter, When_DecodingH2Headers_Then_HeaderIsReturned)
+TEST(Given_H2, When_HuffmanEncodedRetryAfterAndDecodingH2Headers_Then_HeaderIsReturned)
 {
     const std::vector<std::uint8_t> headerBlock{
         0x4e,
@@ -42,7 +42,7 @@ TEST(Given_HuffmanEncodedRetryAfter, When_DecodingH2Headers_Then_HeaderIsReturne
         0x1f,
     };
 
-    const auto headers = tailgate::control::base::DecodeH2Headers(headerBlock);
+    const auto headers = tailgate::control::base::H2Codec::DecodeHeaders(headerBlock);
     ASSERT_TRUE(headers.has_value());
     const auto retryAfter = headers->find("retry-after");
 
@@ -50,7 +50,7 @@ TEST(Given_HuffmanEncodedRetryAfter, When_DecodingH2Headers_Then_HeaderIsReturne
     EXPECT_EQ(retryAfter->second, "30");
 }
 
-TEST(Given_IndexedDynamicResponseHeaders, When_DecodingNextBlock_Then_HeadersAreReturned)
+TEST(Given_H2, When_IndexedDynamicResponseHeadersAndDecodingNextBlock_Then_HeadersAreReturned)
 {
     tailgate::control::base::H2HeaderDecoder decoder;
     const std::vector<std::uint8_t> literalHeaderBlock{
@@ -78,16 +78,16 @@ TEST(Given_IndexedDynamicResponseHeaders, When_DecodingNextBlock_Then_HeadersAre
     EXPECT_EQ(retryAfter->second, "30");
 }
 
-TEST(Given_LiteralMaximumHttpStatus, When_DecodingH2Headers_Then_StatusIsReturned)
+TEST(Given_H2, When_LiteralMaximumHttpStatusAndDecodingH2Headers_Then_StatusIsReturned)
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x03, '5', '9', '9'};
 
-    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::H2Codec::DecodeStatus(headerBlock);
 
     EXPECT_EQ(status, 599);
 }
 
-TEST(Given_EveryValidHttpStatus, When_DecodingH2Headers_Then_StatusIsReturned)
+TEST(Given_H2, When_EveryValidHttpStatusAndDecodingH2Headers_Then_StatusIsReturned)
 {
     std::vector<std::vector<std::uint8_t>> headerBlocks;
     for (int status = 100; status <= 599; ++status)
@@ -102,7 +102,7 @@ TEST(Given_EveryValidHttpStatus, When_DecodingH2Headers_Then_StatusIsReturned)
     decodedStatuses.reserve(headerBlocks.size());
     for (const auto& headerBlock : headerBlocks)
     {
-        decodedStatuses.push_back(tailgate::control::base::DecodeH2Status(headerBlock));
+        decodedStatuses.push_back(tailgate::control::base::H2Codec::DecodeStatus(headerBlock));
     }
 
     const bool allStatusesMatch =
@@ -115,11 +115,11 @@ TEST(Given_EveryValidHttpStatus, When_DecodingH2Headers_Then_StatusIsReturned)
     EXPECT_TRUE(allStatusesMatch);
 }
 
-TEST(Given_OutOfRangeHttpStatus, When_DecodingH2Headers_Then_StatusIsRejected)
+TEST(Given_H2, When_OutOfRangeHttpStatusAndDecodingH2Headers_Then_StatusIsRejected)
 {
     const std::vector<std::uint8_t> headerBlock{0x4e, 0x03, '6', '0', '0'};
 
-    const auto status = tailgate::control::base::DecodeH2Status(headerBlock);
+    const auto status = tailgate::control::base::H2Codec::DecodeStatus(headerBlock);
 
     EXPECT_FALSE(status.has_value());
 }

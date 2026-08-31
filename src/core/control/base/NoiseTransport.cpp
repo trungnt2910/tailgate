@@ -1,4 +1,4 @@
-#include <tailgate/control/base/NoiseTransport.h>
+#include "tailgate/control/base/NoiseTransport.h"
 
 #include <stdexcept>
 #include <utility>
@@ -8,7 +8,7 @@
 namespace tailgate::control::base
 {
 
-using tailgate::base::IByteStream;
+using tailgate::base::ByteStream;
 using tailgate::crypto::ChaCha20Poly1305DecryptBigNonce;
 using tailgate::crypto::ChaCha20Poly1305EncryptBigNonce;
 
@@ -21,11 +21,11 @@ constexpr std::size_t MaximumCiphertextSize = 0xffff;
 
 } // namespace
 
-NoiseTransport::NoiseTransport(IByteStream& stream, NoiseKeys keys) : m_stream(stream), m_keys(keys)
+NoiseTransport::NoiseTransport(ByteStream& stream, NoiseKeys keys) : m_stream(stream), m_keys(keys)
 {
 }
 
-NoiseTransport::NoiseTransport(IByteStream& stream, ControlHandshakeResult handshake)
+NoiseTransport::NoiseTransport(ByteStream& stream, ControlHandshakeResult handshake)
     : m_stream(stream),
       m_keys(std::move(handshake.Keys)),
       m_receiveBuffer(std::move(handshake.ProactiveFrames))

@@ -4,7 +4,8 @@
 
 using namespace std::chrono_literals;
 
-TEST(Given_HandshakeBurstIsExhausted, When_TimeDoesNotAdvance_Then_NewWorkIsRejected)
+TEST(Given_HandshakeLimiter,
+     When_HandshakeBurstIsExhaustedAndTimeDoesNotAdvance_Then_NewWorkIsRejected)
 {
     const tailgate::serve::HandshakeLimiter::Clock::time_point start{};
     tailgate::serve::HandshakeLimiter limiter(4, 2, 1s, start);
@@ -19,7 +20,8 @@ TEST(Given_HandshakeBurstIsExhausted, When_TimeDoesNotAdvance_Then_NewWorkIsReje
     EXPECT_EQ(limiter.Pending(), 2U);
 }
 
-TEST(Given_HandshakeTokenRefills, When_CapacityIsAvailable_Then_NewWorkIsAccepted)
+TEST(Given_HandshakeLimiter,
+     When_HandshakeTokenRefillsAndCapacityIsAvailable_Then_NewWorkIsAccepted)
 {
     const tailgate::serve::HandshakeLimiter::Clock::time_point start{};
     tailgate::serve::HandshakeLimiter limiter(2, 1, 1s, start);
@@ -34,7 +36,8 @@ TEST(Given_HandshakeTokenRefills, When_CapacityIsAvailable_Then_NewWorkIsAccepte
     EXPECT_EQ(limiter.Pending(), 1U);
 }
 
-TEST(Given_PendingHandshakeLimitIsReached, When_TokensRemain_Then_NewWorkIsRejected)
+TEST(Given_HandshakeLimiter,
+     When_PendingHandshakeLimitIsReachedAndTokensRemain_Then_NewWorkIsRejected)
 {
     const tailgate::serve::HandshakeLimiter::Clock::time_point start{};
     tailgate::serve::HandshakeLimiter limiter(1, 2, 1s, start);

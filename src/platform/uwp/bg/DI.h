@@ -1,8 +1,13 @@
 #pragma once
 
+#include <memory>
+
 #include <boost/di.hpp>
 
-#include <tailgate/base/Clock.h>
+#include <tailgate/di/Bindings.h>
+#include <tailgate/hosted/Client.h>
+#include <tailgate/hosted/ClientSession.h>
+#include <tailgate/hosted/Connection.h>
 
 #include "common/ResourceLoader.h"
 
@@ -14,6 +19,8 @@
 #include "service/HostedDnsService.h"
 #include "service/NetworkService.h"
 #include "service/PingService.h"
+
+#include "tstun/PacketDevice.h"
 
 namespace tailgate::uwp::bg
 {
@@ -27,16 +34,7 @@ using service::HostedDnsService;
 using service::NetworkService;
 using service::PingService;
 
-using PluginInjector = boost::di::injector<tailgate::base::IClock&,
-                                           ControlPlaneManager&,
-                                           DataPlaneManager&,
-                                           tailgate::uwp::ResourceLoader&,
-                                           SessionManager&,
-                                           TransportManager&,
-                                           ExitNodeService&,
-                                           HostedDnsService&,
-                                           NetworkService&,
-                                           PingService&>;
+using PluginInjector = std::unique_ptr<tailgate::di::Injector>;
 
 [[nodiscard]] PluginInjector CreateRs2PluginInjector();
 

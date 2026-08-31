@@ -8,4 +8,19 @@ target_link_libraries(
     PUBLIC
         Boost.DI
         tailgate_core_base
+        tailgate_core_hosted
+        tailgate_core_types_nettype
+        tailgate_core_wgengine
+        tailgate_core_wgengine_magicsock
+        tailgate_core_wgengine_ping
+    PRIVATE
+        tailgate_core_control_client_impl
+        tailgate_core_crypto_impl
+        tailgate_core_derp_impl
+        tailgate_core_hosted_impl
+        tailgate_core_net_http_impl
+        tailgate_core_wgengine_impl
+        tailgate_core_wgengine_magicsock_impl
+        tailgate_core_wgengine_ping_impl
 )
+target_include_directories(tailgate_core_di PRIVATE ${PROJECT_SOURCE_DIR}/src/core)

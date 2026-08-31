@@ -1,4 +1,4 @@
-#include <tailgate/c/tailgate.h>
+#include "tailgate/c/tailgate.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -15,6 +15,7 @@
 #include <tailgate/control/client/ControlClient.h>
 #include <tailgate/derp/Client.h>
 #include <tailgate/disco/Disco.h>
+#include <tailgate/net/Endpoint.h>
 #include <tailgate/net/packet/Ipv4.h>
 #include <tailgate/wgengine/wireguard/Tunnel.h>
 
@@ -23,7 +24,7 @@ namespace
 
 thread_local std::string LastError;
 
-class CallbackStream final : public tailgate::base::IByteStream
+class CallbackStream final : public tailgate::base::ByteStream
 {
 public:
     explicit CallbackStream(tg_stream stream) : Stream(stream)
@@ -247,7 +248,7 @@ extern "C"
                 {
                     throw std::invalid_argument("packet arguments are required");
                 }
-                const auto destination = tailgate::net::packet::Ipv4Destination(
+                const auto destination = tailgate::net::packet::Ipv4Packet::Destination(
                     std::vector<std::uint8_t>(packet, packet + packet_size));
                 if (!destination)
                 {
@@ -272,14 +273,13 @@ extern "C"
             tailgate::crypto::Bytes32 node{};
             std::copy_n(machine_private_key, machine.size(), machine.begin());
             std::copy_n(node_private_key, node.size(), node.begin());
-            tailgate::control::client::HostInfo info;
-            info.Hostname = host->hostname == nullptr ? "" : host->hostname;
-            info.OperatingSystem = host->operating_system == nullptr ? "" : host->operating_system;
-            info.OperatingSystemVersion =
-                host->operating_system_version == nullptr ? "" : host->operating_system_version;
-            info.Architecture = host->architecture == nullptr ? "" : host->architecture;
-            info.ClientVersion =
-                host->client_version == nullptr ? "Tailgate" : host->client_version;
+            tailgate::control::client::HostInfo info(
+                host->hostname == nullptr ? "" : host->hostname,
+                host->operating_system == nullptr ? "" : host->operating_system,
+                host->operating_system_version == nullptr ? "" : host->operating_system_version,
+                host->architecture == nullptr ? "" : host->architecture);
+            info.SetClientMetadata(
+                host->client_version == nullptr ? "Tailgate" : host->client_version, {}, {});
             return new tg_control(stream, machine, node, info);
         }
         catch (const std::exception& error)
@@ -306,26 +306,26 @@ extern "C"
                 const tailgate::types::netmap::NetworkConfig config =
                     CompleteRegistration(control->Client, auth_key);
                 nlohmann::json peers = nlohmann::json::array();
-                for (const auto& peer : config.Peers)
+                for (const auto& peer : config.Peers())
                 {
-                    peers.push_back({{"Name", peer.Name},
-                                     {"Address", peer.Address},
-                                     {"Key", peer.Key},
-                                     {"DiscoKey", peer.DiscoKey},
-                                     {"Endpoints", peer.Endpoints},
-                                     {"DERPRegion", peer.DerpRegion},
-                                     {"DERPCode", peer.DerpCode},
-                                     {"DERPHost", peer.DerpHost},
-                                     {"OS", peer.OperatingSystem},
-                                     {"Online", peer.Online},
-                                     {"ExitNodeOption", peer.ExitNodeOption}});
+                    peers.push_back({{"Name", peer.Name()},
+                                     {"Address", peer.Address()},
+                                     {"Key", peer.Key()},
+                                     {"DiscoKey", peer.DiscoKey()},
+                                     {"Endpoints", peer.Endpoints()},
+                                     {"DERPRegion", peer.DerpRegion()},
+                                     {"DERPCode", peer.DerpCode()},
+                                     {"DERPHost", peer.DerpHost()},
+                                     {"OS", peer.OperatingSystem()},
+                                     {"Online", peer.Online()},
+                                     {"ExitNodeOption", peer.ExitNodeOption()}});
                 }
-                const std::string json = nlohmann::json({{"SelfAddress", config.SelfAddress},
-                                                         {"DNSResolver", config.DnsResolver},
-                                                         {"DNSDomains", config.DnsDomains},
-                                                         {"DERPRegion", config.DerpRegion},
-                                                         {"DERPHost", config.DerpHost},
-                                                         {"DERPCode", config.DerpCode},
+                const std::string json = nlohmann::json({{"SelfAddress", config.SelfAddress()},
+                                                         {"DNSResolver", config.DnsResolver()},
+                                                         {"DNSDomains", config.DnsDomains()},
+                                                         {"DERPRegion", config.DerpRegion()},
+                                                         {"DERPHost", config.DerpHost()},
+                                                         {"DERPCode", config.DerpCode()},
                                                          {"Peers", std::move(peers)}})
                                              .dump();
                 *output = CopyBuffer(std::vector<std::uint8_t>(json.begin(), json.end()));
@@ -440,34 +440,34 @@ extern "C"
 
     const char* tg_network_self_address(const tg_network_config* config)
     {
-        return config == nullptr ? nullptr : config->Config.SelfAddress.c_str();
+        return config == nullptr ? nullptr : config->Config.SelfAddress().c_str();
     }
 
     const char* tg_network_dns_resolver(const tg_network_config* config)
     {
-        return config == nullptr ? nullptr : config->Config.DnsResolver.c_str();
+        return config == nullptr ? nullptr : config->Config.DnsResolver().c_str();
     }
 
     size_t tg_network_dns_domain_count(const tg_network_config* config)
     {
-        return config == nullptr ? 0 : config->Config.DnsDomains.size();
+        return config == nullptr ? 0 : config->Config.DnsDomains().size();
     }
 
     const char* tg_network_dns_domain(const tg_network_config* config, size_t index)
     {
-        return config == nullptr || index >= config->Config.DnsDomains.size()
+        return config == nullptr || index >= config->Config.DnsDomains().size()
                    ? nullptr
-                   : config->Config.DnsDomains[index].c_str();
+                   : config->Config.DnsDomains()[index].c_str();
     }
 
     int tg_network_derp_region(const tg_network_config* config)
     {
-        return config == nullptr ? 0 : config->Config.DerpRegion;
+        return config == nullptr ? 0 : config->Config.DerpRegion();
     }
 
     const char* tg_network_derp_host(const tg_network_config* config)
     {
-        return config == nullptr ? nullptr : config->Config.DerpHost.c_str();
+        return config == nullptr ? nullptr : config->Config.DerpHost().c_str();
     }
 
     const char* tg_network_derp_code(const tg_network_config* config, int region)
@@ -477,13 +477,13 @@ extern "C"
             return nullptr;
         }
         thread_local std::string code;
-        code = tailgate::types::netmap::DerpCode(config->Config, region);
+        code = config->Config.DerpCodeForRegion(region);
         return code.c_str();
     }
 
     size_t tg_network_peer_count(const tg_network_config* config)
     {
-        return config == nullptr ? 0 : config->Config.Peers.size();
+        return config == nullptr ? 0 : config->Config.Peers().size();
     }
 
     int tg_network_peer(const tg_network_config* config, size_t index, tg_peer_info* peer)
@@ -491,21 +491,21 @@ extern "C"
         return Guard(
             [&]()
             {
-                if (config == nullptr || peer == nullptr || index >= config->Config.Peers.size())
+                if (config == nullptr || peer == nullptr || index >= config->Config.Peers().size())
                 {
                     throw std::invalid_argument("peer index is invalid");
                 }
-                const auto& source = config->Config.Peers[index];
-                *peer = tg_peer_info{.name = source.Name.c_str(),
-                                     .address = source.Address.c_str(),
-                                     .node_key = source.Key.c_str(),
-                                     .disco_key = source.DiscoKey.c_str(),
-                                     .operating_system = source.OperatingSystem.c_str(),
-                                     .derp_region = source.DerpRegion,
-                                     .derp_code = source.DerpCode.c_str(),
-                                     .derp_host = source.DerpHost.c_str(),
-                                     .online = source.Online ? 1 : 0,
-                                     .offers_exit_node = source.ExitNodeOption ? 1 : 0};
+                const auto& source = config->Config.Peers()[index];
+                *peer = tg_peer_info{.name = source.Name().c_str(),
+                                     .address = source.Address().c_str(),
+                                     .node_key = source.Key().c_str(),
+                                     .disco_key = source.DiscoKey().c_str(),
+                                     .operating_system = source.OperatingSystem().c_str(),
+                                     .derp_region = source.DerpRegion(),
+                                     .derp_code = source.DerpCode().c_str(),
+                                     .derp_host = source.DerpHost().c_str(),
+                                     .online = source.Online() ? 1 : 0,
+                                     .offers_exit_node = source.ExitNodeOption() ? 1 : 0};
             });
     }
 
@@ -516,11 +516,11 @@ extern "C"
             [&]()
             {
                 if (config == nullptr || node_key == nullptr ||
-                    index >= config->Config.Peers.size())
+                    index >= config->Config.Peers().size())
                 {
                     throw std::invalid_argument("peer index is invalid");
                 }
-                const auto& text = config->Config.Peers[index].Key;
+                const auto& text = config->Config.Peers()[index].Key();
                 if (text.rfind("nodekey:", 0) != 0)
                 {
                     throw std::runtime_error("peer has no node key");
@@ -541,11 +541,11 @@ extern "C"
             [&]()
             {
                 if (config == nullptr || disco_key == nullptr ||
-                    index >= config->Config.Peers.size())
+                    index >= config->Config.Peers().size())
                 {
                     throw std::invalid_argument("peer index is invalid");
                 }
-                const auto& text = config->Config.Peers[index].DiscoKey;
+                const auto& text = config->Config.Peers()[index].DiscoKey();
                 if (text.rfind("discokey:", 0) != 0)
                 {
                     throw std::runtime_error("peer has no disco key");
@@ -561,21 +561,21 @@ extern "C"
 
     size_t tg_network_peer_endpoint_count(const tg_network_config* config, size_t peerIndex)
     {
-        return config == nullptr || peerIndex >= config->Config.Peers.size()
+        return config == nullptr || peerIndex >= config->Config.Peers().size()
                    ? 0
-                   : config->Config.Peers[peerIndex].Endpoints.size();
+                   : config->Config.Peers()[peerIndex].Endpoints().size();
     }
 
     const char* tg_network_peer_endpoint(const tg_network_config* config,
                                          size_t peerIndex,
                                          size_t endpointIndex)
     {
-        if (config == nullptr || peerIndex >= config->Config.Peers.size() ||
-            endpointIndex >= config->Config.Peers[peerIndex].Endpoints.size())
+        if (config == nullptr || peerIndex >= config->Config.Peers().size() ||
+            endpointIndex >= config->Config.Peers()[peerIndex].Endpoints().size())
         {
             return nullptr;
         }
-        return config->Config.Peers[peerIndex].Endpoints[endpointIndex].c_str();
+        return config->Config.Peers()[peerIndex].Endpoints()[endpointIndex].c_str();
     }
 
     int tg_network_find_peer_ipv4(const tg_network_config* config,
@@ -586,7 +586,7 @@ extern "C"
         {
             return -1;
         }
-        const auto found = tailgate::types::netmap::FindRoute(config->Config.Peers, destination);
+        const auto found = config->Config.FindRoute(destination);
         if (!found)
         {
             return 1;
@@ -607,16 +607,14 @@ extern "C"
         std::optional<std::size_t> exitNode;
         if (preferences->exit_node != nullptr && preferences->exit_node[0] != '\0')
         {
-            exitNode =
-                tailgate::types::netmap::FindExitNode(config->Config.Peers, preferences->exit_node);
+            exitNode = config->Config.FindExitNode(preferences->exit_node);
             if (!exitNode)
             {
                 LastError = "requested exit node is unavailable";
                 return -1;
             }
         }
-        const auto routed =
-            tailgate::types::netmap::FindRoute(config->Config.Peers, destination, exitNode);
+        const auto routed = config->Config.FindRoute(destination, exitNode);
         if (routed)
         {
             *peerIndex = *routed;
@@ -636,8 +634,7 @@ extern "C"
                 {
                     throw std::invalid_argument("exit-node lookup arguments are required");
                 }
-                const auto found =
-                    tailgate::types::netmap::FindExitNode(config->Config.Peers, nameOrAddress);
+                const auto found = config->Config.FindExitNode(nameOrAddress);
                 if (!found)
                 {
                     throw std::runtime_error("requested exit node is unavailable");
@@ -858,7 +855,10 @@ extern "C"
                 tailgate::disco::Disco::TransactionId transaction{};
                 std::copy_n(transaction_id, transaction.size(), transaction.begin());
                 *packet = CopyBuffer(disco->Client.BuildPong(
-                    Key(recipient_disco_key), transaction, source_address_host_order, source_port));
+                    Key(recipient_disco_key),
+                    transaction,
+                    tailgate::net::Ipv4Address::FromHostOrder(source_address_host_order),
+                    source_port));
             });
     }
 
@@ -878,12 +878,13 @@ extern "C"
                 {
                     throw std::invalid_argument("disco CallMeMaybe arguments are required");
                 }
-                std::vector<tailgate::disco::Disco::Endpoint> endpoints;
+                std::vector<tailgate::net::Endpoint> endpoints;
                 endpoints.reserve(endpoint_count);
                 for (std::size_t index = 0; index < endpoint_count; ++index)
                 {
-                    endpoints.push_back(
-                        {endpoint_addresses_host_order[index], endpoint_ports[index]});
+                    endpoints.emplace_back(tailgate::net::Ipv4Address::FromHostOrder(
+                                               endpoint_addresses_host_order[index]),
+                                           endpoint_ports[index]);
                 }
                 *packet = CopyBuffer(
                     disco->Client.BuildCallMeMaybe(Key(recipient_discco_key), endpoints));
@@ -920,8 +921,9 @@ extern "C"
                 message->endpoint_count = std::min(parsed->Endpoints.size(), std::size_t{8});
                 for (std::size_t index = 0; index < message->endpoint_count; ++index)
                 {
-                    message->endpoint_addresses[index] = parsed->Endpoints[index].Address;
-                    message->endpoint_ports[index] = parsed->Endpoints[index].Port;
+                    message->endpoint_addresses[index] =
+                        parsed->Endpoints[index].Address().HostOrder();
+                    message->endpoint_ports[index] = parsed->Endpoints[index].Port();
                 }
             });
     }

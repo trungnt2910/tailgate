@@ -1,5 +1,10 @@
 #include "app/DI.h"
 
+#include <tailgate/control/client/HostInfoProvider.h>
+
+#include "common/HostInfo.h"
+#include "common/TcpSocketFactory.h"
+
 #include "app/controller/impl/AuthorizationControllerImpl.h"
 #include "app/controller/impl/ClipboardControllerImpl.h"
 #include "app/controller/impl/ContentDialogControllerImpl.h"
@@ -21,7 +26,10 @@
 #include "app/controller/impl/SignInDialogControllerImpl.h"
 #include "app/controller/impl/TailgateRelayControllerImpl.h"
 #include "app/controller/impl/VpnProfileControllerImpl.h"
+#include "app/ui/AppResources.h"
+#include "app/ui/ButtonFactory.h"
 #include "app/ui/ResourceLoader.h"
+#include "app/ui/UiFactory.h"
 #include "app/view/impl/AccountsPageViewImpl.h"
 #include "app/view/impl/ContentDialogViewImpl.h"
 #include "app/view/impl/DevicePageViewImpl.h"
@@ -40,7 +48,13 @@ namespace di = boost::di;
 
 AppInjector& GetDI()
 {
-    static AppInjector injector = di::make_injector(
+    static AppInjector injector;
+    static const bool installed = [&]
+    {
+        injector.install(
+            di::bind<tailgate::control::client::HostInfoProvider>.to<HostInfoProvider>(),
+            di::bind<TcpSocketFactory>().in(di::singleton),
+
         // Application UI
         di::bind<ResourceLoader>.to<app::ResourceLoader>().in(di::singleton),
         di::bind<AppResources>.in(di::singleton),
@@ -85,7 +99,12 @@ AppInjector& GetDI()
         di::bind<NodeAuthorizationDialogView>.to<NodeAuthorizationDialogViewImpl>().in(di::unique),
         di::bind<PingDialogView>.to<PingDialogViewImpl>().in(di::unique),
         di::bind<SettingsPageView>.to<SettingsPageViewImpl>().in(di::unique),
-        di::bind<SignInDialogView>.to<SignInDialogViewImpl>().in(di::unique));
+            di::bind<SignInDialogView>.to<SignInDialogViewImpl>().in(di::unique));
+
+        tailgate::di::InstallCoreBindings(injector);
+        return true;
+    }();
+    (void)installed;
     return injector;
 }
 

@@ -2,27 +2,19 @@
 
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
 #include <optional>
 #include <vector>
 
-#include <tailgate/base/Clock.h>
+#include <tailgate/base/TimeProvider.h>
+#include <tailgate/net/Endpoint.h>
 
 namespace tailgate::wgengine::magicsock
 {
 
-struct Endpoint
-{
-    std::uint32_t Address = 0;
-    std::uint16_t Port = 0;
-
-    [[nodiscard]] bool operator==(const Endpoint&) const = default;
-};
-
 class PeerPathState final
 {
 public:
-    using TimePoint = tailgate::base::IClock::TimePoint;
+    using TimePoint = tailgate::base::TimeProvider::TimePoint;
 
     enum class ResetMode
     {
@@ -35,21 +27,21 @@ public:
     static constexpr auto DirectPathTimeout = std::chrono::seconds(15);
 
     [[nodiscard]] bool HasDirectPath() const noexcept;
-    [[nodiscard]] const std::optional<Endpoint>& DirectEndpoint() const noexcept;
-    [[nodiscard]] bool IsVerified(const Endpoint& endpoint) const noexcept;
+    [[nodiscard]] const std::optional<tailgate::net::Endpoint>& DirectEndpoint() const noexcept;
+    [[nodiscard]] bool IsVerified(const tailgate::net::Endpoint& endpoint) const noexcept;
 
     [[nodiscard]] bool TryBeginProbe(TimePoint now) noexcept;
-    [[nodiscard]] bool MarkDirect(const Endpoint& endpoint);
+    [[nodiscard]] bool MarkDirect(const tailgate::net::Endpoint& endpoint);
     void MarkDirectSend(TimePoint now) noexcept;
     void MarkDirectReceive() noexcept;
     [[nodiscard]] bool ExpireDirectPath(TimePoint now) noexcept;
     void Reset(ResetMode mode) noexcept;
 
 private:
-    void RememberVerified(const Endpoint& endpoint);
+    void RememberVerified(const tailgate::net::Endpoint& endpoint);
 
-    std::optional<Endpoint> m_directEndpoint;
-    std::vector<Endpoint> m_verifiedEndpoints;
+    std::optional<tailgate::net::Endpoint> m_directEndpoint;
+    std::vector<tailgate::net::Endpoint> m_verifiedEndpoints;
     std::optional<TimePoint> m_lastDirectProbe;
     std::optional<TimePoint> m_firstUnansweredDirectSend;
 };

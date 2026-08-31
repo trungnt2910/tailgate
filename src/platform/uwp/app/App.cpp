@@ -34,8 +34,9 @@ constexpr wchar_t LogFileName[] = L"Tailgate.log";
 namespace winrt::Tailgate::implementation
 {
 
-struct App : tailgate::uwp::xaml::ApplicationT<App>
+class App : public tailgate::uwp::xaml::ApplicationT<App>
 {
+public:
     App()
     {
         tailgate::uwp::InstallUwpLogSink(LogFileName);

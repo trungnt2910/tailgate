@@ -13,8 +13,8 @@ namespace tailgate::control::base
 class NoiseTransport
 {
 public:
-    NoiseTransport(tailgate::base::IByteStream& stream, NoiseKeys keys);
-    NoiseTransport(tailgate::base::IByteStream& stream, ControlHandshakeResult handshake);
+    NoiseTransport(tailgate::base::ByteStream& stream, NoiseKeys keys);
+    NoiseTransport(tailgate::base::ByteStream& stream, ControlHandshakeResult handshake);
 
     void Send(const std::vector<std::uint8_t>& plaintext);
     void Flush();
@@ -25,7 +25,7 @@ public:
 private:
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> TryTakeBufferedFrame();
 
-    tailgate::base::IByteStream& m_stream;
+    tailgate::base::ByteStream& m_stream;
     NoiseKeys m_keys;
     std::uint64_t m_txNonce = 0;
     std::uint64_t m_rxNonce = 0;

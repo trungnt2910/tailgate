@@ -16,7 +16,7 @@ namespace tailgate::uwp
 
 class SessionController;
 class SettingsController;
-struct ExitNodeChangeState;
+class ExitNodeChangeState;
 
 class ExitNodeControllerImpl final : public ExitNodeController
 {

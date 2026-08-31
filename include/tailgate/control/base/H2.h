@@ -44,26 +44,32 @@ private:
     std::size_t m_maximumDynamicTableSize = DefaultDynamicTableSize;
 };
 
-[[nodiscard]] std::vector<std::uint8_t> BuildH2Preface(std::uint32_t initialWindowSize);
-[[nodiscard]] std::vector<std::uint8_t> BuildH2SettingsAck();
-[[nodiscard]] std::vector<std::uint8_t> BuildH2PingAck(const std::vector<std::uint8_t>& payload);
-[[nodiscard]] std::vector<std::uint8_t> BuildH2WindowUpdate(std::uint32_t streamId,
-                                                            std::uint32_t increment);
-[[nodiscard]] std::vector<std::uint8_t>
-BuildH2Headers(const std::string& method,
-               const std::string& path,
-               const std::string& authority,
-               const std::string& contentType,
-               const std::vector<std::pair<std::string, std::string>>& extraHeaders,
-               std::uint32_t streamId,
-               bool endStream);
-[[nodiscard]] std::vector<std::uint8_t>
-BuildH2Data(const std::vector<std::uint8_t>& data, std::uint32_t streamId, bool endStream);
-[[nodiscard]] std::optional<H2Headers>
-DecodeH2Headers(const std::vector<std::uint8_t>& headerBlock);
-[[nodiscard]] std::optional<int> H2Status(const H2Headers& headers);
-[[nodiscard]] std::optional<int> DecodeH2Status(const std::vector<std::uint8_t>& headerBlock);
-[[nodiscard]] std::vector<H2Frame> ParseH2Frames(const std::vector<std::uint8_t>& data);
-[[nodiscard]] std::vector<H2Frame> TakeCompleteH2Frames(std::vector<std::uint8_t>& buffer);
+class H2Codec final
+{
+public:
+    [[nodiscard]] static std::vector<std::uint8_t> BuildPreface(std::uint32_t initialWindowSize);
+    [[nodiscard]] static std::vector<std::uint8_t> BuildSettingsAck();
+    [[nodiscard]] static std::vector<std::uint8_t>
+    BuildPingAck(const std::vector<std::uint8_t>& payload);
+    [[nodiscard]] static std::vector<std::uint8_t> BuildWindowUpdate(std::uint32_t streamId,
+                                                                     std::uint32_t increment);
+    [[nodiscard]] static std::vector<std::uint8_t>
+    BuildHeaders(const std::string& method,
+                 const std::string& path,
+                 const std::string& authority,
+                 const std::string& contentType,
+                 const std::vector<std::pair<std::string, std::string>>& extraHeaders,
+                 std::uint32_t streamId,
+                 bool endStream);
+    [[nodiscard]] static std::vector<std::uint8_t>
+    BuildData(const std::vector<std::uint8_t>& data, std::uint32_t streamId, bool endStream);
+    [[nodiscard]] static std::optional<H2Headers>
+    DecodeHeaders(const std::vector<std::uint8_t>& headerBlock);
+    [[nodiscard]] static std::optional<int> Status(const H2Headers& headers);
+    [[nodiscard]] static std::optional<int>
+    DecodeStatus(const std::vector<std::uint8_t>& headerBlock);
+    [[nodiscard]] static std::vector<H2Frame> ParseFrames(const std::vector<std::uint8_t>& data);
+    [[nodiscard]] static std::vector<H2Frame> TakeCompleteFrames(std::vector<std::uint8_t>& buffer);
+};
 
 } // namespace tailgate::control::base

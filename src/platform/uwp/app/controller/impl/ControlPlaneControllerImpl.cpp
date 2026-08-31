@@ -5,14 +5,9 @@
 #include <memory>
 #include <utility>
 
-#include <tailgate/control/base/ControlHandshake.h>
-#include <tailgate/control/client/ControlClient.h>
-#include <tailgate/control/client/ControlDialer.h>
 #include <tailgate/crypto/Crypto.h>
 
-#include "common/HostInfo.h"
-#include "common/UwpAliases.h"
-#include "common/UwpTcpStream.h"
+#include "common/TcpSocketFactory.h"
 
 namespace tailgate::uwp
 {
@@ -26,6 +21,13 @@ constexpr std::chrono::seconds LogoutIoTimeout(30);
 constexpr std::chrono::seconds PlaintextControlConnectTimeout(5);
 
 } // namespace
+
+ControlPlaneControllerImpl::ControlPlaneControllerImpl(
+    tailgate::control::client::SessionFactory& controlSessionFactory,
+    TcpSocketFactory& socketFactory) noexcept
+    : m_controlSessionFactory(controlSessionFactory), m_socketFactory(socketFactory)
+{
+}
 
 const ControlPlaneState& ControlPlaneControllerImpl::GetState() const noexcept
 {
@@ -60,32 +62,19 @@ ControlPlaneControllerImpl::LogoutInBackground(std::optional<tailgate::crypto::B
         co_await winrt::resume_background();
         try
         {
-            tailgate::control::client::HostInfo host = BuildHostInfo();
-            std::unique_ptr<tailgate::control::client::ControlClient> control;
-            tailgate::control::client::ControlDialOutcome<std::unique_ptr<UwpTcpStream>> dialed =
-                tailgate::control::client::DialControlStream(
-                    []
-                    {
-                        return std::make_unique<UwpTcpStream>(
-                            tailgate::control::base::ControlHandshake::DefaultHost,
-                            tailgate::control::base::ControlHandshake::PlaintextService,
-                            winrt::Windows::Networking::Sockets::SocketProtectionLevel::PlainSocket,
-                            LogoutIoTimeout,
-                            PlaintextControlConnectTimeout);
+            std::unique_ptr<tailgate::control::client::Session> control =
+                m_controlSessionFactory.CreateSession(
+                    tailgate::control::client::SessionOptions{
+                        .Host = {},
+                        .MachinePrivateKey = *machineKey,
+                        .NodePrivateKey = *nodeKey,
+                        .ExternalNodePublicKey = std::nullopt,
+                        .NetworkInterface = {},
+                        .ReadinessToken = {},
+                        .IoTimeout = LogoutIoTimeout,
+                        .PlaintextConnectTimeout = PlaintextControlConnectTimeout,
                     },
-                    []
-                    {
-                        return std::make_unique<UwpTcpStream>(
-                            tailgate::control::base::ControlHandshake::DefaultHost,
-                            tailgate::control::base::ControlHandshake::TlsService,
-                            winrt::Windows::Networking::Sockets::SocketProtectionLevel::Tls12,
-                            LogoutIoTimeout);
-                    },
-                    [&](tailgate::base::IByteStream& stream)
-                    {
-                        control = std::make_unique<tailgate::control::client::ControlClient>(
-                            stream, *machineKey, *nodeKey, host);
-                    });
+                    m_socketFactory);
             control->Logout();
             m_logger.LogInfo("node key expired with control");
         }

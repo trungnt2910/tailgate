@@ -1,0 +1,13 @@
+tailgate_add_library(
+    tailgate_core_wgengine_impl
+    STATIC
+    EngineImpl.cpp
+    SessionImpl.cpp
+)
+target_link_libraries(
+    tailgate_core_wgengine_impl
+    PUBLIC
+        tailgate_core_wgengine
+    PRIVATE
+        tailgate_core_net_stun
+)

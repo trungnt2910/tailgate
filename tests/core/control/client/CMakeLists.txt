@@ -1,8 +1,23 @@
 tailgate_add_test_library(
     tailgate_tests_core_control_client
+    Given_ControlConnection.cpp
+    Given_ControlConnectionEvents.cpp
     Given_ControlDialer.cpp
     Given_ControlRequests.cpp
+    Given_MapStreamResponse.cpp
     Given_NetworkMapParser.cpp
+    Given_PlatformHostInfo.cpp
     Given_RetryBackoff.cpp
 )
-target_link_libraries(tailgate_tests_core_control_client PRIVATE tailgate_core)
+target_link_libraries(
+    tailgate_tests_core_control_client
+    PRIVATE
+        tailgate_core
+        tailgate_core_control_client_impl
+        tailgate_tests_core_fakes
+)
+target_include_directories(
+    tailgate_tests_core_control_client
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/core/control/client
+)

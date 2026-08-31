@@ -85,11 +85,11 @@ void DevicePageViewImpl::Render()
             winrt::hstring selfAddress = settings.SelfAddress();
             if (selfAddress.empty() && !settings.Devices().empty())
             {
-                selfAddress = settings.Devices().front().Address;
+                selfAddress = settings.Devices().front().Address();
             }
             const winrt::hstring deviceName =
-                selected->Name.empty() ? selected->Address : selected->ShortName();
-            m_pingDialogController.Show(deviceName, selected->Address, selfAddress);
+                selected->Name().empty() ? selected->Address() : selected->ShortName();
+            m_pingDialogController.Show(deviceName, selected->Address(), selfAddress);
         });
     controls::Grid::SetColumn(m_pingButton, 1);
     header.Children().Append(m_pingButton);
@@ -119,19 +119,19 @@ void DevicePageViewImpl::OnStateChange(const std::string&)
     }
 
     const UwpDevice device = *selected;
-    m_deviceName.Text(device.Name.empty() ? device.Address : device.ShortName());
+    m_deviceName.Text(device.Name().empty() ? device.Address() : device.ShortName());
     m_statusDot.Children().Clear();
-    m_statusDot.Children().Append(m_uiFactory.StatusDot(device.Online));
-    m_status.Text(device.Online ? m_resourceLoader.Get(Resources::Common::Connected)
-                                : m_resourceLoader.Get(Resources::Common::NotConnected));
+    m_statusDot.Children().Append(m_uiFactory.StatusDot(device.Online()));
+    m_status.Text(device.Online() ? m_resourceLoader.Get(Resources::Common::Connected)
+                                  : m_resourceLoader.Get(Resources::Common::NotConnected));
 
     m_details.Items().Clear();
     m_details.Items().Append(
         m_uiFactory.ListHeader(m_resourceLoader.Get(Resources::Device::TailscaleAddresses)));
     const std::pair<winrt::hstring, winrt::hstring> addresses[] = {
         {device.MagicDnsName(), m_resourceLoader.Get(Resources::Device::MagicDns)},
-        {device.Address, m_resourceLoader.Get(Resources::Device::Ipv4)},
-        {device.Ipv6, m_resourceLoader.Get(Resources::Device::Ipv6)},
+        {device.Address(), m_resourceLoader.Get(Resources::Device::Ipv4)},
+        {device.Ipv6(), m_resourceLoader.Get(Resources::Device::Ipv6)},
     };
     for (const auto& [value, label] : addresses)
     {
@@ -148,14 +148,14 @@ void DevicePageViewImpl::OnStateChange(const std::string&)
             });
         m_details.Items().Append(item);
     }
-    if (!device.OperatingSystem.empty())
+    if (!device.OperatingSystem().empty())
     {
         m_details.Items().Append(m_uiFactory.SectionSpacing());
         controls::StackPanel osText;
         osText.Children().Append(m_uiFactory.Text(
             m_resourceLoader.Get(Resources::Device::OperatingSystem), AppStyle::TextBody));
         osText.Children().Append(
-            m_uiFactory.Text(device.OperatingSystem, AppStyle::TextSecondaryCaption));
+            m_uiFactory.Text(device.OperatingSystem(), AppStyle::TextSecondaryCaption));
         m_details.Items().Append(m_uiFactory.ListItem(osText));
     }
 }
@@ -169,7 +169,7 @@ const UwpDevice* DevicePageViewImpl::SelectedDevice() const
                      settings.Devices().end(),
                      [&selectedId](const UwpDevice& device)
                      {
-                         return device.Address == selectedId || device.Name == selectedId;
+                         return device.Address() == selectedId || device.Name() == selectedId;
                      });
     return selected == settings.Devices().end() ? nullptr : &*selected;
 }

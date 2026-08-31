@@ -24,8 +24,8 @@ public:
         std::vector<std::uint8_t> Payload;
     };
 
-    DerpClient(tailgate::base::IByteStream& stream, Key privateKey, Key publicKey);
-    DerpClient(tailgate::base::IByteStream& stream, Authenticator authenticator);
+    DerpClient(tailgate::base::ByteStream& stream, Key privateKey, Key publicKey);
+    DerpClient(tailgate::base::ByteStream& stream, Authenticator authenticator);
     [[nodiscard]] static std::vector<std::uint8_t>
     BuildClientInfo(const Key& privateKey, const Key& publicKey, const Key& serverKey);
     void Connect(const std::string& hostname);
@@ -48,7 +48,7 @@ private:
     void WriteFrame(std::uint8_t type, const std::vector<std::uint8_t>& payload);
     [[nodiscard]] Frame ReadFrame();
 
-    tailgate::base::IByteStream& Stream;
+    tailgate::base::ByteStream& Stream;
     Key PrivateKey;
     Key PublicKey;
     Key ServerKey{};

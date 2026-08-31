@@ -1,4 +1,4 @@
-#include <tailgate/derp/Client.h>
+#include "tailgate/derp/Client.h"
 
 #include <algorithm>
 #include <format>
@@ -13,7 +13,7 @@
 namespace tailgate::derp
 {
 
-using tailgate::base::IByteStream;
+using tailgate::base::ByteStream;
 using tailgate::base::Log;
 using tailgate::base::LogLevel;
 using tailgate::crypto::BytesToHex;
@@ -41,7 +41,7 @@ const std::array<std::uint8_t, 8> DerpMagic{'D', 'E', 'R', 'P', 0xf0, 0x9f, 0x94
 
 } // namespace
 
-DerpClient::DerpClient(IByteStream& stream, Key privateKey, Key publicKey)
+DerpClient::DerpClient(ByteStream& stream, Key privateKey, Key publicKey)
     : Stream(stream), PrivateKey(privateKey), PublicKey(publicKey)
 {
     if (sodium_init() < 0)
@@ -50,7 +50,7 @@ DerpClient::DerpClient(IByteStream& stream, Key privateKey, Key publicKey)
     }
 }
 
-DerpClient::DerpClient(IByteStream& stream, Authenticator authenticator)
+DerpClient::DerpClient(ByteStream& stream, Authenticator authenticator)
     : Stream(stream), Authenticate(std::move(authenticator))
 {
     if (!Authenticate)

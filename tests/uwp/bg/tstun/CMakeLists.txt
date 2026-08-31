@@ -1,0 +1,15 @@
+tailgate_uwp_add_test_library(
+    tailgate_tests_uwp_bg_tstun
+    Given_PacketDevice.cpp
+)
+target_include_directories(
+    tailgate_tests_uwp_bg_tstun
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/platform/uwp/bg/tstun"
+)
+target_link_libraries(
+    tailgate_tests_uwp_bg_tstun
+    PRIVATE
+        Tailgate.Uwp.Background.Tstun
+        tailgate_tests_core_fakes
+)

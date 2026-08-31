@@ -1,9 +1,9 @@
 #pragma once
 
-#include <tailgate/base/ByteStream.h>
-
 #include <memory>
 #include <string>
+
+#include <tailgate/base/ByteStream.h>
 
 namespace tailgate::serve
 {
@@ -34,9 +34,9 @@ public:
     PeerApiIngressHandler(const PeerApiIngressHandler&) = delete;
     PeerApiIngressHandler& operator=(const PeerApiIngressHandler&) = delete;
 
-    [[nodiscard]] PeerApiIngressRequest ReadRequestAndRespond(tailgate::base::IByteStream& peer);
-    [[nodiscard]] std::unique_ptr<tailgate::base::IByteStream>
-    OpenTlsStream(tailgate::base::IByteStream& peer);
+    [[nodiscard]] PeerApiIngressRequest ReadRequestAndRespond(tailgate::base::ByteStream& peer);
+    [[nodiscard]] std::unique_ptr<tailgate::base::ByteStream>
+    OpenTlsStream(tailgate::base::ByteStream& peer);
 
 private:
     class Impl;

@@ -1,130 +1,57 @@
-#include <memory>
 #include <stdexcept>
-#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
-#include <tailgate/control/client/ControlDialer.h>
+#include "fakes/control/client/FakeControlDialer.h"
 
-namespace
+using tailgate::tests::fakes::FakeControlDialer;
+using tailgate::tests::fakes::FakeTcpSocket;
+
+TEST(Given_ControlDialer, When_WorkingPlaintextControlAndDialing_Then_TlsIsNeverAttempted)
 {
+    FakeControlDialer dialer;
 
-class FakeStream final : public tailgate::base::IByteStream
-{
-public:
-    explicit FakeStream(std::string name) : Name(std::move(name))
-    {
-    }
-
-    [[nodiscard]] std::optional<std::size_t> TryWriteSome(const std::uint8_t*,
-                                                          std::size_t size) override
-    {
-        return size;
-    }
-
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> TryReadSome(std::size_t) override
-    {
-        return std::vector<std::uint8_t>{};
-    }
-
-    std::string Name;
-};
-
-} // namespace
-
-TEST(Given_WorkingPlaintextControl, When_Dialing_Then_TlsIsNeverAttempted)
-{
-    bool tlsDialed = false;
-    std::vector<std::string> established;
-    const auto plaintext = []()
-    {
-        return std::make_unique<FakeStream>("plaintext");
-    };
-    const auto tls = [&]()
-    {
-        tlsDialed = true;
-        return std::make_unique<FakeStream>("tls");
-    };
-    const auto establish = [&](FakeStream& stream)
-    {
-        established.push_back(stream.Name);
-    };
-
-    const auto outcome = tailgate::control::client::DialControlStream(plaintext, tls, establish);
+    tailgate::control::client::impl::ControlDialOutcome outcome = dialer.Dial();
 
     EXPECT_FALSE(outcome.UsedTls);
-    EXPECT_FALSE(tlsDialed);
-    EXPECT_EQ(established, std::vector<std::string>{"plaintext"});
-    EXPECT_EQ(outcome.Stream->Name, "plaintext");
+    EXPECT_FALSE(dialer.TlsDialed);
+    EXPECT_EQ(dialer.Established, std::vector<std::string>{"plaintext"});
+    EXPECT_EQ(dynamic_cast<FakeTcpSocket&>(*outcome.Stream).Name(), "plaintext");
 }
 
-TEST(Given_PlaintextControlConnectFailure, When_Dialing_Then_TlsFallbackIsUsed)
+TEST(Given_ControlDialer, When_PlaintextControlConnectFailureAndDialing_Then_TlsFallbackIsUsed)
 {
-    std::vector<std::string> established;
-    const auto plaintext = []() -> std::unique_ptr<FakeStream>
-    {
-        throw std::runtime_error("plaintext port is blocked");
-    };
-    const auto tls = []()
-    {
-        return std::make_unique<FakeStream>("tls");
-    };
-    const auto establish = [&](FakeStream& stream)
-    {
-        established.push_back(stream.Name);
-    };
+    FakeControlDialer dialer;
+    dialer.PlaintextOpenFails = true;
 
-    const auto outcome = tailgate::control::client::DialControlStream(plaintext, tls, establish);
+    tailgate::control::client::impl::ControlDialOutcome outcome = dialer.Dial();
 
     EXPECT_TRUE(outcome.UsedTls);
-    EXPECT_EQ(established, std::vector<std::string>{"tls"});
-    EXPECT_EQ(outcome.Stream->Name, "tls");
+    EXPECT_EQ(dialer.Established, std::vector<std::string>{"tls"});
+    EXPECT_EQ(dynamic_cast<FakeTcpSocket&>(*outcome.Stream).Name(), "tls");
 }
 
-TEST(Given_PlaintextControlHandshakeFailure, When_Dialing_Then_TlsFallbackIsUsed)
+TEST(Given_ControlDialer, When_PlaintextControlHandshakeFailureAndDialing_Then_TlsFallbackIsUsed)
 {
-    std::vector<std::string> established;
-    const auto plaintext = []()
-    {
-        return std::make_unique<FakeStream>("plaintext");
-    };
-    const auto tls = []()
-    {
-        return std::make_unique<FakeStream>("tls");
-    };
-    const auto establish = [&](FakeStream& stream)
-    {
-        established.push_back(stream.Name);
-        if (stream.Name == "plaintext")
-        {
-            throw std::runtime_error("upgrade was tampered with");
-        }
-    };
+    FakeControlDialer dialer;
+    dialer.PlaintextEstablishFails = true;
 
-    const auto outcome = tailgate::control::client::DialControlStream(plaintext, tls, establish);
+    tailgate::control::client::impl::ControlDialOutcome outcome = dialer.Dial();
 
     EXPECT_TRUE(outcome.UsedTls);
-    EXPECT_EQ(established, (std::vector<std::string>{"plaintext", "tls"}));
-    EXPECT_EQ(outcome.Stream->Name, "tls");
+    EXPECT_EQ(dialer.Established, (std::vector<std::string>{"plaintext", "tls"}));
+    EXPECT_EQ(dynamic_cast<FakeTcpSocket&>(*outcome.Stream).Name(), "tls");
 }
 
-TEST(Given_BothControlPathsFailing, When_Dialing_Then_TheTlsErrorPropagates)
+TEST(Given_ControlDialer, When_BothControlPathsFailingAndDialing_Then_TheTlsErrorPropagates)
 {
-    const auto plaintext = []() -> std::unique_ptr<FakeStream>
-    {
-        throw std::runtime_error("plaintext port is blocked");
-    };
-    const auto tls = []() -> std::unique_ptr<FakeStream>
-    {
-        throw std::runtime_error("TLS port is blocked");
-    };
-    const auto establish = [](FakeStream&)
-    {
-    };
+    FakeControlDialer dialer;
+    dialer.PlaintextOpenFails = true;
+    dialer.TlsOpenFails = true;
     const auto dial = [&]()
     {
-        (void)tailgate::control::client::DialControlStream(plaintext, tls, establish);
+        (void)dialer.Dial();
     };
 
     EXPECT_THROW(dial(), std::runtime_error);

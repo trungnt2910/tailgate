@@ -1,0 +1,12 @@
+tailgate_add_library(
+    tailgate_core_net_http_impl
+    STATIC
+    ClientImpl.cpp
+)
+target_link_libraries(
+    tailgate_core_net_http_impl
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_net_http
+        tailgate_core_types_nettype
+)

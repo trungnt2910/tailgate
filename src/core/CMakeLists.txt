@@ -23,7 +23,9 @@ target_link_libraries(
         tailgate_core_di
         tailgate_core_disco
         tailgate_core_hosted
+        tailgate_core_net
         tailgate_core_net_dns
+        tailgate_core_net_http
         tailgate_core_net_packet
         tailgate_core_net_stun
         tailgate_core_net_tls
@@ -31,6 +33,11 @@ target_link_libraries(
         tailgate_core_serve
         tailgate_core_serve_acme
         tailgate_core_types_netmap
+        tailgate_core_types_nettype
+        tailgate_core_wgengine
         tailgate_core_wgengine_magicsock
+        tailgate_core_wgengine_ping
+        tailgate_core_wgengine_router
+        tailgate_core_wgengine_tstun
         tailgate_core_wgengine_wireguard
 )

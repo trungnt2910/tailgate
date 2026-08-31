@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tailgate/base/Logger.h>
+#include <tailgate/hosted/Dns.h>
 
 #include "manager/DataPlaneManager.h"
 #include "service/ServiceBase.h"
@@ -11,7 +11,7 @@ namespace tailgate::uwp::bg::service
 class HostedDnsService final : public ServiceBase
 {
 public:
-    explicit HostedDnsService(manager::DataPlaneManager& dataPlaneManager);
+    HostedDnsService(manager::DataPlaneManager& dataPlaneManager, tailgate::hosted::Dns& dns);
 
     void Start(SessionGeneration generation) override;
     void Stop() override;
@@ -21,7 +21,7 @@ public:
     void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
 
 private:
-    tailgate::base::Logger m_logger{"uwp-hosted-dns-service"};
+    tailgate::hosted::Dns& m_dns;
 };
 
 } // namespace tailgate::uwp::bg::service

@@ -84,8 +84,7 @@ bool HasFunnelForTarget(const FunnelConfig& config,
 
 void ApplyToHostInfo(const FunnelConfig& config, tailgate::control::client::HostInfo& host)
 {
-    host.IngressEnabled = IsEnabled(config);
-    host.WireIngress = false;
+    host.SetIngress(false, IsEnabled(config));
 }
 
 } // namespace tailgate::serve

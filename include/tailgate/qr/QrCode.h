@@ -7,14 +7,18 @@
 namespace tailgate::qr
 {
 
-struct QrCode
+class QrCode
 {
-    int Size = 0;
-    std::vector<std::uint8_t> Modules;
-
+public:
+    [[nodiscard]] static QrCode Encode(std::string_view text);
     [[nodiscard]] bool Module(int x, int y) const;
-};
+    [[nodiscard]] int Size() const noexcept;
 
-[[nodiscard]] QrCode EncodeQrCode(std::string_view text);
+private:
+    QrCode(int size, std::vector<std::uint8_t> modules);
+
+    int m_size = 0;
+    std::vector<std::uint8_t> m_modules;
+};
 
 } // namespace tailgate::qr

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <chrono>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -45,22 +44,33 @@ struct RegistrationResult
     bool NetworkMapStreaming = false;
 };
 
+class RegistrationHandler
+{
+public:
+    virtual ~RegistrationHandler() = default;
+
+    virtual void StateChanged(const RegistrationResult& state) = 0;
+    [[nodiscard]] virtual bool WaitForRetry(std::chrono::milliseconds delay) = 0;
+
+protected:
+    RegistrationHandler() = default;
+};
+
 struct RegistrationOptions
 {
     std::string InitialFollowupUrl;
     std::string ReauthorizationKey;
-    std::function<void(const RegistrationResult&)> StateChanged;
-    std::function<bool(std::chrono::milliseconds)> WaitForRetry;
+    RegistrationHandler* Handler = nullptr;
 };
 
 class ControlClient
 {
 public:
-    ControlClient(tailgate::base::IByteStream& stream,
+    ControlClient(tailgate::base::ByteStream& stream,
                   const tailgate::crypto::Bytes32& machinePrivateKey,
                   const tailgate::crypto::Bytes32& nodePrivateKey,
                   const tailgate::control::client::HostInfo& host);
-    ControlClient(tailgate::base::IByteStream& stream,
+    ControlClient(tailgate::base::ByteStream& stream,
                   const tailgate::crypto::Bytes32& machinePrivateKey,
                   ExternalNodePublicKey nodePublicKey,
                   const tailgate::control::client::HostInfo& host);
@@ -84,6 +94,7 @@ public:
     void SetPreferredDerp(int region);
     [[nodiscard]] std::optional<tailgate::types::netmap::NetworkConfig> PollNetworkMap();
     [[nodiscard]] tailgate::types::netmap::NetworkConfig WaitForNetworkMap();
+    [[nodiscard]] bool HasPendingOutput() const;
     void Logout();
     [[nodiscard]] const tailgate::crypto::Bytes32& NodePublicKey() const;
     [[nodiscard]] const tailgate::crypto::Bytes32& DiscoPrivateKey() const;

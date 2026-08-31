@@ -1,5 +1,11 @@
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
+#include <optional>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -8,7 +14,7 @@
 namespace
 {
 
-class TryStream final : public tailgate::base::IByteStream
+class TestByteStream final : public tailgate::base::ByteStream
 {
 public:
     std::optional<std::size_t> TryWriteSome(const std::uint8_t* data, std::size_t size) override
@@ -18,7 +24,7 @@ public:
         return written;
     }
 
-    std::optional<std::vector<std::uint8_t>> TryReadSome(std::size_t maxBytes) override
+    std::optional<std::vector<std::uint8_t>> TryReadSome(std::size_t maximumSize) override
     {
         if (Reads.empty())
         {
@@ -26,7 +32,7 @@ public:
         }
         std::vector<std::uint8_t> result = std::move(Reads.front());
         Reads.pop_front();
-        if (result.size() > maxBytes)
+        if (result.size() > maximumSize)
         {
             throw std::runtime_error("test read exceeds requested capacity");
         }
@@ -40,9 +46,9 @@ public:
 
 } // namespace
 
-TEST(Given_PartialTryOperations, When_UsingThrowingWrappers_Then_TryPrimitivesDriveIo)
+TEST(Given_ByteStream, When_PartialTryOperationsAndUsingThrowingWrappers_Then_TryPrimitivesDriveIo)
 {
-    TryStream stream;
+    TestByteStream stream;
     stream.Reads.push_back({1, 2});
     stream.Reads.push_back({3, 4});
     const std::vector<std::uint8_t> output{5, 6, 7, 8};
@@ -54,9 +60,9 @@ TEST(Given_PartialTryOperations, When_UsingThrowingWrappers_Then_TryPrimitivesDr
     EXPECT_EQ(input, (std::vector<std::uint8_t>{1, 2, 3, 4}));
 }
 
-TEST(Given_TryReadWouldBlock, When_UsingReadSome_Then_WrapperReportsWouldBlock)
+TEST(Given_ByteStream, When_TryReadWouldBlockAndUsingReadSome_Then_WrapperReportsWouldBlock)
 {
-    TryStream stream;
+    TestByteStream stream;
 
     const auto read = [&]()
     {

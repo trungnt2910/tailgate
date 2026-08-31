@@ -15,15 +15,15 @@ BuildDiscoProbes(const tailgate::disco::Disco& disco,
     std::vector<PeerPacket> probes;
     for (const tailgate::types::netmap::PeerConfig& peer : peers)
     {
-        if (!peer.Online || peer.Key.rfind(NodeKeyPrefix, 0) != 0 ||
-            peer.DiscoKey.rfind(DiscoKeyPrefix, 0) != 0)
+        if (!peer.Online() || peer.Key().rfind(NodeKeyPrefix, 0) != 0 ||
+            peer.DiscoKey().rfind(DiscoKeyPrefix, 0) != 0)
         {
             continue;
         }
         const std::vector<std::uint8_t> nodeBytes =
-            tailgate::crypto::HexToBytes(peer.Key.substr(NodeKeyPrefix.size()));
+            tailgate::crypto::HexToBytes(peer.Key().substr(NodeKeyPrefix.size()));
         const std::vector<std::uint8_t> discoBytes =
-            tailgate::crypto::HexToBytes(peer.DiscoKey.substr(DiscoKeyPrefix.size()));
+            tailgate::crypto::HexToBytes(peer.DiscoKey().substr(DiscoKeyPrefix.size()));
         if (nodeBytes.size() != tailgate::crypto::Bytes32{}.size() ||
             discoBytes.size() != tailgate::crypto::Bytes32{}.size())
         {
@@ -33,11 +33,10 @@ BuildDiscoProbes(const tailgate::disco::Disco& disco,
         tailgate::crypto::Bytes32 discoKey{};
         std::copy(nodeBytes.begin(), nodeBytes.end(), nodeKey.begin());
         std::copy(discoBytes.begin(), discoBytes.end(), discoKey.begin());
-        probes.push_back(PeerPacket{
-            .Peer = nodeKey,
-            .Payload = disco.BuildPing(discoKey, disco.NewTransactionId()),
-            .Disco = true,
-        });
+        probes.emplace_back(nodeKey,
+                            disco.BuildPing(discoKey, disco.NewTransactionId()),
+                            /* direct = */ false,
+                            /* disco = */ true);
     }
     return probes;
 }

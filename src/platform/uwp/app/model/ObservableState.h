@@ -56,25 +56,29 @@ public:
     template <typename Function>
     void Update(Function&& function)
     {
-        struct NotificationGuard
+        class NotificationGuard
         {
-            ObservableState& State;
-            bool NotificationsEnabled;
+        public:
+            NotificationGuard(ObservableState& state, bool notificationsEnabled)
+                : m_state(state), m_notificationsEnabled(notificationsEnabled)
+            {
+            }
 
             ~NotificationGuard()
             {
-                State.m_notificationsEnabled = NotificationsEnabled;
-                if (NotificationsEnabled)
+                m_state.m_notificationsEnabled = m_notificationsEnabled;
+                if (m_notificationsEnabled)
                 {
-                    State.NotifyChange();
+                    m_state.NotifyChange();
                 }
             }
+
+        private:
+            ObservableState& m_state;
+            bool m_notificationsEnabled;
         };
 
-        const NotificationGuard guard{
-            .State = *this,
-            .NotificationsEnabled = std::exchange(m_notificationsEnabled, false),
-        };
+        const NotificationGuard guard(*this, std::exchange(m_notificationsEnabled, false));
 
         if constexpr (std::invocable<Function, Derived&>)
         {

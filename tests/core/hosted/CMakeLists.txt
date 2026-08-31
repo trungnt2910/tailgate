@@ -1,6 +1,16 @@
 tailgate_add_test_library(
     tailgate_tests_core_hosted
+    Given_HostedClient.cpp
+    Given_HostedClientSession.cpp
+    Given_HostedConnection.cpp
     Given_HostedDiscoProbes.cpp
+    Given_HostedDns.cpp
+    Given_HostedServerSession.cpp
     Given_RelayProtocol.cpp
 )
-target_link_libraries(tailgate_tests_core_hosted PRIVATE tailgate_core)
+target_link_libraries(
+    tailgate_tests_core_hosted
+    PRIVATE
+        tailgate_core
+        tailgate_tests_core_fakes
+)

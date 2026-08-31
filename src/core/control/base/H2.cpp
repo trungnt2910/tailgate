@@ -1,4 +1,4 @@
-#include <tailgate/control/base/H2.h>
+#include "tailgate/control/base/H2.h"
 
 #include <algorithm>
 #include <array>
@@ -541,7 +541,7 @@ void AppendHpackLiteralNew(std::vector<std::uint8_t>& out,
 
 } // namespace
 
-std::vector<std::uint8_t> BuildH2Preface(std::uint32_t initialWindowSize)
+std::vector<std::uint8_t> H2Codec::BuildPreface(std::uint32_t initialWindowSize)
 {
     const std::string preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
     std::vector<std::uint8_t> out(preface.begin(), preface.end());
@@ -555,14 +555,14 @@ std::vector<std::uint8_t> BuildH2Preface(std::uint32_t initialWindowSize)
     return out;
 }
 
-std::vector<std::uint8_t> BuildH2SettingsAck()
+std::vector<std::uint8_t> H2Codec::BuildSettingsAck()
 {
     std::vector<std::uint8_t> out;
     AppendFrameHeader(out, 0, H2FrameType::Settings, H2FlagAck, 0);
     return out;
 }
 
-std::vector<std::uint8_t> BuildH2PingAck(const std::vector<std::uint8_t>& payload)
+std::vector<std::uint8_t> H2Codec::BuildPingAck(const std::vector<std::uint8_t>& payload)
 {
     constexpr std::size_t pingPayloadSize = 8;
     if (payload.size() != pingPayloadSize)
@@ -575,7 +575,8 @@ std::vector<std::uint8_t> BuildH2PingAck(const std::vector<std::uint8_t>& payloa
     return out;
 }
 
-std::vector<std::uint8_t> BuildH2WindowUpdate(std::uint32_t streamId, std::uint32_t increment)
+std::vector<std::uint8_t> H2Codec::BuildWindowUpdate(std::uint32_t streamId,
+                                                     std::uint32_t increment)
 {
     std::vector<std::uint8_t> out;
     AppendFrameHeader(out, 4, H2FrameType::WindowUpdate, 0, streamId);
@@ -587,13 +588,13 @@ std::vector<std::uint8_t> BuildH2WindowUpdate(std::uint32_t streamId, std::uint3
 }
 
 std::vector<std::uint8_t>
-BuildH2Headers(const std::string& method,
-               const std::string& path,
-               const std::string& authority,
-               const std::string& contentType,
-               const std::vector<std::pair<std::string, std::string>>& extraHeaders,
-               std::uint32_t streamId,
-               bool endStream)
+H2Codec::BuildHeaders(const std::string& method,
+                      const std::string& path,
+                      const std::string& authority,
+                      const std::string& contentType,
+                      const std::vector<std::pair<std::string, std::string>>& extraHeaders,
+                      std::uint32_t streamId,
+                      bool endStream)
 {
     std::vector<std::uint8_t> hpack;
     if (method == "POST")
@@ -639,7 +640,7 @@ BuildH2Headers(const std::string& method,
 }
 
 std::vector<std::uint8_t>
-BuildH2Data(const std::vector<std::uint8_t>& data, std::uint32_t streamId, bool endStream)
+H2Codec::BuildData(const std::vector<std::uint8_t>& data, std::uint32_t streamId, bool endStream)
 {
     std::vector<std::uint8_t> out;
     AppendFrameHeader(out,
@@ -778,13 +779,13 @@ std::optional<H2Headers> H2HeaderDecoder::Decode(const std::vector<std::uint8_t>
     return result;
 }
 
-std::optional<H2Headers> DecodeH2Headers(const std::vector<std::uint8_t>& headerBlock)
+std::optional<H2Headers> H2Codec::DecodeHeaders(const std::vector<std::uint8_t>& headerBlock)
 {
     H2HeaderDecoder decoder;
     return decoder.Decode(headerBlock);
 }
 
-std::optional<int> H2Status(const H2Headers& headers)
+std::optional<int> H2Codec::Status(const H2Headers& headers)
 {
     const auto [begin, end] = headers.equal_range(":status");
     for (auto header = begin; header != end; ++header)
@@ -802,19 +803,19 @@ std::optional<int> H2Status(const H2Headers& headers)
     return std::nullopt;
 }
 
-std::optional<int> DecodeH2Status(const std::vector<std::uint8_t>& headerBlock)
+std::optional<int> H2Codec::DecodeStatus(const std::vector<std::uint8_t>& headerBlock)
 {
-    const auto headers = DecodeH2Headers(headerBlock);
-    return headers ? H2Status(*headers) : std::nullopt;
+    const auto headers = H2Codec::DecodeHeaders(headerBlock);
+    return headers ? H2Codec::Status(*headers) : std::nullopt;
 }
 
-std::vector<H2Frame> ParseH2Frames(const std::vector<std::uint8_t>& data)
+std::vector<H2Frame> H2Codec::ParseFrames(const std::vector<std::uint8_t>& data)
 {
     std::vector<std::uint8_t> copy = data;
-    return TakeCompleteH2Frames(copy);
+    return H2Codec::TakeCompleteFrames(copy);
 }
 
-std::vector<H2Frame> TakeCompleteH2Frames(std::vector<std::uint8_t>& buffer)
+std::vector<H2Frame> H2Codec::TakeCompleteFrames(std::vector<std::uint8_t>& buffer)
 {
     std::vector<H2Frame> frames;
     std::size_t offset = 0;

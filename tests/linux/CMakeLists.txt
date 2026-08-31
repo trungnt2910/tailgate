@@ -1,17 +1,30 @@
 tailgate_add_test_executable(
     tailgate_linux_tests
+    Given_DataplaneEvent.cpp
     Given_FdStream.cpp
+    Given_HostedConnectionRegistry.cpp
+    Given_Lifecycle.cpp
     Given_LinuxBindings.cpp
-    Given_LinuxDataplaneEvents.cpp
-    Given_LinuxPeerApiServer.cpp
-    Given_LinuxPingIpc.cpp
-    Given_LinuxQrCode.cpp
-    Given_LinuxState.cpp
+    Given_LinuxEventLoop.cpp
+    Given_LinuxFileChangeWaiter.cpp
+    Given_LinuxPacketDevice.cpp
+    Given_LinuxProcessWait.cpp
+    Given_LinuxTcpSocketFactory.cpp
+    Given_LinuxUdpSocketFactory.cpp
+    Given_Network.cpp
+    Given_PeerApiServer.cpp
+    Given_PingIpc.cpp
+    Given_QrCode.cpp
+    Given_Registration.cpp
+    Given_SocketIo.cpp
+    Given_State.cpp
     LinuxTestEnvironment.h
 )
 target_include_directories(
     tailgate_linux_tests
-    PRIVATE ${PROJECT_SOURCE_DIR}/src/platform/linux
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/platform/linux
+        ${PROJECT_SOURCE_DIR}/tests
 )
 target_link_libraries(
     tailgate_linux_tests

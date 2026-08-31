@@ -133,16 +133,16 @@ void ExitNodeControlViewImpl::OnStateChange(const std::string&)
     m_list.Items().Append(uiFactory.SectionSpacing());
     for (const UwpDevice& device : settings.Devices())
     {
-        if (!device.ExitNodeOption)
+        if (!device.ExitNodeOption())
         {
             continue;
         }
         const winrt::hstring name = device.ShortName();
         addChoice(name,
-                  device.Online ? winrt::hstring{}
-                                : m_resourceLoader.Get(Resources::Common::Offline),
+                  device.Online() ? winrt::hstring{}
+                                  : m_resourceLoader.Get(Resources::Common::Offline),
                   device.MatchesExitNode(selected),
-                  device.Online,
+                  device.Online(),
                   [&exitNodeController, &navigationController, name]()
                   {
                       exitNodeController.SetNode(name);

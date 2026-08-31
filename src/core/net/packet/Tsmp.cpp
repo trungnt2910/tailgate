@@ -1,4 +1,4 @@
-#include <tailgate/net/packet/Tsmp.h>
+#include "tailgate/net/packet/Tsmp.h"
 
 #include <algorithm>
 
@@ -29,7 +29,7 @@ constexpr std::uint8_t Ipv4MoreFragmentsOrOffsetMask = 0x3f;
 std::optional<std::size_t> PayloadOffset(const std::vector<std::uint8_t>& packet)
 {
     if (packet.size() >= Ipv4MinimumHeaderSize && (packet[0] >> 4U) == 4 &&
-        tailgate::net::packet::Ipv4Protocol(packet) == TsmpIpProtocol)
+        tailgate::net::packet::Ipv4Packet::Protocol(packet) == TsmpIpProtocol)
     {
         if ((packet[6] & Ipv4MoreFragmentsOrOffsetMask) != 0 || packet[7] != 0)
         {
@@ -66,16 +66,16 @@ std::vector<std::uint8_t> BuildIpv6Response(const std::vector<std::uint8_t>& req
 } // namespace
 
 std::vector<std::uint8_t>
-BuildTsmpPing(std::uint32_t source, std::uint32_t destination, const TsmpToken& token)
+TsmpPacket::BuildPing(std::uint32_t source, std::uint32_t destination, const TsmpToken& token)
 {
     std::vector<std::uint8_t> payload(PingPayloadSize);
     payload[0] = PingType;
     std::copy(token.begin(), token.end(), payload.begin() + 1);
-    return tailgate::net::packet::BuildIpv4Packet(source, destination, TsmpIpProtocol, payload);
+    return tailgate::net::packet::Ipv4Packet::Build(source, destination, TsmpIpProtocol, payload);
 }
 
-std::optional<std::vector<std::uint8_t>> BuildTsmpPong(const std::vector<std::uint8_t>& packet,
-                                                       std::uint16_t peerApiPort)
+std::optional<std::vector<std::uint8_t>>
+TsmpPacket::BuildPong(const std::vector<std::uint8_t>& packet, std::uint16_t peerApiPort)
 {
     const std::optional<std::size_t> payloadOffset = PayloadOffset(packet);
     if (!payloadOffset || packet.size() < *payloadOffset + PingPayloadSize ||
@@ -92,20 +92,21 @@ std::optional<std::vector<std::uint8_t>> BuildTsmpPong(const std::vector<std::ui
     payload[PingPayloadSize + 1] = static_cast<std::uint8_t>(peerApiPort);
     if ((packet[0] >> 4U) == 4)
     {
-        const std::optional<std::uint32_t> source = tailgate::net::packet::Ipv4Source(packet);
+        const std::optional<std::uint32_t> source =
+            tailgate::net::packet::Ipv4Packet::Source(packet);
         const std::optional<std::uint32_t> destination =
-            tailgate::net::packet::Ipv4Destination(packet);
+            tailgate::net::packet::Ipv4Packet::Destination(packet);
         if (!source || !destination)
         {
             return std::nullopt;
         }
-        return tailgate::net::packet::BuildIpv4Packet(
+        return tailgate::net::packet::Ipv4Packet::Build(
             *destination, *source, TsmpIpProtocol, payload);
     }
     return BuildIpv6Response(packet, payload);
 }
 
-std::optional<TsmpPong> ParseTsmpPong(const std::vector<std::uint8_t>& packet)
+std::optional<TsmpPong> TsmpPacket::ParsePong(const std::vector<std::uint8_t>& packet)
 {
     const std::optional<std::size_t> payloadOffset = PayloadOffset(packet);
     if (!payloadOffset || packet.size() < *payloadOffset + PingPayloadSize ||
@@ -113,17 +114,18 @@ std::optional<TsmpPong> ParseTsmpPong(const std::vector<std::uint8_t>& packet)
     {
         return std::nullopt;
     }
-    TsmpPong result;
+    TsmpToken token{};
     std::copy_n(packet.begin() + static_cast<std::ptrdiff_t>(*payloadOffset + 1),
-                result.Token.size(),
-                result.Token.begin());
+                token.size(),
+                token.begin());
+    std::uint16_t peerApiPort = 0;
     if (packet.size() >= *payloadOffset + PongPayloadSize)
     {
-        result.PeerApiPort = static_cast<std::uint16_t>(
+        peerApiPort = static_cast<std::uint16_t>(
             (static_cast<std::uint16_t>(packet[*payloadOffset + PingPayloadSize]) << 8U) |
             packet[*payloadOffset + PingPayloadSize + 1]);
     }
-    return result;
+    return TsmpPong(token, peerApiPort);
 }
 
 } // namespace tailgate::net::packet

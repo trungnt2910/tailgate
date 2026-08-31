@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include <tailgate/net/Ipv4Address.h>
+
 namespace tailgate::uwp
 {
 
@@ -28,15 +30,9 @@ struct VpnConstants final
 
     struct Network final
     {
-        static constexpr std::uint32_t TailnetIpv4Network = (100U << 24U) | (64U << 16U);
-        static constexpr std::uint8_t TailnetIpv4PrefixLength = 10;
         static constexpr wchar_t ServiceHost[] = L"100.100.100.100";
         static constexpr std::uint32_t ServiceIpv4Address =
-            (100U << 24U) | (100U << 16U) | (100U << 8U) | 100U;
-        static constexpr std::uint8_t HostIpv4PrefixLength = 32;
-        static constexpr std::uint32_t LowerDefaultIpv4Network = 0;
-        static constexpr std::uint32_t UpperDefaultIpv4Network = 128U << 24U;
-        static constexpr std::uint8_t SplitDefaultPrefixLength = 1;
+            tailgate::net::Ipv4Address::FromOctets(100, 100, 100, 100).HostOrder();
     };
 
     struct AppService final

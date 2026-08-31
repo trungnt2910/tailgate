@@ -17,10 +17,10 @@ public:
     }
 };
 
-class IByteStream
+class ByteStream
 {
 public:
-    virtual ~IByteStream() = default;
+    virtual ~ByteStream() = default;
 
     [[nodiscard]] virtual std::optional<std::size_t> TryWriteSome(const std::uint8_t* data,
                                                                   std::size_t size) = 0;

@@ -10,6 +10,7 @@
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/net/packet/Ipv4.h>
 #include <tailgate/types/netmap/NetworkMap.h>
+#include <tailgate/wgengine/ping/Tracker.h>
 
 #include "common/UwpAppServiceProtocol.h"
 #include "common/UwpFormat.h"
@@ -23,7 +24,8 @@ namespace tailgate::uwp::bg::service
 class PingService final : public ServiceBase
 {
 public:
-    explicit PingService(manager::DataPlaneManager& dataPlaneManager);
+    PingService(manager::DataPlaneManager& dataPlaneManager,
+                tailgate::wgengine::ping::Tracker& tracker);
 
     void Start(SessionGeneration generation) override;
     void Stop() override;
@@ -35,7 +37,7 @@ public:
     void Handle(const tailgate::net::packet::Ipv4UdpDatagram& datagram,
                 const app_service::PingRequest& request,
                 const tailgate::types::netmap::NetworkConfig& config,
-                tailgate::disco::Disco* disco,
+                tailgate::disco::Disco& disco,
                 const std::string& relayName,
                 std::vector<std::uint8_t>& relayOutput,
                 std::vector<std::vector<std::uint8_t>>& appResponses);
@@ -44,19 +46,18 @@ public:
                   const tailgate::hosted::PeerPacket& packet);
 
 private:
-    struct PendingPing
+    struct PendingResponse
     {
+        std::uint64_t RequestId = 0;
         std::uint64_t Sequence = 0;
-        tailgate::disco::Disco::TransactionId Transaction{};
-        std::chrono::steady_clock::time_point Started{};
-        std::string PeerName;
-        std::string Relay;
         std::uint32_t AppAddress = 0;
         std::uint16_t AppPort = 0;
     };
 
-    std::vector<PendingPing> m_pending;
+    std::vector<PendingResponse> m_pending;
     std::vector<std::vector<std::uint8_t>> m_responses;
+    tailgate::wgengine::ping::Tracker& m_tracker;
+    std::uint64_t m_nextRequestId = 1;
     tailgate::base::Logger m_logger{"uwp-app-ping"};
 };
 

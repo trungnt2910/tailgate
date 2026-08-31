@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <format>
 #include <memory>
@@ -17,7 +18,6 @@
 
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Networking.Sockets.h>
 #include <winrt/Windows.Networking.Vpn.h>
 #include <winrt/Windows.Networking.h>
 #include <winrt/Windows.Storage.Streams.h>
@@ -29,11 +29,16 @@
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/derp/Client.h>
 #include <tailgate/disco/Disco.h>
+#include <tailgate/hosted/Client.h>
+#include <tailgate/hosted/Connection.h>
 #include <tailgate/hosted/Protocol.h>
+#include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/dns/Dns.h>
 #include <tailgate/net/dns/TailnetDns.h>
 #include <tailgate/net/packet/Ipv4.h>
 #include <tailgate/net/packet/Tsmp.h>
+#include <tailgate/types/nettype/TcpSocket.h>
+#include <tailgate/wgengine/router/Config.h>
 #include <tailgate/wgengine/wireguard/Router.h>
 
 #include "common/AuthorizationState.h"
@@ -41,7 +46,6 @@
 #include "common/ResourceLoader.h"
 #include "common/Settings.h"
 #include "common/UwpError.h"
-#include "common/UwpTcpStream.h"
 #include "common/VpnConstants.h"
 
 #include "service/ExitNodeService.h"
@@ -55,7 +59,6 @@ namespace
 
 namespace foundation = winrt::Windows::Foundation;
 namespace networking = winrt::Windows::Networking;
-namespace sockets = winrt::Windows::Networking::Sockets;
 namespace streams = winrt::Windows::Storage::Streams;
 namespace vpn = winrt::Windows::Networking::Vpn;
 using namespace bg;
@@ -144,11 +147,11 @@ BuildDomainAssignment(const tailgate::types::netmap::NetworkConfig& config)
         assignedNames.push_back(normalized);
     };
 
-    for (const tailgate::types::netmap::NetworkConfig::DnsRoute& route : config.DnsRoutes)
+    for (const tailgate::types::netmap::NetworkConfig::DnsRoute& route : config.DnsRoutes())
     {
         append(route.Suffix, vpn::VpnDomainNameType::Suffix, route.Resolvers);
     }
-    for (const std::string& domain : config.DnsDomains)
+    for (const std::string& domain : config.DnsDomains())
     {
         append(domain, vpn::VpnDomainNameType::Suffix, {});
     }
@@ -207,26 +210,30 @@ void AppendRelayPackets(const vpn::VpnChannel& channel,
     }
 }
 
-struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
+class TailgateVpnPlugin : public winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
 {
+public:
     TailgateVpnPlugin()
         : m_injector(CreateRs2PluginInjector()),
-          m_resourceLoader(m_injector.create<ResourceLoader&>()),
-          m_sessionManager(m_injector.create<SessionManager&>()),
-          m_controlPlaneManager(m_injector.create<ControlPlaneManager&>()),
-          m_dataPlaneManager(m_injector.create<DataPlaneManager&>()),
-          m_transportManager(m_injector.create<TransportManager&>()),
-          m_pingService(m_injector.create<PingService&>()),
-          m_exitNodeService(m_injector.create<ExitNodeService&>())
+          m_resourceLoader(m_injector->create<ResourceLoader&>()),
+          m_sessionManager(m_injector->create<SessionManager&>()),
+          m_controlPlaneManager(m_injector->create<ControlPlaneManager&>()),
+          m_dataPlaneManager(m_injector->create<DataPlaneManager&>()),
+          m_transportManager(m_injector->create<TransportManager&>()),
+          m_hostedClient(m_injector->create<tailgate::hosted::Client&>()),
+          m_hostedConnection(m_injector->create<tailgate::hosted::Connection&>()),
+          m_packetDevice(m_injector->create<PacketDevice&>()),
+          m_pingService(m_injector->create<PingService&>()),
+          m_exitNodeService(m_injector->create<ExitNodeService&>())
     {
-        (void)m_injector.create<HostedDnsService&>();
-        (void)m_injector.create<NetworkService&>();
+        (void)m_injector->create<HostedDnsService&>();
+        (void)m_injector->create<NetworkService&>();
     }
 
     ~TailgateVpnPlugin()
     {
         m_sessionManager.StopForegroundMonitor();
-        m_stopConnection = true;
+        RequestConnectionStop();
         m_controlPlaneManager.StopMaintenance();
     }
 
@@ -250,7 +257,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
                 {
                     m_suppressAutomaticReconnect = false;
                     callbackGeneration = ++m_callbackGeneration;
-                    m_stopConnection = true;
+                    RequestConnectionStop();
                 }
             }
             if (rejectConnect)
@@ -356,91 +363,18 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
                                          probe->ValidationHost,
                                          probe->ConnectAddress);
                     }
-                    m_relaySocket = sockets::StreamSocket();
                     // VpnChannel requires an unconnected transport and returns E_INVALIDARG if
-                    // AssociateTransport is called after ConnectAsync. Keep this before
-                    // UwpTcpStream construction: that constructor connects and upgrades this same
-                    // StreamSocket to TLS.
+                    // AssociateTransport is called after ConnectAsync. The injected RS2 factory
+                    // creates and associates the one StreamSocket before it connects that socket.
                     m_logger.LogDebug("associating unconnected relay transport");
                     transportAssociationStarted = true;
                     const TransportId transportId = m_transportManager.Resolve(
                         TransportTarget{.Kind = TransportTargetKind::Tailgate});
                     m_logger.LogDebug("assigning RS2 relay transport id={}", transportId.Value);
-                    channel.AssociateTransport(m_relaySocket, nullptr);
-                    m_relayRawStream =
-                        std::make_unique<UwpTcpStream>(m_relaySocket,
-                                                       probe->ConnectAddress,
-                                                       probe->Service,
-                                                       sockets::SocketProtectionLevel::Tls12,
-                                                       40s,
-                                                       probe->ValidationHost);
-                    m_relayDecoder.Feed(tailgate::hosted::RequestHttpUpgrade(
-                        *m_relayRawStream, std::format("{}:{}", relayHost, relayService)));
-                    tailgate::hosted::Frame challengeFrame =
-                        tailgate::hosted::ReadFrame(*m_relayRawStream, m_relayDecoder);
-                    if (challengeFrame.Type != tailgate::hosted::MessageType::ServerChallenge)
-                    {
-                        throw std::runtime_error(
-                            "Tailgate server did not provide an identity challenge.");
-                    }
-                    const tailgate::hosted::Challenge challenge =
-                        tailgate::hosted::DecodeChallenge(challengeFrame.Payload);
-                    VerifyOrStoreRelayIdentity(serverText, challenge.RelayPublicKey);
-
-                    tailgate::hosted::Authentication authentication;
-                    authentication.Tailnet = config.Domain;
-                    authentication.NodeId = config.SelfNodeId;
-                    authentication.Hostname = BuildHostInfo().Hostname;
-                    authentication.OperatingSystem = BuildHostInfo().OperatingSystem;
-                    authentication.OperatingSystemVersion = BuildHostInfo().OperatingSystemVersion;
-                    authentication.NodePublicKey = m_controlPlaneManager.NodePublicKey();
-                    authentication.ClientNonce = tailgate::crypto::GeneratePrivateKey();
-                    authentication.ClientProof =
-                        tailgate::hosted::CreateClientProof(m_nodePrivateKey,
-                                                            challenge.RelayPublicKey,
-                                                            challenge.ServerNonce,
-                                                            authentication.ClientNonce);
-                    tailgate::hosted::WriteFrame(
-                        *m_relayRawStream,
-                        tailgate::hosted::Frame{
-                            .Type = tailgate::hosted::MessageType::Authenticate,
-                            .Payload = tailgate::hosted::EncodeAuthentication(authentication)});
-                    m_logger.LogDebug("relay authentication sent; waiting for response");
-                    const tailgate::hosted::Frame response =
-                        tailgate::hosted::ReadFrame(*m_relayRawStream, m_relayDecoder);
-                    m_logger.LogDebug("relay authentication response type={} payload-bytes={}",
-                                      static_cast<std::uint16_t>(response.Type),
-                                      response.Payload.size());
-                    if (response.Type == tailgate::hosted::MessageType::Rejected)
-                    {
-                        throw std::runtime_error(std::format(
-                            "Tailgate server rejected authentication: {}.",
-                            tailgate::hosted::DecodeRejection(response.Payload).Reason));
-                    }
-                    if (response.Type != tailgate::hosted::MessageType::Authenticated)
-                    {
-                        throw std::runtime_error(
-                            "Tailgate server returned an invalid authentication response.");
-                    }
-                    const tailgate::hosted::Session session =
-                        tailgate::hosted::DecodeSession(response.Payload);
-                    const tailgate::crypto::Bytes32 expectedProof =
-                        tailgate::hosted::CreateServerProof(m_nodePrivateKey,
-                                                            challenge.RelayPublicKey,
-                                                            challenge.ServerNonce,
-                                                            authentication.ClientNonce);
-                    if (session.Tailnet != config.Domain ||
-                        !tailgate::hosted::ProofMatches(expectedProof, session.ServerProof))
-                    {
-                        throw std::runtime_error("Tailgate server identity proof is invalid.");
-                    }
-                    m_dataPlaneManager.RememberProbe(winrt::to_string(serverText), *probe);
-                    m_nodePublicKey = authentication.NodePublicKey;
-                    m_config = config;
+                    m_packetDevice.PrepareTransport(channel);
                     m_exitNode = winrt::to_string(Settings::GetString(L"ExitNode"));
                     m_exitNodeService.LoadPending(config, m_exitNode);
-                    if (!m_exitNode.empty() &&
-                        !tailgate::types::netmap::FindExitNode(config.Peers, m_exitNode, false))
+                    if (!m_exitNode.empty() && !config.FindExitNode(m_exitNode, false))
                     {
                         m_logger.LogWarning(
                             "configured exit node is unavailable; falling back to none: {}",
@@ -449,21 +383,43 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
                         Settings::SetString(L"ExitNode", L"");
                         Settings::SetString(L"ExitNodeSelection", L"");
                     }
-                    m_router = std::make_unique<tailgate::wgengine::wireguard::WireGuardRouter>(
-                        m_nodePrivateKey, config.Peers, m_exitNode);
-                    m_disco = std::make_unique<tailgate::disco::Disco>(m_discoPrivateKey,
-                                                                       m_nodePublicKey);
+                    const tailgate::control::client::HostInfo hostInfo = BuildHostInfo();
+                    tailgate::hosted::ConnectionResult hosted =
+                        m_hostedConnection.Connect(tailgate::hosted::ConnectionOptions{
+                            .Socket =
+                                tailgate::types::nettype::TcpSocketOptions{
+                                    .ConnectAddress = probe->ConnectAddress,
+                                    .Service = probe->Service,
+                                    .NetworkInterface = std::nullopt,
+                                    .TlsServerName = probe->ValidationHost,
+                                    .IoTimeout = 40s,
+                                    .ConnectTimeout = std::nullopt,
+                                    .ReadinessToken = {},
+                                    .AllowTls13 = false,
+                                    .NonBlockingAfterConnect = false,
+                                },
+                            .HttpHost = std::format("{}:{}", relayHost, relayService),
+                            .Hostname = hostInfo.Hostname(),
+                            .OperatingSystem = hostInfo.OperatingSystem(),
+                            .OperatingSystemVersion = hostInfo.OperatingSystemVersion(),
+                            .Client =
+                                tailgate::hosted::ClientConfig{
+                                    .NodePrivateKey = m_nodePrivateKey,
+                                    .NodePublicKey = m_nodePublicKey,
+                                    .DiscoPrivateKey = m_discoPrivateKey,
+                                    .Network = config,
+                                    .ExitNode = m_exitNode,
+                                },
+                        });
+                    m_relayRawStream = std::move(hosted.Stream);
+                    VerifyOrStoreRelayIdentity(serverText, hosted.RelayPublicKey);
+                    m_relayDecoder = std::move(hosted.FrameDecoder);
+                    m_dataPlaneManager.RememberProbe(winrt::to_string(serverText), *probe);
                     m_pendingRelayFrames.clear();
                     // Every packet from this node transits the Tailgate relay, so ping results
                     // report that host (its first DNS label) as the relay rather than a peer's DERP
                     // region.
                     m_relayName = relayHost.substr(0, relayHost.find('.'));
-                    m_logger.LogDebug("sending relay network map peers={}", config.Peers.size());
-                    tailgate::hosted::WriteFrame(
-                        *m_relayRawStream,
-                        tailgate::hosted::Frame{.Type = tailgate::hosted::MessageType::NetworkMap,
-                                                .Payload =
-                                                    tailgate::hosted::EncodeNetworkConfig(config)});
                     m_logger.LogDebug("relay network map sent");
                     m_dataPlaneManager.Connect();
                     m_logger.LogDebug("writing app state");
@@ -608,7 +564,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
             ++m_callbackGeneration;
             m_disconnectInProgress = true;
             m_suppressAutomaticReconnect = true;
-            m_stopConnection = true;
+            RequestConnectionStop();
         }
         m_sessionManager.BeginStop();
         m_controlPlaneManager.StopMaintenance();
@@ -616,8 +572,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
             std::lock_guard lock(m_dataPathMutex);
             m_logger.LogDebug("VpnPlugin.Disconnect entered channel={}", channelId);
             m_dataPathReady = false;
-            m_router.reset();
-            m_disco.reset();
+            m_hostedClient.Stop();
             m_pendingRelayFrames.clear();
             m_controlPlaneManager.Reset();
             m_dataPlaneManager.Stop();
@@ -650,7 +605,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
         {
             std::lock_guard lock(m_dataPathMutex);
             m_relayRawStream.reset();
-            m_relaySocket = nullptr;
+            m_packetDevice.ResetTransport();
         }
         m_sessionManager.CompleteStop();
         {
@@ -670,14 +625,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
                               m_encapsulatePackets,
                               m_decapsulateCalls,
                               m_decapsulateFrames);
-            std::vector<std::uint8_t> payload;
-            if (m_router)
-            {
-                AppendTransportFrames(payload, m_router->UpdateTimers());
-            }
-            AppendFrame(payload,
-                        tailgate::hosted::Frame{.Type = tailgate::hosted::MessageType::Heartbeat,
-                                                .Payload = {}});
+            std::vector<std::uint8_t> payload = m_hostedClient.BuildKeepAlive();
             channel.RequestVpnPacketBuffer(vpn::VpnDataPathType::Send, keepAlivePacket);
             FillPacket(keepAlivePacket, payload);
         }
@@ -714,8 +662,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
                 {
                     AppendFrame(
                         payload,
-                        tailgate::hosted::Frame{.Type = tailgate::hosted::MessageType::Heartbeat,
-                                                .Payload = {}});
+                        tailgate::hosted::Frame(tailgate::hosted::MessageType::Heartbeat, {}));
                     m_dataPathReady = true;
                 }
                 // Every buffer removed from the platform's list must be appended to an output
@@ -726,17 +673,14 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
                 {
                     vpn::VpnPacketBuffer packet = packets.RemoveAtBegin();
                     streams::Buffer buffer = packet.Buffer();
-                    if (m_router)
+                    if (m_hostedClient.Active())
                     {
                         std::vector<std::uint8_t> plaintext(buffer.Length());
                         std::copy(
                             buffer.data(), buffer.data() + buffer.Length(), plaintext.begin());
                         EncapsulationContext context{
                             .Original = plaintext,
-                            .Config = m_config,
-                            .Disco = m_disco.get(),
-                            .Router = m_router.get(),
-                            .ExitNode = m_exitNode,
+                            .Client = m_hostedClient,
                             .RelayName = m_relayName,
                             .RemoteOutput = payload,
                         };
@@ -753,8 +697,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
                 // buffers abort the channel.
                 std::vector<std::uint8_t> filler;
                 AppendFrame(filler,
-                            tailgate::hosted::Frame{
-                                .Type = tailgate::hosted::MessageType::Heartbeat, .Payload = {}});
+                            tailgate::hosted::Frame(tailgate::hosted::MessageType::Heartbeat, {}));
                 std::size_t offset = 0;
                 for (vpn::VpnPacketBuffer& packet : spentBuffers)
                 {
@@ -824,12 +767,7 @@ struct TailgateVpnPlugin : winrt::implements<TailgateVpnPlugin, vpn::IVpnPlugIn>
             {
                 DecapsulationContext context{
                     .Message = *frame,
-                    .Config = m_config,
-                    .Disco = m_disco.get(),
-                    .Router = m_router.get(),
-                    .NodePrivateKey = m_nodePrivateKey,
-                    .NodePublicKey = m_nodePublicKey,
-                    .ExitNode = m_exitNode,
+                    .Client = m_hostedClient,
                     .LocalOutput = localPackets,
                     .RemoteOutput = relayPlaintext,
                 };
@@ -873,35 +811,38 @@ private:
 
     [[nodiscard]] bool WaitForRetry(std::chrono::milliseconds delay) const
     {
-        constexpr std::chrono::milliseconds RetryWaitSlice{100};
-        std::chrono::milliseconds waited{0};
-        while (waited < delay && !m_stopConnection)
-        {
-            const std::chrono::milliseconds slice = std::min(RetryWaitSlice, delay - waited);
-            std::this_thread::sleep_for(slice);
-            waited += slice;
-        }
-        return !m_stopConnection;
+        std::unique_lock lock(m_retryMutex);
+        return !m_retryChanged.wait_for(lock,
+                                        delay,
+                                        [this]()
+                                        {
+                                            return m_stopConnection.load();
+                                        });
+    }
+
+    void RequestConnectionStop()
+    {
+        m_stopConnection = true;
+        m_retryChanged.notify_all();
     }
 
     void ResetConnectionAttempt()
     {
         m_controlPlaneManager.Reset();
         std::lock_guard lock(m_dataPathMutex);
-        m_router.reset();
-        m_disco.reset();
+        m_hostedClient.Stop();
         m_relayRawStream.reset();
-        if (m_relaySocket)
+        if (m_packetDevice.HasTransportSocket())
         {
             try
             {
-                m_relaySocket.Close();
+                m_packetDevice.CloseTransport();
             }
             catch (const winrt::hresult_error& error)
             {
                 m_logger.LogWarning("relay cleanup failed hresult={}", error.code());
             }
-            m_relaySocket = nullptr;
+            m_packetDevice.ResetTransport();
         }
         m_relayDecoder = tailgate::hosted::Decoder{};
         m_pendingRelayFrames.clear();
@@ -912,7 +853,7 @@ private:
     void CancelConnectionAttempt(ForegroundCancellationReason reason)
     {
         m_connectionCancelled = true;
-        m_stopConnection = true;
+        RequestConnectionStop();
         m_controlPlaneManager.RequestStop();
         m_logger.LogInfo(
             "{}",
@@ -920,11 +861,11 @@ private:
                 ? "foreground process exited during connection; cancelling the background attempt"
                 : "foreground dismissed authorization; cancelling the background attempt");
         std::lock_guard lock(m_dataPathMutex);
-        if (m_relaySocket)
+        if (m_packetDevice.HasTransportSocket())
         {
             try
             {
-                m_relaySocket.Close();
+                m_packetDevice.CloseTransport();
             }
             catch (const winrt::hresult_error& error)
             {
@@ -939,8 +880,10 @@ private:
     {
         {
             std::lock_guard lock(m_dataPathMutex);
-            if (update.Domain != m_config.Domain || update.SelfNodeId != m_config.SelfNodeId ||
-                update.SelfKey != m_config.SelfKey)
+            const tailgate::types::netmap::NetworkConfig& current = m_hostedClient.Network();
+            if (update.Domain() != current.Domain() ||
+                update.SelfNodeId() != current.SelfNodeId() ||
+                update.SelfKey() != current.SelfKey())
             {
                 throw ControlIdentityChangedError();
             }
@@ -948,23 +891,18 @@ private:
             // previous netmap. If closing the outer transport fails, a later copy of the same
             // netmap must still retry the policy reconnect.
             const bool networkPolicyChanged = NetworkPolicyChanged(m_channelConfig, update);
-            m_config = std::move(update);
-            if (m_router)
-            {
-                m_router->UpdatePeers(m_config.Peers, m_exitNode);
-            }
-            m_sessionManager.WriteState(m_config);
+            std::vector<std::uint8_t> relayUpdate =
+                m_hostedClient.UpdateNetworkMap(std::move(update));
+            m_sessionManager.WriteState(m_hostedClient.Network());
             // The relay host keeps its own copy of this node's peer table; without this frame it
             // would go stale and drop traffic from newly joined or rekeyed peers until the next
             // reconnect (the Linux frontend queues the same frame). Relay frames can only leave
             // through the data-path callbacks, so it is queued for the next Encapsulate or
             // Decapsulate rather than written here.
-            AppendFrame(m_pendingRelayFrames,
-                        tailgate::hosted::Frame{
-                            .Type = tailgate::hosted::MessageType::NetworkMap,
-                            .Payload = tailgate::hosted::EncodeNetworkConfig(m_config)});
+            m_pendingRelayFrames.insert(
+                m_pendingRelayFrames.end(), relayUpdate.begin(), relayUpdate.end());
             m_logger.LogDebug("applied streamed network-map update peers={} queued-relay-bytes={}",
-                              m_config.Peers.size(),
+                              m_hostedClient.Network().Peers().size(),
                               m_pendingRelayFrames.size());
             if (!networkPolicyChanged)
             {
@@ -977,7 +915,7 @@ private:
     void RequestTransportReconnect(ReconnectReason reason)
     {
         std::lock_guard lock(m_dataPathMutex);
-        if (!m_relaySocket)
+        if (!m_packetDevice.HasTransportSocket())
         {
             throw std::runtime_error(
                 "The VPN relay transport is unavailable for a policy reconnect.");
@@ -991,121 +929,43 @@ private:
         m_dataPathReady = false;
         try
         {
-            m_relaySocket.Close();
+            m_packetDevice.CloseTransport();
         }
         catch (...)
         {
             m_transportReconnectRequested = false;
             throw;
         }
-        m_stopConnection = true;
+        RequestConnectionStop();
         m_controlPlaneManager.RequestStop();
     }
 
     static void AppendFrame(std::vector<std::uint8_t>& output, const tailgate::hosted::Frame& frame)
     {
-        std::vector<std::uint8_t> encoded = tailgate::hosted::Encode(frame);
+        std::vector<std::uint8_t> encoded = frame.Encode();
         output.insert(output.end(), encoded.begin(), encoded.end());
-    }
-
-    static void AppendTransportFrames(
-        std::vector<std::uint8_t>& output,
-        std::vector<tailgate::wgengine::wireguard::WireGuardRouter::TransportPacket> packets)
-    {
-        for (auto& packet : packets)
-        {
-            AppendFrame(
-                output,
-                tailgate::hosted::Frame{
-                    .Type = tailgate::hosted::MessageType::ClientPacket,
-                    .Payload = tailgate::hosted::EncodePeerPacket(tailgate::hosted::PeerPacket{
-                        .Peer = packet.Peer,
-                        .Payload = std::move(packet.Payload),
-                        .Control = packet.Control,
-                    }),
-                });
-        }
-    }
-
-    [[nodiscard]] std::vector<tailgate::net::packet::Ipv4Prefix>
-    Ipv4InclusionPrefixes(const tailgate::types::netmap::NetworkConfig& config) const
-    {
-        constexpr tailgate::net::packet::Ipv4Prefix tailnet{
-            .Network = VpnConstants::Network::TailnetIpv4Network,
-            .PrefixLength = VpnConstants::Network::TailnetIpv4PrefixLength,
-        };
-        std::vector<tailgate::net::packet::Ipv4Prefix> result{
-            tailnet,
-            tailgate::net::packet::Ipv4Prefix{
-                .Network = VpnConstants::Network::ServiceIpv4Address,
-                .PrefixLength = VpnConstants::Network::HostIpv4PrefixLength,
-            },
-        };
-        if (!m_exitNode.empty())
-        {
-            result.push_back(tailgate::net::packet::Ipv4Prefix{
-                .Network = VpnConstants::Network::LowerDefaultIpv4Network,
-                .PrefixLength = VpnConstants::Network::SplitDefaultPrefixLength,
-            });
-            result.push_back(tailgate::net::packet::Ipv4Prefix{
-                .Network = VpnConstants::Network::UpperDefaultIpv4Network,
-                .PrefixLength = VpnConstants::Network::SplitDefaultPrefixLength,
-            });
-        }
-
-        const auto append = [&](const tailgate::net::packet::Ipv4Prefix& prefix)
-        {
-            const auto duplicate =
-                std::find_if(result.begin(),
-                             result.end(),
-                             [&](const tailgate::net::packet::Ipv4Prefix& existing)
-                             {
-                                 return existing.Network == prefix.Network &&
-                                        existing.PrefixLength == prefix.PrefixLength;
-                             });
-            if (duplicate == result.end())
-            {
-                result.push_back(prefix);
-            }
-        };
-        for (const tailgate::types::netmap::PeerConfig& peer : config.Peers)
-        {
-            for (const tailgate::net::packet::Ipv4Prefix& prefix : peer.AllowedPrefixes)
-            {
-                if (prefix.PrefixLength == 0 ||
-                    (prefix.PrefixLength >= tailnet.PrefixLength &&
-                     tailgate::net::packet::Contains(tailnet, prefix.Network)))
-                {
-                    continue;
-                }
-                append(prefix);
-            }
-        }
-        std::sort(result.begin(),
-                  result.end(),
-                  [](const tailgate::net::packet::Ipv4Prefix& left,
-                     const tailgate::net::packet::Ipv4Prefix& right)
-                  {
-                      return left.Network < right.Network ||
-                             (left.Network == right.Network &&
-                              left.PrefixLength < right.PrefixLength);
-                  });
-        return result;
     }
 
     [[nodiscard]] vpn::VpnRouteAssignment
     BuildRouteAssignment(const tailgate::types::netmap::NetworkConfig& config) const
     {
-        const std::vector<tailgate::net::packet::Ipv4Prefix> prefixes =
-            Ipv4InclusionPrefixes(config);
+        const tailgate::wgengine::router::Config routerConfig =
+            tailgate::wgengine::router::Config::Build(
+                config,
+                tailgate::wgengine::router::ConfigOptions{
+                    .AdditionalRoutes = {tailgate::net::packet::Ipv4Prefix(
+                        VpnConstants::Network::ServiceIpv4Address, 32)},
+                    .RouteAllTraffic = !m_exitNode.empty(),
+                });
         auto routes = winrt::single_threaded_vector<vpn::VpnRoute>();
-        for (const tailgate::net::packet::Ipv4Prefix& prefix : prefixes)
+        for (const tailgate::net::packet::Ipv4Prefix& prefix : routerConfig.Routes())
         {
-            const std::string address = tailgate::net::packet::FormatIpv4(prefix.Network);
+            const std::string address =
+                tailgate::net::Ipv4Address::FromHostOrder(prefix.Network()).ToString();
             routes.Append(vpn::VpnRoute(networking::HostName(winrt::to_hstring(address)),
-                                        prefix.PrefixLength));
+                                        prefix.PrefixLength()));
             m_logger.LogDebug(
-                "installing IPv4 inclusion route {}/{}", address, prefix.PrefixLength);
+                "installing IPv4 inclusion route {}/{}", address, prefix.PrefixLength());
         }
 
         vpn::VpnRouteAssignment assignment;
@@ -1120,7 +980,7 @@ private:
         const auto routeSignature = [](const tailgate::types::netmap::NetworkConfig& config)
         {
             std::vector<std::string> result;
-            for (const tailgate::types::netmap::NetworkConfig::DnsRoute& route : config.DnsRoutes)
+            for (const tailgate::types::netmap::NetworkConfig::DnsRoute& route : config.DnsRoutes())
             {
                 std::string signature = route.Suffix;
                 for (const std::string& resolver : route.Resolvers)
@@ -1131,25 +991,15 @@ private:
             }
             return result;
         };
-        const std::vector<tailgate::net::packet::Ipv4Prefix> previousPrefixes =
-            Ipv4InclusionPrefixes(previous);
-        const std::vector<tailgate::net::packet::Ipv4Prefix> nextPrefixes =
-            Ipv4InclusionPrefixes(next);
-        const bool ipv4RoutesChanged =
-            previousPrefixes.size() != nextPrefixes.size() ||
-            !std::equal(previousPrefixes.begin(),
-                        previousPrefixes.end(),
-                        nextPrefixes.begin(),
-                        [](const tailgate::net::packet::Ipv4Prefix& left,
-                           const tailgate::net::packet::Ipv4Prefix& right)
-                        {
-                            return left.Network == right.Network &&
-                                   left.PrefixLength == right.PrefixLength;
-                        });
-        return previous.SelfAddress != next.SelfAddress ||
-               previous.SelfAddresses != next.SelfAddresses ||
-               previous.DnsDomains != next.DnsDomains ||
-               routeSignature(previous) != routeSignature(next) || ipv4RoutesChanged;
+        const tailgate::wgengine::router::ConfigOptions options{
+            .AdditionalRoutes = {tailgate::net::packet::Ipv4Prefix(
+                VpnConstants::Network::ServiceIpv4Address, 32)},
+            .RouteAllTraffic = !m_exitNode.empty(),
+        };
+        return tailgate::wgengine::router::Config::Build(previous, options) !=
+                   tailgate::wgengine::router::Config::Build(next, options) ||
+               previous.DnsDomains() != next.DnsDomains() ||
+               routeSignature(previous) != routeSignature(next);
     }
 
     void VerifyOrStoreRelayIdentity(const winrt::hstring& server,
@@ -1176,9 +1026,9 @@ private:
                       const tailgate::types::netmap::NetworkConfig& config)
     {
         auto assignedIpv4 = winrt::single_threaded_vector<networking::HostName>();
-        assignedIpv4.Append(networking::HostName(winrt::to_hstring(config.SelfAddress)));
+        assignedIpv4.Append(networking::HostName(winrt::to_hstring(config.SelfAddress())));
         auto assignedIpv6 = winrt::single_threaded_vector<networking::HostName>();
-        for (const std::string& address : config.SelfAddresses)
+        for (const std::string& address : config.SelfAddresses())
         {
             if (address.find(':') != std::string::npos)
             {
@@ -1194,7 +1044,7 @@ private:
                                        VpnConstants::Channel::Mtu,
                                        VpnConstants::Channel::MaximumFrameSize,
                                        false,
-                                       m_relaySocket);
+                                       m_packetDevice.TransportSocket());
         m_channelConfig = config;
     }
 
@@ -1204,11 +1054,15 @@ private:
     ControlPlaneManager& m_controlPlaneManager;
     DataPlaneManager& m_dataPlaneManager;
     TransportManager& m_transportManager;
+    tailgate::hosted::Client& m_hostedClient;
+    tailgate::hosted::Connection& m_hostedConnection;
+    PacketDevice& m_packetDevice;
     PingService& m_pingService;
     ExitNodeService& m_exitNodeService;
     SessionGeneration m_connectionGeneration = 0;
-    sockets::StreamSocket m_relaySocket{nullptr};
     std::atomic_bool m_stopConnection = false;
+    mutable std::mutex m_retryMutex;
+    mutable std::condition_variable m_retryChanged;
     std::atomic_bool m_connectionCancelled = false;
     std::atomic_bool m_transportReconnectRequested = false;
     std::mutex m_callbackMutex;
@@ -1217,12 +1071,9 @@ private:
     bool m_suppressAutomaticReconnect = false;
     vpn::VpnChannel m_channel{nullptr};
     tailgate::crypto::Bytes32 m_discoPrivateKey{};
-    std::unique_ptr<UwpTcpStream> m_relayRawStream;
+    std::unique_ptr<tailgate::types::nettype::TcpSocket> m_relayRawStream;
     std::recursive_mutex m_dataPathMutex;
     tailgate::hosted::Decoder m_relayDecoder;
-    std::unique_ptr<tailgate::wgengine::wireguard::WireGuardRouter> m_router;
-    std::unique_ptr<tailgate::disco::Disco> m_disco;
-    tailgate::types::netmap::NetworkConfig m_config;
     tailgate::types::netmap::NetworkConfig m_channelConfig;
     tailgate::crypto::Bytes32 m_nodePrivateKey{};
     tailgate::crypto::Bytes32 m_nodePublicKey{};

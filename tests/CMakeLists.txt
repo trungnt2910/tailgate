@@ -28,7 +28,9 @@ target_link_libraries(
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_di>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_disco>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_hosted>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_dns>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_http>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_packet>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_stun>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_net_tls>"
@@ -36,7 +38,10 @@ target_link_libraries(
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_serve>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_serve_acme>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_types_netmap>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_wgengine>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_wgengine_magicsock>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_wgengine_ping>"
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_wgengine_router>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_core_wgengine_wireguard>"
 )
 

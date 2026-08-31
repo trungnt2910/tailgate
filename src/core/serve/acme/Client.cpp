@@ -1,11 +1,11 @@
-#include <tailgate/serve/acme/Client.h>
+#include "tailgate/serve/acme/Client.h"
 
 #include <algorithm>
 #include <format>
 #include <stdexcept>
+#include <thread>
 
 #include <nlohmann/json.hpp>
-#include <psa/crypto.h>
 
 #include <tailgate/crypto/Base64.h>
 #include <tailgate/crypto/Crypto.h>
@@ -16,7 +16,6 @@ namespace
 {
 
 constexpr int MaximumPollAttempts = 60;
-constexpr std::chrono::seconds PollDelay{2};
 
 std::string B64(const std::vector<std::uint8_t>& bytes)
 {
@@ -35,27 +34,28 @@ std::string B64(const std::string& text)
     return B64(std::vector<std::uint8_t>(text.begin(), text.end()));
 }
 
-std::string Header(const HttpResponse& response, const std::string& name)
+std::string Header(const tailgate::net::http::Response& response, const std::string& name)
 {
-    const auto found = response.Headers.find(name);
-    if (found == response.Headers.end())
+    const auto found = response.Headers().find(name);
+    if (found == response.Headers().end())
     {
         throw std::runtime_error(std::format("ACME response is missing {}.", name));
     }
     return found->second;
 }
 
-void Require(const HttpResponse& response, std::initializer_list<int> statuses)
+void Require(const tailgate::net::http::Response& response, std::initializer_list<int> statuses)
 {
-    if (std::find(statuses.begin(), statuses.end(), response.Status) == statuses.end())
+    if (std::find(statuses.begin(), statuses.end(), response.Status()) == statuses.end())
     {
-        throw std::runtime_error(std::format("ACME HTTP {}: {}.", response.Status, response.Body));
+        throw std::runtime_error(
+            std::format("ACME HTTP {}: {}.", response.Status(), response.Body()));
     }
 }
 
-nlohmann::json Json(const HttpResponse& response)
+nlohmann::json Json(const tailgate::net::http::Response& response)
 {
-    auto json = nlohmann::json::parse(response.Body, nullptr, false);
+    auto json = nlohmann::json::parse(response.Body(), nullptr, false);
     if (json.is_discarded())
     {
         throw std::runtime_error("ACME response is not JSON.");
@@ -68,12 +68,21 @@ nlohmann::json Json(const HttpResponse& response)
 class AcmeClient::Impl
 {
 public:
-    Impl(IHttpClient& h, ICrypto& c, IChallengePublisher& p, IWaiter& w, std::string d)
-        : Http(h), Crypto(c), Publisher(p), Waiter(w), Directory(std::move(d))
+    Impl(tailgate::net::http::Client& h,
+         tailgate::crypto::Certificate& c,
+         ChallengePublisher& p,
+         std::string d,
+         std::chrono::seconds pollInterval)
+        : Http(h),
+          CryptoProvider(c),
+          Publisher(p),
+          Directory(std::move(d)),
+          PollInterval(pollInterval)
     {
     }
 
-    HttpResponse Signed(const std::string& url, const nlohmann::json& payload, bool jwk)
+    tailgate::net::http::Response
+    Signed(const std::string& url, const nlohmann::json& payload, bool jwk)
     {
         if (Nonce.empty())
         {
@@ -84,7 +93,7 @@ public:
         nlohmann::json protectedValue = {{"alg", "ES256"}, {"nonce", Nonce}, {"url", url}};
         if (jwk)
         {
-            protectedValue["jwk"] = nlohmann::json::parse(Crypto.Jwk(AccountKey));
+            protectedValue["jwk"] = nlohmann::json::parse(CryptoProvider.Jwk(AccountKey));
         }
         else
         {
@@ -95,11 +104,11 @@ public:
         const std::string input = protectedText + "." + payloadText;
         nlohmann::json body = {{"protected", protectedText},
                                {"payload", payloadText},
-                               {"signature", B64(Crypto.Sign(AccountKey, input))}};
+                               {"signature", B64(CryptoProvider.Sign(AccountKey, input))}};
         auto response =
             Http.Send({"POST", url, {{"content-type", "application/jose+json"}}, body.dump()});
-        const auto nonce = response.Headers.find("replay-nonce");
-        Nonce = nonce == response.Headers.end() ? "" : nonce->second;
+        const auto nonce = response.Headers().find("replay-nonce");
+        Nonce = nonce == response.Headers().end() ? "" : nonce->second;
         return response;
     }
 
@@ -117,9 +126,12 @@ public:
             }
             if (status == "invalid")
             {
-                throw std::runtime_error(std::format("ACME object invalid: {}.", response.Body));
+                throw std::runtime_error(std::format("ACME object invalid: {}.", response.Body()));
             }
-            Waiter.Wait(PollDelay);
+            if (PollInterval > std::chrono::seconds::zero())
+            {
+                std::this_thread::sleep_for(PollInterval);
+            }
         }
         throw std::runtime_error("ACME poll timed out.");
     }
@@ -130,7 +142,7 @@ public:
         {
             throw std::invalid_argument("ACME domain is empty.");
         }
-        AccountKey = key.value_or(Crypto.GeneratePrivateKey());
+        AccountKey = key.value_or(CryptoProvider.GeneratePrivateKey());
         auto directoryResponse = Http.Send({"GET", Directory, {}, {}});
         Require(directoryResponse, {200});
         auto directory = Json(directoryResponse);
@@ -160,48 +172,41 @@ public:
         {
             throw std::runtime_error("ACME server did not offer dns-01.");
         }
-        const std::string authorizationText = std::format(
-            "{}.{}", challenge.at("token").get<std::string>(), Crypto.Thumbprint(AccountKey));
-        tailgate::crypto::Bytes32 digest{};
-        std::size_t digestSize = 0;
-        if (psa_hash_compute(PSA_ALG_SHA_256,
-                             reinterpret_cast<const unsigned char*>(authorizationText.data()),
-                             authorizationText.size(),
-                             digest.data(),
-                             digest.size(),
-                             &digestSize) != PSA_SUCCESS ||
-            digestSize != digest.size())
-        {
-            throw std::runtime_error("ACME key authorization hash failed.");
-        }
+        const std::string authorizationText = std::format("{}.{}",
+                                                          challenge.at("token").get<std::string>(),
+                                                          CryptoProvider.Thumbprint(AccountKey));
+        const tailgate::crypto::Bytes32 digest = CryptoProvider.Sha256(authorizationText);
         Publisher.PublishDnsTxt(std::format("_acme-challenge.{}", domain),
                                 B64(std::vector<std::uint8_t>(digest.begin(), digest.end())));
         auto accepted = Signed(challenge.at("url"), nlohmann::json::object(), false);
         Require(accepted, {200});
         (void)Poll(authorizationUrl, "valid");
-        const std::string certificateKey = Crypto.GeneratePrivateKey();
+        const std::string certificateKey = CryptoProvider.GeneratePrivateKey();
         auto finalized =
             Signed(orderJson.at("finalize"),
-                   {{"csr", B64(Crypto.CreateCertificateRequest(certificateKey, domain))}},
+                   {{"csr", B64(CryptoProvider.CreateCertificateRequest(certificateKey, domain))}},
                    false);
         Require(finalized, {200});
         orderJson = Poll(orderUrl, "valid");
         auto certificate = Signed(orderJson.at("certificate"), nullptr, false);
         Require(certificate, {200});
-        return Certificate{.CertificatePem = certificate.Body,
-                           .PrivateKeyPem = Crypto.ToPem(certificateKey)};
+        return Certificate{.CertificatePem = certificate.Body(),
+                           .PrivateKeyPem = CryptoProvider.ToPem(certificateKey)};
     }
 
-    IHttpClient& Http;
-    ICrypto& Crypto;
-    IChallengePublisher& Publisher;
-    IWaiter& Waiter;
+    tailgate::net::http::Client& Http;
+    tailgate::crypto::Certificate& CryptoProvider;
+    ChallengePublisher& Publisher;
     std::string Directory, AccountKey, AccountUrl, NewNonce, Nonce;
+    std::chrono::seconds PollInterval;
 };
 
-AcmeClient::AcmeClient(
-    IHttpClient& h, ICrypto& c, IChallengePublisher& p, IWaiter& w, std::string d)
-    : m_impl(new Impl(h, c, p, w, std::move(d)))
+AcmeClient::AcmeClient(tailgate::net::http::Client& h,
+                       tailgate::crypto::Certificate& c,
+                       ChallengePublisher& p,
+                       std::string d,
+                       std::chrono::seconds pollInterval)
+    : m_impl(new Impl(h, c, p, std::move(d), pollInterval))
 {
 }
 

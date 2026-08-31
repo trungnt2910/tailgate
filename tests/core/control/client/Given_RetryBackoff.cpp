@@ -30,7 +30,7 @@ TEST(Given_RetryBackoff, When_AdvancingPastMaximum_Then_DelayIsCapped)
                                                       std::chrono::seconds(30)}));
 }
 
-TEST(Given_AdvancedRetryBackoff, When_Resetting_Then_InitialDelayIsRestored)
+TEST(Given_RetryBackoff, When_ResettingAfterAdvancing_Then_InitialDelayIsRestored)
 {
     tailgate::control::client::RetryBackoff backoff(std::chrono::seconds(1),
                                                     std::chrono::seconds(30));
@@ -43,7 +43,7 @@ TEST(Given_AdvancedRetryBackoff, When_Resetting_Then_InitialDelayIsRestored)
     EXPECT_EQ(delay, std::chrono::seconds(1));
 }
 
-TEST(Given_InvalidRetryBackoffRange, When_Constructing_Then_ItIsRejected)
+TEST(Given_RetryBackoff, When_ConstructingWithInvalidRange_Then_ItIsRejected)
 {
     const auto construct = []
     {

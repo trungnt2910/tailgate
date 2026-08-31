@@ -3,44 +3,29 @@
 
 #include <gtest/gtest.h>
 
-#include <tailgate/base/Clock.h>
+#include <tailgate/base/TimeProvider.h>
+#include <tailgate/net/Endpoint.h>
 #include <tailgate/wgengine/magicsock/PeerPathState.h>
+
+#include "fakes/base/FakeTimeProvider.h"
 
 namespace
 {
 
 constexpr std::uint16_t TestEndpointPort = 41641;
+using tailgate::tests::fakes::FakeTimeProvider;
 
-class FakeClock final : public tailgate::base::IClock
+tailgate::net::Endpoint MakeEndpoint(std::uint8_t address)
 {
-public:
-    [[nodiscard]] TimePoint Now() const noexcept override
-    {
-        return m_now;
-    }
-
-    void Advance(Clock::duration duration) noexcept
-    {
-        m_now += duration;
-    }
-
-private:
-    TimePoint m_now{};
-};
-
-tailgate::wgengine::magicsock::Endpoint MakeEndpoint(std::uint32_t address)
-{
-    return tailgate::wgengine::magicsock::Endpoint{
-        .Address = address,
-        .Port = TestEndpointPort,
-    };
+    return tailgate::net::Endpoint(tailgate::net::Ipv4Address::FromOctets(192, 0, 2, address),
+                                   TestEndpointPort);
 }
 
 } // namespace
 
 TEST(Given_PeerPathState, When_FirstProbeIsRequested_Then_ItStartsImmediately)
 {
-    FakeClock clock;
+    FakeTimeProvider clock;
     tailgate::wgengine::magicsock::PeerPathState state;
 
     const bool started = state.TryBeginProbe(clock.Now());
@@ -50,7 +35,7 @@ TEST(Given_PeerPathState, When_FirstProbeIsRequested_Then_ItStartsImmediately)
 
 TEST(Given_PeerPathState, When_ProbeIntervalHasNotElapsed_Then_ProbeIsRateLimited)
 {
-    FakeClock clock;
+    FakeTimeProvider clock;
     tailgate::wgengine::magicsock::PeerPathState state;
     ASSERT_TRUE(state.TryBeginProbe(clock.Now()));
     clock.Advance(tailgate::wgengine::magicsock::PeerPathState::DirectProbeInterval -
@@ -63,7 +48,7 @@ TEST(Given_PeerPathState, When_ProbeIntervalHasNotElapsed_Then_ProbeIsRateLimite
 
 TEST(Given_PeerPathState, When_ProbeIntervalElapses_Then_AnotherProbeCanStart)
 {
-    FakeClock clock;
+    FakeTimeProvider clock;
     tailgate::wgengine::magicsock::PeerPathState state;
     ASSERT_TRUE(state.TryBeginProbe(clock.Now()));
     clock.Advance(tailgate::wgengine::magicsock::PeerPathState::DirectProbeInterval);
@@ -76,7 +61,7 @@ TEST(Given_PeerPathState, When_ProbeIntervalElapses_Then_AnotherProbeCanStart)
 TEST(Given_PeerPathState, When_EndpointIsValidated_Then_ItBecomesDirectAndVerified)
 {
     tailgate::wgengine::magicsock::PeerPathState state;
-    const tailgate::wgengine::magicsock::Endpoint endpoint = MakeEndpoint(1);
+    const tailgate::net::Endpoint endpoint = MakeEndpoint(1);
 
     const bool changed = state.MarkDirect(endpoint);
 
@@ -89,7 +74,7 @@ TEST(Given_PeerPathState, When_EndpointIsValidated_Then_ItBecomesDirectAndVerifi
 TEST(Given_PeerPathState, When_SelectedEndpointIsValidatedAgain_Then_PathDoesNotChange)
 {
     tailgate::wgengine::magicsock::PeerPathState state;
-    const tailgate::wgengine::magicsock::Endpoint endpoint = MakeEndpoint(1);
+    const tailgate::net::Endpoint endpoint = MakeEndpoint(1);
     ASSERT_TRUE(state.MarkDirect(endpoint));
 
     const bool changed = state.MarkDirect(endpoint);
@@ -99,7 +84,7 @@ TEST(Given_PeerPathState, When_SelectedEndpointIsValidatedAgain_Then_PathDoesNot
 
 TEST(Given_PeerPathState, When_DirectTimeoutBoundaryIsReached_Then_PathRemainsSelected)
 {
-    FakeClock clock;
+    FakeTimeProvider clock;
     tailgate::wgengine::magicsock::PeerPathState state;
     ASSERT_TRUE(state.MarkDirect(MakeEndpoint(1)));
     state.MarkDirectSend(clock.Now());
@@ -113,7 +98,7 @@ TEST(Given_PeerPathState, When_DirectTimeoutBoundaryIsReached_Then_PathRemainsSe
 
 TEST(Given_PeerPathState, When_DirectResponseTimesOut_Then_PathFallsBackToRelay)
 {
-    FakeClock clock;
+    FakeTimeProvider clock;
     tailgate::wgengine::magicsock::PeerPathState state;
     ASSERT_TRUE(state.MarkDirect(MakeEndpoint(1)));
     state.MarkDirectSend(clock.Now());
@@ -128,7 +113,7 @@ TEST(Given_PeerPathState, When_DirectResponseTimesOut_Then_PathFallsBackToRelay)
 
 TEST(Given_PeerPathState, When_DirectResponseArrives_Then_PendingTimeoutIsCancelled)
 {
-    FakeClock clock;
+    FakeTimeProvider clock;
     tailgate::wgengine::magicsock::PeerPathState state;
     ASSERT_TRUE(state.MarkDirect(MakeEndpoint(1)));
     state.MarkDirectSend(clock.Now());
@@ -151,8 +136,8 @@ TEST(Given_PeerPathState, When_VerifiedEndpointLimitIsExceeded_Then_OldestIsForg
     {
         (void)state.MarkDirect(MakeEndpoint(index + 1));
     }
-    const tailgate::wgengine::magicsock::Endpoint oldest = MakeEndpoint(1);
-    const tailgate::wgengine::magicsock::Endpoint newest = MakeEndpoint(100);
+    const tailgate::net::Endpoint oldest = MakeEndpoint(1);
+    const tailgate::net::Endpoint newest = MakeEndpoint(100);
 
     (void)state.MarkDirect(newest);
 
@@ -163,7 +148,7 @@ TEST(Given_PeerPathState, When_VerifiedEndpointLimitIsExceeded_Then_OldestIsForg
 TEST(Given_PeerPathState, When_PathResetsForEndpointChange_Then_VerificationIsRetained)
 {
     tailgate::wgengine::magicsock::PeerPathState state;
-    const tailgate::wgengine::magicsock::Endpoint endpoint = MakeEndpoint(1);
+    const tailgate::net::Endpoint endpoint = MakeEndpoint(1);
     ASSERT_TRUE(state.MarkDirect(endpoint));
 
     state.Reset(tailgate::wgengine::magicsock::PeerPathState::ResetMode::PreserveVerifiedEndpoints);
@@ -175,7 +160,7 @@ TEST(Given_PeerPathState, When_PathResetsForEndpointChange_Then_VerificationIsRe
 TEST(Given_PeerPathState, When_PathResetsForIdentityChange_Then_VerificationIsForgotten)
 {
     tailgate::wgengine::magicsock::PeerPathState state;
-    const tailgate::wgengine::magicsock::Endpoint endpoint = MakeEndpoint(1);
+    const tailgate::net::Endpoint endpoint = MakeEndpoint(1);
     ASSERT_TRUE(state.MarkDirect(endpoint));
 
     state.Reset(tailgate::wgengine::magicsock::PeerPathState::ResetMode::ForgetVerifiedEndpoints);

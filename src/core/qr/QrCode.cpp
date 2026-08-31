@@ -1,10 +1,11 @@
-#include <tailgate/qr/QrCode.h>
+#include "tailgate/qr/QrCode.h"
 
 #include <format>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include <zint.h>
 
@@ -20,14 +21,24 @@ constexpr int PackedModuleBitMask = 0x07;
 
 bool QrCode::Module(int x, int y) const
 {
-    if (x < 0 || y < 0 || x >= Size || y >= Size)
+    if (x < 0 || y < 0 || x >= m_size || y >= m_size)
     {
         throw std::out_of_range("QR code module coordinates are outside the matrix.");
     }
-    return Modules[static_cast<std::size_t>(y * Size + x)] != 0;
+    return m_modules[static_cast<std::size_t>(y * m_size + x)] != 0;
 }
 
-QrCode EncodeQrCode(std::string_view text)
+QrCode::QrCode(int size, std::vector<std::uint8_t> modules)
+    : m_size(size), m_modules(std::move(modules))
+{
+}
+
+int QrCode::Size() const noexcept
+{
+    return m_size;
+}
+
+QrCode QrCode::Encode(std::string_view text)
 {
     if (text.empty())
     {
@@ -63,19 +74,19 @@ QrCode EncodeQrCode(std::string_view text)
         throw std::runtime_error("Zint returned a non-square QR code matrix.");
     }
 
-    QrCode result;
-    result.Size = symbol->width;
-    result.Modules.reserve(static_cast<std::size_t>(result.Size * result.Size));
-    for (int y = 0; y < result.Size; ++y)
+    const int size = symbol->width;
+    std::vector<std::uint8_t> modules;
+    modules.reserve(static_cast<std::size_t>(size * size));
+    for (int y = 0; y < size; ++y)
     {
-        for (int x = 0; x < result.Size; ++x)
+        for (int x = 0; x < size; ++x)
         {
             const auto packed = symbol->encoded_data[y][x >> PackedModuleByteShift];
             const bool dark = ((packed >> (x & PackedModuleBitMask)) & 1) != 0;
-            result.Modules.push_back(dark ? 1 : 0);
+            modules.push_back(dark ? 1 : 0);
         }
     }
-    return result;
+    return QrCode(size, std::move(modules));
 }
 
 } // namespace tailgate::qr

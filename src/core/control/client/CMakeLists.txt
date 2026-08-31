@@ -1,11 +1,16 @@
 tailgate_add_library(
     tailgate_core_control_client
     STATIC
+    Connection.cpp
     ControlClient.cpp
     ControlRequests.cpp
+    HostInfoProvider.cpp
+    MapStreamResponse.cpp
     NetworkMapParser.cpp
     RetryBackoff.cpp
+    Session.cpp
 )
+add_subdirectory(impl)
 target_link_libraries(
     tailgate_core_control_client
     PUBLIC
@@ -13,6 +18,7 @@ target_link_libraries(
         tailgate_core_control_base
         tailgate_core_crypto
         tailgate_core_types_netmap
+        tailgate_core_types_nettype
     PRIVATE
         Boost::algorithm
         sodium

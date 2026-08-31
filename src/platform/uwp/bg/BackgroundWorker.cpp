@@ -25,9 +25,10 @@ tailgate::base::Logger BackgroundLogger{"uwp-background"};
 
 namespace foundation = winrt::Windows::Foundation;
 
-struct TailgateActivationFactory
-    : winrt::implements<TailgateActivationFactory, foundation::IActivationFactory>
+class TailgateActivationFactory
+    : public winrt::implements<TailgateActivationFactory, foundation::IActivationFactory>
 {
+public:
     winrt::Windows::Foundation::IInspectable ActivateInstance()
     {
         m_logger.LogDebug("TailgateActivationFactory.ActivateInstance");

@@ -3,7 +3,65 @@
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/wgengine/wireguard/Tunnel.h>
 
-TEST(Given_WireGuardHandshake, When_TimerRunsImmediately_Then_InitiationIsNotReplaced)
+namespace
+{
+
+using WireGuardTunnel = tailgate::wgengine::wireguard::WireGuardTunnel;
+
+bool EstablishSession(WireGuardTunnel& initiator,
+                      WireGuardTunnel::PeerId initiatorPeer,
+                      WireGuardTunnel& responder,
+                      WireGuardTunnel::PeerId responderPeer)
+{
+    const std::vector<std::uint8_t> initiation = initiator.CreateHandshake(initiatorPeer);
+    const auto response = responder.ProcessPacket(responderPeer, initiation);
+    if (!response)
+    {
+        return false;
+    }
+    const auto completion = initiator.ProcessPacket(initiatorPeer, response->Reply);
+    return completion && responder.ProcessPacket(responderPeer, completion->Reply).has_value();
+}
+
+struct RestartExchangeResult
+{
+    bool SessionEstablished = false;
+    std::vector<std::uint8_t> Plaintext;
+};
+
+RestartExchangeResult ExchangeAfterRestart(const WireGuardTunnel::Key& initiatorPrivateKey,
+                                           const WireGuardTunnel::Key& responderPrivateKey,
+                                           WireGuardTunnel& responder,
+                                           WireGuardTunnel::PeerId responderPeer,
+                                           const std::vector<std::uint8_t>& plaintext)
+{
+    WireGuardTunnel restarted(initiatorPrivateKey);
+    const WireGuardTunnel::PeerId restartedPeer =
+        restarted.AddPeer(tailgate::crypto::X25519PublicFromPrivate(responderPrivateKey));
+    const std::vector<std::uint8_t> initiation = restarted.CreateHandshake(restartedPeer);
+    const auto response = responder.ProcessPacket(responderPeer, initiation);
+    if (!response)
+    {
+        return {};
+    }
+    const auto completion = restarted.ProcessPacket(restartedPeer, response->Reply);
+    if (!completion || !responder.ProcessPacket(responderPeer, completion->Reply))
+    {
+        return {};
+    }
+    const std::vector<std::uint8_t> encrypted = restarted.Encrypt(restartedPeer, plaintext);
+    const auto received = responder.ProcessPacket(responderPeer, encrypted);
+    if (!received)
+    {
+        return {};
+    }
+    return RestartExchangeResult{.SessionEstablished = true, .Plaintext = received->Plaintext};
+}
+
+} // namespace
+
+TEST(Given_WireGuardTunnel,
+     When_WireGuardHandshakeAndTimerRunsImmediately_Then_InitiationIsNotReplaced)
 {
     tailgate::wgengine::wireguard::WireGuardTunnel::Key privateKey{};
     privateKey[1] = 1;
@@ -26,7 +84,8 @@ TEST(Given_WireGuardHandshake, When_TimerRunsImmediately_Then_InitiationIsNotRep
               tailgate::wgengine::wireguard::WireGuardTunnel::TimerAction::None);
 }
 
-TEST(Given_WireGuardPeerInitiates, When_PacketIsProcessed_Then_ResponderCanExchangeData)
+TEST(Given_WireGuardTunnel,
+     When_WireGuardPeerInitiatesAndPacketIsProcessed_Then_ResponderCanExchangeData)
 {
     tailgate::wgengine::wireguard::WireGuardTunnel::Key firstPrivateKey{};
     firstPrivateKey[1] = 1;
@@ -59,7 +118,8 @@ TEST(Given_WireGuardPeerInitiates, When_PacketIsProcessed_Then_ResponderCanExcha
     EXPECT_EQ(decrypted->Plaintext, plaintext);
 }
 
-TEST(Given_EstablishedWireGuardSession, When_SendingKeepalive_Then_EmptyPayloadRoundTrips)
+TEST(Given_WireGuardTunnel,
+     When_EstablishedWireGuardSessionAndSendingKeepalive_Then_EmptyPayloadRoundTrips)
 {
     tailgate::wgengine::wireguard::WireGuardTunnel::Key firstPrivateKey{};
     firstPrivateKey[1] = 1;
@@ -86,7 +146,8 @@ TEST(Given_EstablishedWireGuardSession, When_SendingKeepalive_Then_EmptyPayloadR
     EXPECT_TRUE(decrypted->Plaintext.empty());
 }
 
-TEST(Given_EstablishedWireGuardSession, When_Rekeyed_Then_BidirectionalDataUsesNewSession)
+TEST(Given_WireGuardTunnel,
+     When_EstablishedWireGuardSessionAndRekeyed_Then_BidirectionalDataUsesNewSession)
 {
     tailgate::wgengine::wireguard::WireGuardTunnel::Key initiatorPrivateKey{};
     initiatorPrivateKey[1] = 1;
@@ -128,7 +189,8 @@ TEST(Given_EstablishedWireGuardSession, When_Rekeyed_Then_BidirectionalDataUsesN
     EXPECT_EQ(decryptedResponse->Plaintext, response);
 }
 
-TEST(Given_DuplicateHandshakeInitiation, When_OneResponseIsConfirmed_Then_SessionRemainsUsable)
+TEST(Given_WireGuardTunnel,
+     When_DuplicateHandshakeInitiationAndOneResponseIsConfirmed_Then_SessionRemainsUsable)
 {
     tailgate::wgengine::wireguard::WireGuardTunnel::Key initiatorPrivateKey{};
     initiatorPrivateKey[1] = 1;
@@ -159,7 +221,35 @@ TEST(Given_DuplicateHandshakeInitiation, When_OneResponseIsConfirmed_Then_Sessio
     EXPECT_EQ(decryptedRequest->Plaintext, request);
 }
 
-TEST(Given_MorePeersThanOneUpstreamDevice, When_Added_Then_TunnelShardsThem)
+TEST(Given_WireGuardTunnel,
+     When_InitiatorRestartsAfterEstablishedSession_Then_PeerAcceptsReplacementSession)
+{
+    WireGuardTunnel::Key initiatorPrivateKey{};
+    initiatorPrivateKey[1] = 1;
+    WireGuardTunnel::Key responderPrivateKey{};
+    responderPrivateKey[1] = 2;
+    WireGuardTunnel responder(responderPrivateKey);
+    const WireGuardTunnel::PeerId responderPeer =
+        responder.AddPeer(tailgate::crypto::X25519PublicFromPrivate(initiatorPrivateKey));
+    bool initialSessionEstablished = false;
+    {
+        WireGuardTunnel initiator(initiatorPrivateKey);
+        const WireGuardTunnel::PeerId initiatorPeer =
+            initiator.AddPeer(tailgate::crypto::X25519PublicFromPrivate(responderPrivateKey));
+        initialSessionEstablished =
+            EstablishSession(initiator, initiatorPeer, responder, responderPeer);
+    }
+    ASSERT_TRUE(initialSessionEstablished);
+    const std::vector<std::uint8_t> plaintext{0x45, 0x00, 0x00, 0x04};
+
+    const RestartExchangeResult result = ExchangeAfterRestart(
+        initiatorPrivateKey, responderPrivateKey, responder, responderPeer, plaintext);
+
+    EXPECT_TRUE(result.SessionEstablished);
+    EXPECT_EQ(result.Plaintext, plaintext);
+}
+
+TEST(Given_WireGuardTunnel, When_MorePeersThanOneUpstreamDeviceAndAdded_Then_TunnelShardsThem)
 {
     tailgate::wgengine::wireguard::WireGuardTunnel::Key privateKey{};
     privateKey[1] = 1;
@@ -177,7 +267,8 @@ TEST(Given_MorePeersThanOneUpstreamDevice, When_Added_Then_TunnelShardsThem)
     EXPECT_TRUE(allPeersSessionless);
 }
 
-TEST(Given_SharedTransportWithMultiplePeers, When_InitiationArrives_Then_PeerIsIdentified)
+TEST(Given_WireGuardTunnel,
+     When_SharedTransportWithMultiplePeersAndInitiationArrives_Then_PeerIsIdentified)
 {
     tailgate::wgengine::wireguard::WireGuardTunnel::Key receiverPrivateKey{};
     receiverPrivateKey[1] = 1;

@@ -1,0 +1,12 @@
+tailgate_add_library(
+    tailgate_core_derp_impl
+    STATIC
+    ConnectionImpl.cpp
+)
+target_link_libraries(
+    tailgate_core_derp_impl
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_derp
+        tailgate_core_types_nettype
+)

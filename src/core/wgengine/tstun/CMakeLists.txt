@@ -1,0 +1,11 @@
+tailgate_add_library(
+    tailgate_core_wgengine_tstun
+    STATIC
+    Device.cpp
+)
+target_link_libraries(
+    tailgate_core_wgengine_tstun
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_types_nettype
+)

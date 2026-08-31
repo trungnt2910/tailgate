@@ -9,10 +9,10 @@
 namespace tailgate::net::tls
 {
 
-class TlsStream final : public tailgate::base::IByteStream
+class TlsStream final : public tailgate::base::ByteStream
 {
 public:
-    TlsStream(tailgate::base::IByteStream& transport,
+    TlsStream(tailgate::base::ByteStream& transport,
               const std::string& hostname,
               const std::vector<std::uint8_t>& caPem,
               bool allowTls13 = false);
@@ -27,6 +27,7 @@ public:
     [[nodiscard]] bool HasBufferedInput() const override;
     [[nodiscard]] bool ReadNeedsWrite() const override;
     [[nodiscard]] bool WriteNeedsRead() const override;
+    [[nodiscard]] bool HandshakeComplete() const noexcept;
 
 private:
     class Impl;

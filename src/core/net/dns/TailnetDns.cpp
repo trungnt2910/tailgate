@@ -1,4 +1,4 @@
-#include <tailgate/net/dns/TailnetDns.h>
+#include "tailgate/net/dns/TailnetDns.h"
 
 #include <algorithm>
 #include <array>
@@ -11,16 +11,14 @@
 #include <boost/algorithm/hex.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
 
+#include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/dns/Dns.h>
 #include <tailgate/net/packet/Ipv4.h>
 
 namespace tailgate::net::dns
 {
 
-using tailgate::net::packet::BuildUdpPacket;
 using tailgate::net::packet::Ipv4UdpDatagram;
-using tailgate::net::packet::ParseIpv4;
-using tailgate::net::packet::ParseIpv4UdpDatagram;
 
 namespace
 {
@@ -134,10 +132,12 @@ std::vector<std::uint32_t> Ipv4Addresses(const std::vector<std::string>& address
     std::vector<std::uint32_t> result;
     const auto append = [&](const std::string& text)
     {
-        const std::optional<std::uint32_t> address = ParseIpv4(text);
-        if (address && std::find(result.begin(), result.end(), *address) == result.end())
+        const std::optional<tailgate::net::Ipv4Address> address =
+            tailgate::net::Ipv4Address::TryParse(text);
+        if (address &&
+            std::find(result.begin(), result.end(), address->HostOrder()) == result.end())
         {
-            result.push_back(*address);
+            result.push_back(address->HostOrder());
         }
     };
     for (const std::string& address : addresses)
@@ -240,13 +240,14 @@ TailnetHost FindHost(const tailgate::types::netmap::NetworkConfig& config,
     };
 
     std::vector<Node> nodes;
-    nodes.push_back(Node{.Name = &config.SelfName,
-                         .PrimaryAddress = &config.SelfAddress,
-                         .Addresses = &config.SelfAddresses});
-    for (const tailgate::types::netmap::PeerConfig& peer : config.Peers)
+    nodes.push_back(Node{.Name = &config.SelfName(),
+                         .PrimaryAddress = &config.SelfAddress(),
+                         .Addresses = &config.SelfAddresses()});
+    for (const tailgate::types::netmap::PeerConfig& peer : config.Peers())
     {
-        nodes.push_back(Node{
-            .Name = &peer.Name, .PrimaryAddress = &peer.Address, .Addresses = &peer.Addresses});
+        nodes.push_back(Node{.Name = &peer.Name(),
+                             .PrimaryAddress = &peer.Address(),
+                             .Addresses = &peer.Addresses()});
     }
 
     const bool singleLabel = queriedName.find('.') == std::string::npos;
@@ -282,7 +283,7 @@ bool IsTailnetName(const tailgate::types::netmap::NetworkConfig& config, const s
         return true;
     }
     const std::string magicDomain =
-        config.MagicDnsDomain.empty() ? config.Domain : config.MagicDnsDomain;
+        config.MagicDnsDomain().empty() ? config.Domain() : config.MagicDnsDomain();
     return !magicDomain.empty() && DnsNameHasSuffix(name, magicDomain);
 }
 
@@ -330,17 +331,17 @@ std::vector<std::uint8_t> BuildDnsResponse(const std::vector<std::uint8_t>& quer
 } // namespace
 
 std::optional<std::vector<std::uint8_t>>
-BuildTailnetDnsResponse(const tailgate::types::netmap::NetworkConfig& config,
-                        const std::vector<std::uint8_t>& request)
+TailnetDnsResponse::Build(const tailgate::types::netmap::NetworkConfig& config,
+                          const std::vector<std::uint8_t>& request)
 {
-    const std::optional<Ipv4UdpDatagram> datagram = ParseIpv4UdpDatagram(request);
-    if (!datagram || datagram->Destination != MagicDnsIpv4Address ||
-        datagram->DestinationPort != DnsPort || datagram->Payload.size() < DnsHeaderSize)
+    const std::optional<Ipv4UdpDatagram> datagram = Ipv4UdpDatagram::Parse(request);
+    if (!datagram || datagram->Destination() != MagicDnsIpv4Address ||
+        datagram->DestinationPort() != DnsPort || datagram->Payload().size() < DnsHeaderSize)
     {
         return std::nullopt;
     }
-    const std::uint16_t flags = Read16(datagram->Payload, 2);
-    const std::optional<DnsQuestion> question = ParseQuestion(datagram->Payload);
+    const std::uint16_t flags = Read16(datagram->Payload(), 2);
+    const std::optional<DnsQuestion> question = ParseQuestion(datagram->Payload());
     if ((flags & (DnsQueryResponseFlag | DnsOpcodeMask)) != 0 || !question)
     {
         return std::nullopt;
@@ -378,9 +379,9 @@ BuildTailnetDnsResponse(const tailgate::types::netmap::NetworkConfig& config,
         }
     }
     const std::vector<std::uint8_t> dnsResponse =
-        BuildDnsResponse(datagram->Payload, *question, ipv4, ipv6, responseCode);
-    return BuildUdpPacket(
-        MagicDnsIpv4Address, datagram->Source, DnsPort, datagram->SourcePort, dnsResponse);
+        BuildDnsResponse(datagram->Payload(), *question, ipv4, ipv6, responseCode);
+    return Ipv4UdpDatagram::Build(
+        MagicDnsIpv4Address, datagram->Source(), DnsPort, datagram->SourcePort(), dnsResponse);
 }
 
 } // namespace tailgate::net::dns

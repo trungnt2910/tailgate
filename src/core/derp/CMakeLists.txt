@@ -2,6 +2,7 @@ tailgate_add_library(
     tailgate_core_derp
     STATIC
     Client.cpp
+    Connection.cpp
     SendQueue.cpp
 )
 target_link_libraries(
@@ -12,3 +13,5 @@ target_link_libraries(
     PRIVATE
         sodium
 )
+
+add_subdirectory(impl)

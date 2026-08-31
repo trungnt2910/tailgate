@@ -27,54 +27,6 @@ TEST(Given_Arguments, When_ParsingUp_Then_TailscaleStyleOptionsAreTyped)
     EXPECT_FALSE(arguments.Up.Reset);
 }
 
-TEST(Given_UpResetWithoutPreferences, When_Parsing_Then_DefaultsAreExplicitlyRequested)
-{
-    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--reset"});
-
-    EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Up);
-    EXPECT_TRUE(arguments.Up.Reset);
-    EXPECT_FALSE(arguments.Up.HostnameSet);
-    EXPECT_FALSE(arguments.Up.AcceptDnsSet);
-    EXPECT_FALSE(arguments.Up.ExitNodeSet);
-    EXPECT_FALSE(arguments.Up.TailgateUrlSet);
-}
-
-TEST(Given_BareAcceptDnsFlag, When_ParsingUp_Then_DnsIsExplicitlyAccepted)
-{
-    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--accept-dns"});
-
-    EXPECT_TRUE(arguments.Up.AcceptDns);
-    EXPECT_TRUE(arguments.Up.AcceptDnsSet);
-}
-
-TEST(Given_SeparatedAcceptDnsValue, When_ParsingUp_Then_ParsingFails)
-{
-    const auto parse = []()
-    {
-        (void)tailgate::cli::Arguments::Parse({"up", "--accept-dns", "false"});
-    };
-
-    EXPECT_THROW(parse(), tailgate::cli::ArgumentError);
-}
-
-TEST(Given_QrOptions, When_ParsingUp_Then_PresentationIsTyped)
-{
-    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--qr", "--qr-format=small"});
-
-    EXPECT_TRUE(arguments.Up.Qr);
-    EXPECT_EQ(arguments.Up.QrFormat, "small");
-}
-
-TEST(Given_UnsupportedQrFormat, When_ParsingUp_Then_ParsingFails)
-{
-    const auto parse = []()
-    {
-        (void)tailgate::cli::Arguments::Parse({"up", "--qr-format=punch-card"});
-    };
-
-    EXPECT_THROW(parse(), tailgate::cli::ArgumentError);
-}
-
 TEST(Given_Arguments, When_ParsingSet_Then_OnlySpecifiedPreferencesArePresent)
 {
     const auto arguments = tailgate::cli::Arguments::Parse({"set", "--exit-node", "exit-node"});
@@ -92,15 +44,6 @@ TEST(Given_Arguments, When_ParsingMultipleSetOptions_Then_ChangesAreAtomic)
     EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Set);
     EXPECT_EQ(arguments.Set.Hostname, "workstation");
     EXPECT_EQ(arguments.Set.ExitNode, "exit-node");
-}
-
-TEST(Given_EmptyTailgateUrl, When_ParsingSet_Then_HostedModeIsExplicitlyDisabled)
-{
-    const auto arguments = tailgate::cli::Arguments::Parse({"set", "--tailgate="});
-
-    EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Set);
-    EXPECT_TRUE(arguments.Set.TailgateUrl.has_value());
-    EXPECT_TRUE(arguments.Set.TailgateUrl->empty());
 }
 
 TEST(Given_Arguments, When_ParsingStatusJson_Then_StatusOptionsAreTyped)
@@ -126,16 +69,6 @@ TEST(Given_Arguments, When_ParsingLogout_Then_LogoutIsSelected)
     const auto arguments = tailgate::cli::Arguments::Parse({"logout"});
 
     EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Logout);
-}
-
-TEST(Given_LogoutWithUnsupportedReason, When_Parsing_Then_ParsingFails)
-{
-    const auto parse = []()
-    {
-        (void)tailgate::cli::Arguments::Parse({"logout", "--reason=test"});
-    };
-
-    EXPECT_THROW(parse(), tailgate::cli::ArgumentError);
 }
 
 TEST(Given_Arguments, When_EphemeralFlagIsUsed_Then_ParsingFails)
@@ -166,32 +99,6 @@ TEST(Given_Arguments, When_ParsingPingWithBareUntilDirect_Then_ItIsEnabled)
 
     EXPECT_TRUE(arguments.SelectedCommand == tailgate::cli::Command::Ping);
     EXPECT_TRUE(arguments.Ping.UntilDirect);
-}
-
-TEST(Given_PingWithoutProtocolFlag, When_Parsing_Then_DiscoIsTheDefault)
-{
-    const auto arguments = tailgate::cli::Arguments::Parse({"ping", "peer"});
-
-    EXPECT_FALSE(arguments.Ping.Tsmp);
-}
-
-TEST(Given_PingWithTsmpFlag, When_Parsing_Then_TsmpIsSelected)
-{
-    const auto arguments = tailgate::cli::Arguments::Parse({"ping", "peer", "--tsmp"});
-
-    EXPECT_TRUE(arguments.Ping.Tsmp);
-}
-
-TEST(Given_PingHelp, When_FormattingTsmpFlag_Then_OfficialDescriptionIsUsed)
-{
-    const auto arguments = tailgate::cli::Arguments::Parse({"ping", "--help"});
-
-    const bool hasOfficialDescription =
-        arguments.HelpOutput.find(
-            "do a TSMP-level ping (through WireGuard, but not either host OS stack)") !=
-        std::string::npos;
-
-    EXPECT_TRUE(hasOfficialDescription);
 }
 
 TEST(Given_Arguments, When_ParsingFunnel_Then_PortsAndForegroundModeAreTyped)
@@ -246,7 +153,78 @@ TEST(Given_Arguments, When_TailgateUrlIsNotHttps_Then_ParsingFails)
     EXPECT_THROW(parse(), tailgate::cli::ArgumentError);
 }
 
-TEST(Given_ShortTailgateUrl, When_ParsingUp_Then_HttpsIsImplied)
+TEST(Given_Arguments, When_ParsingUpWithBareAcceptDns_Then_DnsIsExplicitlyAccepted)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--accept-dns"});
+
+    EXPECT_TRUE(arguments.Up.AcceptDns);
+    EXPECT_TRUE(arguments.Up.AcceptDnsSet);
+}
+
+TEST(Given_Arguments, When_ParsingSetWithEmptyTailgateUrl_Then_HostedModeIsExplicitlyDisabled)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"set", "--tailgate="});
+
+    EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Set);
+    EXPECT_TRUE(arguments.Set.TailgateUrl.has_value());
+    EXPECT_TRUE(arguments.Set.TailgateUrl->empty());
+}
+
+TEST(Given_Arguments, When_ParsingLogoutWithUnsupportedReason_Then_ParsingFails)
+{
+    const auto parse = []()
+    {
+        (void)tailgate::cli::Arguments::Parse({"logout", "--reason=test"});
+    };
+
+    EXPECT_THROW(parse(), tailgate::cli::ArgumentError);
+}
+
+TEST(Given_Arguments, When_FormattingPingHelp_Then_OfficialTsmpDescriptionIsUsed)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"ping", "--help"});
+
+    const bool hasOfficialDescription =
+        arguments.HelpOutput.find(
+            "do a TSMP-level ping (through WireGuard, but not either host OS stack)") !=
+        std::string::npos;
+
+    EXPECT_TRUE(hasOfficialDescription);
+}
+
+TEST(Given_Arguments, When_ParsingPingWithTsmpFlag_Then_TsmpIsSelected)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"ping", "peer", "--tsmp"});
+
+    EXPECT_TRUE(arguments.Ping.Tsmp);
+}
+
+TEST(Given_Arguments, When_ParsingPingWithoutProtocolFlag_Then_DiscoIsTheDefault)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"ping", "peer"});
+
+    EXPECT_FALSE(arguments.Ping.Tsmp);
+}
+
+TEST(Given_Arguments, When_ParsingUpWithQrOptions_Then_PresentationIsTyped)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--qr", "--qr-format=small"});
+
+    EXPECT_TRUE(arguments.Up.Qr);
+    EXPECT_EQ(arguments.Up.QrFormat, "small");
+}
+
+TEST(Given_Arguments, When_ParsingSeparatedAcceptDnsValue_Then_ParsingFails)
+{
+    const auto parse = []()
+    {
+        (void)tailgate::cli::Arguments::Parse({"up", "--accept-dns", "false"});
+    };
+
+    EXPECT_THROW(parse(), tailgate::cli::ArgumentError);
+}
+
+TEST(Given_Arguments, When_ParsingShortTailgateUrl_Then_HttpsIsImplied)
 {
     const auto arguments =
         tailgate::cli::Arguments::Parse({"up", "--tailgate=relay.example.ts.net:10000"});
@@ -254,7 +232,22 @@ TEST(Given_ShortTailgateUrl, When_ParsingUp_Then_HttpsIsImplied)
     EXPECT_EQ(arguments.Up.TailgateUrl, "https://relay.example.ts.net:10000");
 }
 
-TEST(Given_TopLevelHelp, When_Formatting_Then_RegisteredCommandsUseOfficialLayout)
+TEST(Given_Arguments, When_ParsingSubcommandHelp_Then_OnlySubcommandHelpIsReturned)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--help"});
+
+    const bool hasUpUsage =
+        arguments.HelpOutput.find("USAGE\n  tailgate up [flags]") != std::string::npos;
+    const bool hasUpFlag = arguments.HelpOutput.find("--accept-dns") != std::string::npos;
+    const bool hasTopLevelCommands = arguments.HelpOutput.find("SUBCOMMANDS") != std::string::npos;
+
+    EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Help);
+    EXPECT_TRUE(hasUpUsage);
+    EXPECT_TRUE(hasUpFlag);
+    EXPECT_FALSE(hasTopLevelCommands);
+}
+
+TEST(Given_Arguments, When_FormattingTopLevelHelp_Then_RegisteredCommandsUseOfficialLayout)
 {
     const std::string help = tailgate::cli::Arguments::HelpText();
 
@@ -271,17 +264,24 @@ TEST(Given_TopLevelHelp, When_Formatting_Then_RegisteredCommandsUseOfficialLayou
     EXPECT_TRUE(hasRegisteredCommand);
 }
 
-TEST(Given_SubcommandHelp, When_Parsing_Then_OnlySubcommandHelpIsReturned)
+TEST(Given_Arguments, When_ParsingUnsupportedQrFormat_Then_ParsingFails)
 {
-    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--help"});
+    const auto parse = []()
+    {
+        (void)tailgate::cli::Arguments::Parse({"up", "--qr-format=punch-card"});
+    };
 
-    const bool hasUpUsage =
-        arguments.HelpOutput.find("USAGE\n  tailgate up [flags]") != std::string::npos;
-    const bool hasUpFlag = arguments.HelpOutput.find("--accept-dns") != std::string::npos;
-    const bool hasTopLevelCommands = arguments.HelpOutput.find("SUBCOMMANDS") != std::string::npos;
+    EXPECT_THROW(parse(), tailgate::cli::ArgumentError);
+}
 
-    EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Help);
-    EXPECT_TRUE(hasUpUsage);
-    EXPECT_TRUE(hasUpFlag);
-    EXPECT_FALSE(hasTopLevelCommands);
+TEST(Given_Arguments, When_ParsingUpResetWithoutPreferences_Then_DefaultsAreExplicitlyRequested)
+{
+    const auto arguments = tailgate::cli::Arguments::Parse({"up", "--reset"});
+
+    EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Up);
+    EXPECT_TRUE(arguments.Up.Reset);
+    EXPECT_FALSE(arguments.Up.HostnameSet);
+    EXPECT_FALSE(arguments.Up.AcceptDnsSet);
+    EXPECT_FALSE(arguments.Up.ExitNodeSet);
+    EXPECT_FALSE(arguments.Up.TailgateUrlSet);
 }

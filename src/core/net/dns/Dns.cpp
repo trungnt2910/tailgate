@@ -1,10 +1,13 @@
-#include <tailgate/net/dns/Dns.h>
+#include "tailgate/net/dns/Dns.h"
 
 #include <format>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
 #include <boost/algorithm/string/case_conv.hpp>
+
+#include <tailgate/crypto/Crypto.h>
 
 namespace tailgate::net::dns
 {
@@ -132,7 +135,7 @@ std::uint8_t DnsResponseError::ResponseCode() const noexcept
     return m_responseCode;
 }
 
-std::optional<std::string> DnsQueryName(const std::vector<std::uint8_t>& message)
+std::optional<std::string> DnsQuery::Name(const std::vector<std::uint8_t>& message)
 {
     constexpr std::size_t dnsHeaderSize = DnsHeaderSize;
     constexpr std::size_t questionFooterSize = 4;
@@ -167,7 +170,7 @@ std::optional<std::string> DnsQueryName(const std::vector<std::uint8_t>& message
     return result;
 }
 
-std::vector<std::uint8_t> BuildDnsQuery(const std::string& name, std::uint16_t transactionId)
+std::vector<std::uint8_t> DnsQuery::Build(const std::string& name, std::uint16_t transactionId)
 {
     std::vector<std::uint8_t> result(DnsHeaderSize, 0);
     result[0] = static_cast<std::uint8_t>(transactionId >> 8U);
@@ -195,9 +198,9 @@ std::vector<std::uint8_t> BuildDnsQuery(const std::string& name, std::uint16_t t
     return result;
 }
 
-DnsAnswer ParseDnsAnswer(const std::vector<std::uint8_t>& message,
-                         std::uint16_t transactionId,
-                         const std::string& queriedName)
+DnsAnswer DnsAnswer::Parse(const std::vector<std::uint8_t>& message,
+                           std::uint16_t transactionId,
+                           const std::string& queriedName)
 {
     if (message.size() < DnsHeaderSize || Read16(message, 0) != transactionId)
     {
@@ -258,24 +261,22 @@ DnsAnswer ParseDnsAnswer(const std::vector<std::uint8_t>& message,
         offset = dataOffset + length;
         records.push_back(std::move(record));
     }
-    DnsAnswer result;
-    result.CanonicalName = NormalizeName(queriedName);
+    std::string canonicalName = NormalizeName(queriedName);
     for (std::size_t pass = 0; pass < records.size(); ++pass)
     {
         bool changed = false;
         for (const ResourceRecord& record : records)
         {
-            if (record.Type == DnsTypeCname && record.Name == result.CanonicalName)
+            if (record.Type == DnsTypeCname && record.Name == canonicalName)
             {
-                result.CanonicalName = record.NameValue;
+                canonicalName = record.NameValue;
                 changed = true;
                 break;
             }
-            if (record.Type == DnsTypeDname && DnsNameHasSuffix(result.CanonicalName, record.Name))
+            if (record.Type == DnsTypeDname && DnsNameHasSuffix(canonicalName, record.Name))
             {
-                const std::size_t prefixLength = result.CanonicalName.size() - record.Name.size();
-                result.CanonicalName =
-                    result.CanonicalName.substr(0, prefixLength) + record.NameValue;
+                const std::size_t prefixLength = canonicalName.size() - record.Name.size();
+                canonicalName = canonicalName.substr(0, prefixLength) + record.NameValue;
                 changed = true;
                 break;
             }
@@ -285,14 +286,15 @@ DnsAnswer ParseDnsAnswer(const std::vector<std::uint8_t>& message,
             break;
         }
     }
+    std::vector<std::string> addresses;
     for (const ResourceRecord& record : records)
     {
-        if (record.Type == DnsTypeA && record.Name == result.CanonicalName)
+        if (record.Type == DnsTypeA && record.Name == canonicalName)
         {
-            result.Addresses.push_back(record.Address);
+            addresses.push_back(record.Address);
         }
     }
-    return result;
+    return DnsAnswer(std::move(canonicalName), std::move(addresses));
 }
 
 bool DnsNameHasSuffix(const std::string& name, const std::string& suffix)
@@ -326,18 +328,18 @@ DnsAnswer ResolveDnsChain(const std::string& name,
     std::string current = NormalizeName(name);
     for (std::size_t queryIndex = 0; queryIndex < maximumQueries; ++queryIndex)
     {
-        DnsAnswer answer = query(current);
-        answer.CanonicalName = NormalizeName(answer.CanonicalName);
-        if (!answer.Addresses.empty() || answer.CanonicalName == current)
+        const DnsAnswer answer = query(current);
+        const std::string canonicalName = NormalizeName(answer.CanonicalName());
+        if (!answer.Addresses().empty() || canonicalName == current)
         {
-            return answer;
+            return DnsAnswer(canonicalName, answer.Addresses());
         }
-        if (answer.CanonicalName.empty())
+        if (canonicalName.empty())
         {
             throw std::runtime_error(
                 std::format("Trusted DNS returned an empty canonical name for {}.", current));
         }
-        current = std::move(answer.CanonicalName);
+        current = canonicalName;
     }
     throw std::runtime_error(
         std::format("Trusted DNS alias chain is too deep for {}.", NormalizeName(name)));
@@ -350,19 +352,47 @@ DnsTarget ResolveDnsTarget(const std::string& name,
 {
     const DnsAnswer answer = ResolveDnsChain(name, query, maximumQueries);
     DnsTarget result;
-    result.ValidationName = answer.CanonicalName;
+    result.ValidationName = answer.CanonicalName();
     if (!DnsNameUsesTrustedResolver(result.ValidationName))
     {
         result.ConnectAddress = result.ValidationName;
         return result;
     }
-    if (answer.Addresses.empty())
+    if (answer.Addresses().empty())
     {
         throw std::runtime_error(
             std::format("Trusted DNS returned no address for {}.", result.ValidationName));
     }
-    result.ConnectAddress = answer.Addresses[addressIndex % answer.Addresses.size()];
+    result.ConnectAddress = answer.Addresses()[addressIndex % answer.Addresses().size()];
     return result;
+}
+
+DnsTarget ResolveDnsOverTlsTarget(tailgate::base::ByteStream& stream,
+                                  const std::string& name,
+                                  std::size_t addressIndex,
+                                  std::size_t maximumQueries)
+{
+    constexpr std::size_t DnsMessageLengthSize = 2;
+    constexpr std::size_t MaximumDnsMessageSize = std::numeric_limits<std::uint16_t>::max();
+    const auto query = [&stream](const std::string& current)
+    {
+        const tailgate::crypto::Bytes32 random = tailgate::crypto::GeneratePrivateKey();
+        const std::uint16_t transactionId =
+            (static_cast<std::uint16_t>(random[0]) << 8U) | random[1];
+        std::vector<std::uint8_t> message = DnsQuery::Build(current, transactionId);
+        if (message.size() > MaximumDnsMessageSize)
+        {
+            throw std::length_error("DNS-over-TLS query exceeds the message size limit.");
+        }
+        message.insert(message.begin(),
+                       {static_cast<std::uint8_t>(message.size() >> 8U),
+                        static_cast<std::uint8_t>(message.size())});
+        stream.WriteAll(message);
+        const std::vector<std::uint8_t> length = stream.ReadExact(DnsMessageLengthSize);
+        const std::size_t responseSize = (static_cast<std::size_t>(length[0]) << 8U) | length[1];
+        return DnsAnswer::Parse(stream.ReadExact(responseSize), transactionId, current);
+    };
+    return ResolveDnsTarget(name, query, addressIndex, maximumQueries);
 }
 
 } // namespace tailgate::net::dns

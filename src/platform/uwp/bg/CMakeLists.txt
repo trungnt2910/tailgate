@@ -1,3 +1,4 @@
+add_subdirectory(tstun)
 add_subdirectory(manager)
 add_subdirectory(service)
 
@@ -20,6 +21,9 @@ target_link_libraries(
         Boost.DI
         Tailgate.Uwp.Background.Manager
         Tailgate.Uwp.Background.Service
+        Tailgate.Uwp.Background.Tstun
+        Tailgate.Uwp.Common
+        tailgate_core
 )
 
 add_subdirectory(plugin)

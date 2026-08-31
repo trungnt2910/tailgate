@@ -167,8 +167,49 @@ const wireguard_keypair* FindSendingKeypair(const wireguard_peer& peer)
 class WireGuardTunnel::Impl
 {
 public:
-    struct PeerReference
+    class PeerReference
     {
+    public:
+        PeerReference(wireguard_device* device, wireguard_peer* peer)
+            : m_device(device), m_peer(peer)
+        {
+        }
+
+        [[nodiscard]] wireguard_device* Device() const noexcept
+        {
+            return m_device;
+        }
+
+        [[nodiscard]] wireguard_peer* Peer() const noexcept
+        {
+            return m_peer;
+        }
+
+        ReplayWindow& ReplayFor(const wireguard_keypair& keypair)
+        {
+            auto found = std::find_if(m_replaySessions.begin(),
+                                      m_replaySessions.end(),
+                                      [&](const SessionReplay& session)
+                                      {
+                                          return session.LocalIndex == keypair.local_index &&
+                                                 session.StartedAt == keypair.keypair_millis;
+                                      });
+            if (found != m_replaySessions.end())
+            {
+                return found->Window;
+            }
+            constexpr std::size_t maximumRetainedSessions = 3;
+            if (m_replaySessions.size() == maximumRetainedSessions)
+            {
+                m_replaySessions.erase(m_replaySessions.begin());
+            }
+            m_replaySessions.push_back(SessionReplay{.LocalIndex = keypair.local_index,
+                                                     .StartedAt = keypair.keypair_millis,
+                                                     .Window = {}});
+            return m_replaySessions.back().Window;
+        }
+
+    private:
         struct SessionReplay
         {
             std::uint32_t LocalIndex = 0;
@@ -176,33 +217,9 @@ public:
             ReplayWindow Window;
         };
 
-        wireguard_device* Device;
-        wireguard_peer* Peer;
-        std::vector<SessionReplay> ReplaySessions;
-
-        ReplayWindow& ReplayFor(const wireguard_keypair& keypair)
-        {
-            auto found = std::find_if(ReplaySessions.begin(),
-                                      ReplaySessions.end(),
-                                      [&](const SessionReplay& session)
-                                      {
-                                          return session.LocalIndex == keypair.local_index &&
-                                                 session.StartedAt == keypair.keypair_millis;
-                                      });
-            if (found != ReplaySessions.end())
-            {
-                return found->Window;
-            }
-            constexpr std::size_t maximumRetainedSessions = 3;
-            if (ReplaySessions.size() == maximumRetainedSessions)
-            {
-                ReplaySessions.erase(ReplaySessions.begin());
-            }
-            ReplaySessions.push_back(SessionReplay{.LocalIndex = keypair.local_index,
-                                                   .StartedAt = keypair.keypair_millis,
-                                                   .Window = {}});
-            return ReplaySessions.back().Window;
-        }
+        wireguard_device* m_device;
+        wireguard_peer* m_peer;
+        std::vector<SessionReplay> m_replaySessions;
     };
 
     explicit Impl(const Key& privateKey) : PrivateKey(privateKey)
@@ -224,7 +241,7 @@ public:
 
     PeerReference& GetPeer(PeerId id)
     {
-        if (id >= Peers.size() || Peers[id].Peer == nullptr)
+        if (id >= Peers.size() || Peers[id].Peer() == nullptr)
         {
             throw std::out_of_range("Invalid WireGuard peer.");
         }
@@ -233,7 +250,7 @@ public:
 
     const PeerReference& GetPeer(PeerId id) const
     {
-        if (id >= Peers.size() || Peers[id].Peer == nullptr)
+        if (id >= Peers.size() || Peers[id].Peer() == nullptr)
         {
             throw std::out_of_range("Invalid WireGuard peer.");
         }
@@ -273,17 +290,16 @@ WireGuardTunnel::PeerId WireGuardTunnel::AddPeer(const Key& publicKey,
     }
     peer->active = initiateAutomatically;
     peer->keepalive_interval = keepalive;
-    Implementation->Peers.push_back(
-        Impl::PeerReference{.Device = device, .Peer = peer, .ReplaySessions = {}});
+    Implementation->Peers.emplace_back(device, peer);
     return Implementation->Peers.size() - 1;
 }
 
 std::vector<std::uint8_t> WireGuardTunnel::CreateHandshake(PeerId peerId)
 {
     Impl::PeerReference& reference = Implementation->GetPeer(peerId);
-    wireguard_peer& peer = *reference.Peer;
+    wireguard_peer& peer = *reference.Peer();
     message_handshake_initiation message{};
-    if (!wireguard_create_handshake_initiation(reference.Device, &peer, &message))
+    if (!wireguard_create_handshake_initiation(reference.Device(), &peer, &message))
     {
         throw std::runtime_error("Failed to create WireGuard handshake.");
     }
@@ -297,7 +313,7 @@ std::optional<WireGuardTunnel::ReceivedPacket>
 WireGuardTunnel::ProcessPacket(PeerId peerId, const std::vector<std::uint8_t>& packet)
 {
     Impl::PeerReference& reference = Implementation->GetPeer(peerId);
-    wireguard_peer& peer = *reference.Peer;
+    wireguard_peer& peer = *reference.Peer();
     const std::uint8_t type = wireguard_get_message_type(packet.data(), packet.size());
     if (type == MESSAGE_HANDSHAKE_INITIATION &&
         packet.size() == sizeof(message_handshake_initiation))
@@ -305,14 +321,14 @@ WireGuardTunnel::ProcessPacket(PeerId peerId, const std::vector<std::uint8_t>& p
         message_handshake_initiation initiation{};
         std::memcpy(&initiation, packet.data(), sizeof(initiation));
         wireguard_peer* initiatingPeer =
-            wireguard_process_initiation_message(reference.Device, &initiation);
+            wireguard_process_initiation_message(reference.Device(), &initiation);
         if (initiatingPeer != &peer)
         {
             return std::nullopt;
         }
 
         message_handshake_response response{};
-        if (!wireguard_create_handshake_response(reference.Device, &peer, &response))
+        if (!wireguard_create_handshake_response(reference.Device(), &peer, &response))
         {
             return std::nullopt;
         }
@@ -328,7 +344,7 @@ WireGuardTunnel::ProcessPacket(PeerId peerId, const std::vector<std::uint8_t>& p
     {
         message_handshake_response response{};
         std::memcpy(&response, packet.data(), sizeof(response));
-        if (!wireguard_process_handshake_response(reference.Device, &peer, &response))
+        if (!wireguard_process_handshake_response(reference.Device(), &peer, &response))
         {
             return std::nullopt;
         }
@@ -343,7 +359,7 @@ WireGuardTunnel::ProcessPacket(PeerId peerId, const std::vector<std::uint8_t>& p
     {
         message_cookie_reply reply{};
         std::memcpy(&reply, packet.data(), sizeof(reply));
-        if (wireguard_process_cookie_message(reference.Device, &peer, &reply))
+        if (wireguard_process_cookie_message(reference.Device(), &peer, &reply))
         {
             peer.send_handshake = true;
         }
@@ -428,13 +444,13 @@ WireGuardTunnel::ProcessPacket(const std::vector<std::uint8_t>& packet)
             {
                 continue;
             }
-            const auto reference =
-                std::find_if(Implementation->Peers.begin(),
-                             Implementation->Peers.end(),
-                             [&](const Impl::PeerReference& candidate)
-                             {
-                                 return candidate.Device == device.get() && candidate.Peer == peer;
-                             });
+            const auto reference = std::find_if(Implementation->Peers.begin(),
+                                                Implementation->Peers.end(),
+                                                [&](const Impl::PeerReference& candidate)
+                                                {
+                                                    return candidate.Device() == device.get() &&
+                                                           candidate.Peer() == peer;
+                                                });
             if (reference == Implementation->Peers.end())
             {
                 return std::nullopt;
@@ -467,7 +483,7 @@ WireGuardTunnel::ProcessPacket(const std::vector<std::uint8_t>& packet)
 std::vector<std::uint8_t> WireGuardTunnel::Encrypt(PeerId peerId,
                                                    const std::vector<std::uint8_t>& plaintext)
 {
-    wireguard_peer& peer = *Implementation->GetPeer(peerId).Peer;
+    wireguard_peer& peer = *Implementation->GetPeer(peerId).Peer();
     wireguard_keypair* keypair = FindSendingKeypair(peer);
     if (keypair == nullptr)
     {
@@ -499,7 +515,7 @@ std::vector<std::uint8_t> WireGuardTunnel::Encrypt(PeerId peerId,
 
 WireGuardTunnel::TimerAction WireGuardTunnel::UpdateTimers(PeerId peerId)
 {
-    wireguard_peer& peer = *Implementation->GetPeer(peerId).Peer;
+    wireguard_peer& peer = *Implementation->GetPeer(peerId).Peer();
     if (peer.curr_keypair.valid &&
         (wireguard_expired(peer.curr_keypair.keypair_millis, REJECT_AFTER_TIME) ||
          peer.curr_keypair.sending_counter >= REJECT_AFTER_MESSAGES))
@@ -527,7 +543,7 @@ WireGuardTunnel::TimerAction WireGuardTunnel::UpdateTimers(PeerId peerId)
 
 bool WireGuardTunnel::HasSession(PeerId peerId) const
 {
-    const wireguard_peer& peer = *Implementation->GetPeer(peerId).Peer;
+    const wireguard_peer& peer = *Implementation->GetPeer(peerId).Peer();
     return FindSendingKeypair(peer) != nullptr;
 }
 

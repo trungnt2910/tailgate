@@ -8,28 +8,27 @@
 namespace
 {
 
-tailgate::control::client::HostInfo Host(std::string hostname = "host",
-                                         std::string operatingSystem = "linux",
-                                         std::string operatingSystemVersion = "1",
-                                         std::string architecture = "amd64")
+[[maybe_unused]] tailgate::control::client::HostInfo Host(std::string hostname = "host",
+                                                          std::string operatingSystem = "linux",
+                                                          std::string operatingSystemVersion = "1",
+                                                          std::string architecture = "amd64")
 {
-    tailgate::control::client::HostInfo result;
-    result.Hostname = std::move(hostname);
-    result.OperatingSystem = std::move(operatingSystem);
-    result.OperatingSystemVersion = std::move(operatingSystemVersion);
-    result.Architecture = std::move(architecture);
-    return result;
+    return tailgate::control::client::HostInfo(std::move(hostname),
+                                               std::move(operatingSystem),
+                                               std::move(operatingSystemVersion),
+                                               std::move(architecture));
 }
 
 } // namespace
 
-TEST(Given_ControlRequest, When_BuildingHostInfo_Then_PlatformValuesArePreserved)
+TEST(Given_ControlRequests, When_ControlRequestAndBuildingHostInfo_Then_PlatformValuesArePreserved)
 {
     const tailgate::control::client::HostInfo host =
         Host("portable-host", "custom-os", "custom-version", "custom-architecture");
 
     const std::vector<std::uint8_t> bytes =
-        tailgate::control::client::BuildRegisterRequest("nodekey:test", "tskey-test", host);
+        tailgate::control::client::ControlRequest::BuildRegister(
+            "nodekey:test", "tskey-test", host);
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_TRUE(request.find("portable-host") != std::string::npos);
@@ -39,33 +38,35 @@ TEST(Given_ControlRequest, When_BuildingHostInfo_Then_PlatformValuesArePreserved
     EXPECT_TRUE(request.find("\"IPNVersion\":\"Tailgate\"") != std::string::npos);
 }
 
-TEST(Given_RegisterRequest, When_Building_Then_NodeIsNotForcedEphemeral)
+TEST(Given_ControlRequests, When_RegisterRequestAndBuilding_Then_NodeIsNotForcedEphemeral)
 {
     const tailgate::control::client::HostInfo host = Host();
 
-    const auto bytes =
-        tailgate::control::client::BuildRegisterRequest("nodekey:test", "tskey-test", host);
+    const auto bytes = tailgate::control::client::ControlRequest::BuildRegister(
+        "nodekey:test", "tskey-test", host);
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_TRUE(request.find("\"Ephemeral\"") == std::string::npos);
 }
 
-TEST(Given_ExistingIdentityWithoutAuthKey, When_BuildingRegisterRequest_Then_AuthIsOmitted)
+TEST(Given_ControlRequests,
+     When_ExistingIdentityWithoutAuthKeyAndBuildingRegisterRequest_Then_AuthIsOmitted)
 {
     const tailgate::control::client::HostInfo host = Host();
 
-    const auto bytes = tailgate::control::client::BuildRegisterRequest("nodekey:test", "", host);
+    const auto bytes =
+        tailgate::control::client::ControlRequest::BuildRegister("nodekey:test", "", host);
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_EQ(request.find("\"Auth\""), std::string::npos);
     EXPECT_EQ(request.find("\"AuthKey\""), std::string::npos);
 }
 
-TEST(Given_PendingLogin, When_BuildingRegisterRequest_Then_FollowupReplacesAuth)
+TEST(Given_ControlRequests, When_PendingLoginAndBuildingRegisterRequest_Then_FollowupReplacesAuth)
 {
     const tailgate::control::client::HostInfo host = Host();
 
-    const auto bytes = tailgate::control::client::BuildRegisterRequest(
+    const auto bytes = tailgate::control::client::ControlRequest::BuildRegister(
         "nodekey:test", "tskey-test", "https://login.tailscale.com/a/fake-login-code", host);
     const std::string request(bytes.begin(), bytes.end());
 
@@ -75,7 +76,7 @@ TEST(Given_PendingLogin, When_BuildingRegisterRequest_Then_FollowupReplacesAuth)
     EXPECT_EQ(request.find("\"AuthKey\""), std::string::npos);
 }
 
-TEST(Given_OfficialLoginUrl, When_ValidatingAuthorizationUrl_Then_ItIsAccepted)
+TEST(Given_ControlRequests, When_OfficialLoginUrlAndValidatingAuthorizationUrl_Then_ItIsAccepted)
 {
     const std::vector<std::string_view> urls{
         "https://login.tailscale.com/a/fake-login-code",
@@ -93,7 +94,7 @@ TEST(Given_OfficialLoginUrl, When_ValidatingAuthorizationUrl_Then_ItIsAccepted)
     EXPECT_TRUE(allValid);
 }
 
-TEST(Given_UntrustedLoginUrl, When_ValidatingAuthorizationUrl_Then_ItIsRejected)
+TEST(Given_ControlRequests, When_UntrustedLoginUrlAndValidatingAuthorizationUrl_Then_ItIsRejected)
 {
     const std::vector<std::string_view> urls{
         "http://login.tailscale.com/a/code",
@@ -118,7 +119,7 @@ TEST(Given_UntrustedLoginUrl, When_ValidatingAuthorizationUrl_Then_ItIsRejected)
     EXPECT_FALSE(anyValid);
 }
 
-TEST(Given_OfficialLoginUrl, When_ExtractingAuthorizationCode_Then_CodeIsReturned)
+TEST(Given_ControlRequests, When_OfficialLoginUrlAndExtractingAuthorizationCode_Then_CodeIsReturned)
 {
     constexpr std::string_view url = "https://login.tailscale.com/a/fake-login-code";
 
@@ -127,7 +128,8 @@ TEST(Given_OfficialLoginUrl, When_ExtractingAuthorizationCode_Then_CodeIsReturne
     EXPECT_EQ(code, "fake-login-code");
 }
 
-TEST(Given_NonstandardLoginUrl, When_ExtractingAuthorizationCode_Then_CodeIsOmitted)
+TEST(Given_ControlRequests,
+     When_NonstandardLoginUrlAndExtractingAuthorizationCode_Then_CodeIsOmitted)
 {
     constexpr std::string_view url = "https://controlplane.example.com/a/code";
 
@@ -136,7 +138,7 @@ TEST(Given_NonstandardLoginUrl, When_ExtractingAuthorizationCode_Then_CodeIsOmit
     EXPECT_TRUE(code.empty());
 }
 
-TEST(Given_MachineAddress, When_BuildingApprovalUrl_Then_DevicePageIsReturned)
+TEST(Given_ControlRequests, When_MachineAddressAndBuildingApprovalUrl_Then_DevicePageIsReturned)
 {
     constexpr std::string_view address = "100.64.0.7";
 
@@ -145,7 +147,8 @@ TEST(Given_MachineAddress, When_BuildingApprovalUrl_Then_DevicePageIsReturned)
     EXPECT_EQ(url, "https://login.tailscale.com/admin/machines/100.64.0.7");
 }
 
-TEST(Given_MissingMachineAddress, When_BuildingApprovalUrl_Then_MachinesPageIsReturned)
+TEST(Given_ControlRequests,
+     When_MissingMachineAddressAndBuildingApprovalUrl_Then_MachinesPageIsReturned)
 {
     constexpr std::string_view address;
 
@@ -154,45 +157,45 @@ TEST(Given_MissingMachineAddress, When_BuildingApprovalUrl_Then_MachinesPageIsRe
     EXPECT_EQ(url, "https://login.tailscale.com/admin/machines");
 }
 
-TEST(Given_SuccessfulRegisterResponse, When_Parsing_Then_StatusIsPreserved)
+TEST(Given_ControlRequests, When_SuccessfulRegisterResponseAndParsing_Then_StatusIsPreserved)
 {
     const std::string json =
         R"({"MachineAuthorized":true,"NodeKeyExpired":false,"AuthURL":"","Error":""})";
     const std::vector<std::uint8_t> bytes(json.begin(), json.end());
 
     const std::optional<tailgate::control::client::RegisterResponse> response =
-        tailgate::control::client::ParseRegisterResponse(bytes);
+        tailgate::control::client::RegisterResponse::Parse(bytes);
 
     EXPECT_TRUE(response.has_value());
-    EXPECT_TRUE(response->MachineAuthorized);
-    EXPECT_FALSE(response->NodeKeyExpired);
-    EXPECT_TRUE(response->AuthUrl.empty());
-    EXPECT_TRUE(response->Error.empty());
+    EXPECT_TRUE(response->MachineAuthorized());
+    EXPECT_FALSE(response->NodeKeyExpired());
+    EXPECT_TRUE(response->AuthUrl().empty());
+    EXPECT_TRUE(response->Error().empty());
 }
 
-TEST(Given_RejectedRegisterResponse, When_Parsing_Then_ErrorIsPreserved)
+TEST(Given_ControlRequests, When_RejectedRegisterResponseAndParsing_Then_ErrorIsPreserved)
 {
     const std::string json = R"({"Error":"invalid auth key"})";
     const std::vector<std::uint8_t> bytes(json.begin(), json.end());
 
     const std::optional<tailgate::control::client::RegisterResponse> response =
-        tailgate::control::client::ParseRegisterResponse(bytes);
+        tailgate::control::client::RegisterResponse::Parse(bytes);
 
     EXPECT_TRUE(response.has_value());
-    EXPECT_EQ(response->Error, "invalid auth key");
+    EXPECT_EQ(response->Error(), "invalid auth key");
 }
 
-TEST(Given_MalformedRegisterResponse, When_Parsing_Then_ItIsRejected)
+TEST(Given_ControlRequests, When_MalformedRegisterResponseAndParsing_Then_ItIsRejected)
 {
     const std::vector<std::uint8_t> bytes{'n', 'o', 't', '-', 'j', 's', 'o', 'n'};
 
     const std::optional<tailgate::control::client::RegisterResponse> response =
-        tailgate::control::client::ParseRegisterResponse(bytes);
+        tailgate::control::client::RegisterResponse::Parse(bytes);
 
     EXPECT_FALSE(response.has_value());
 }
 
-TEST(Given_InitialMapCannotFindNewNode, When_Classifying_Then_ItIsRetryable)
+TEST(Given_ControlRequests, When_InitialMapCannotFindNewNodeAndClassifying_Then_ItIsRetryable)
 {
     constexpr int status = 404;
     constexpr std::string_view response = "node not found\n";
@@ -202,7 +205,7 @@ TEST(Given_InitialMapCannotFindNewNode, When_Classifying_Then_ItIsRetryable)
     EXPECT_TRUE(retryable);
 }
 
-TEST(Given_UnrelatedMapFailure, When_Classifying_Then_ItIsNotRetryable)
+TEST(Given_ControlRequests, When_UnrelatedMapFailureAndClassifying_Then_ItIsNotRetryable)
 {
     constexpr int status = 404;
     constexpr std::string_view response = "tailnet not found";
@@ -212,34 +215,34 @@ TEST(Given_UnrelatedMapFailure, When_Classifying_Then_ItIsNotRetryable)
     EXPECT_FALSE(retryable);
 }
 
-TEST(Given_LogoutRequest, When_Building_Then_IdentityIsExpired)
+TEST(Given_ControlRequests, When_LogoutRequestAndBuilding_Then_IdentityIsExpired)
 {
     const tailgate::control::client::HostInfo host = Host();
 
-    const auto bytes = tailgate::control::client::BuildLogoutRequest("nodekey:test", host);
+    const auto bytes = tailgate::control::client::ControlRequest::BuildLogout("nodekey:test", host);
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_TRUE(request.find("1970-01-01T00:02:03Z") != std::string::npos);
     EXPECT_TRUE(request.find("nodekey:test") != std::string::npos);
 }
 
-TEST(Given_MapRequest, When_Streaming_Then_PresenceStreamIsRequested)
+TEST(Given_ControlRequests, When_MapRequestAndStreaming_Then_PresenceStreamIsRequested)
 {
     const tailgate::control::client::HostInfo host = Host();
 
-    const auto bytes =
-        tailgate::control::client::BuildMapRequest("nodekey:test", "discokey:test", host, 1, true);
+    const auto bytes = tailgate::control::client::ControlRequest::BuildMap(
+        "nodekey:test", "discokey:test", host, 1, true);
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_TRUE(request.find("\"Stream\":true") != std::string::npos);
     EXPECT_TRUE(request.find("\"KeepAlive\":true") != std::string::npos);
 }
 
-TEST(Given_MapRequest, When_OmittingPeers_Then_ItCanUpdateHostInfo)
+TEST(Given_ControlRequests, When_MapRequestAndOmittingPeers_Then_ItCanUpdateHostInfo)
 {
     const tailgate::control::client::HostInfo host = Host();
 
-    const auto bytes = tailgate::control::client::BuildMapRequest(
+    const auto bytes = tailgate::control::client::ControlRequest::BuildMap(
         "nodekey:test", "discokey:test", host, 0, false, true);
     const std::string request(bytes.begin(), bytes.end());
 
@@ -248,12 +251,13 @@ TEST(Given_MapRequest, When_OmittingPeers_Then_ItCanUpdateHostInfo)
     EXPECT_TRUE(request.find("\"Hostinfo\"") != std::string::npos);
 }
 
-TEST(Given_ReadOnlyMapRequest, When_Building_Then_ItFetchesPeersWithoutUpdatingTheNode)
+TEST(Given_ControlRequests,
+     When_ReadOnlyMapRequestAndBuilding_Then_ItFetchesPeersWithoutUpdatingTheNode)
 {
     const tailgate::control::client::HostInfo host = Host();
 
-    const auto bytes =
-        tailgate::control::client::BuildReadOnlyMapRequest("nodekey:test", "discokey:test", host);
+    const auto bytes = tailgate::control::client::ControlRequest::BuildReadOnlyMap(
+        "nodekey:test", "discokey:test", host);
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_TRUE(request.find("\"ReadOnly\":true") != std::string::npos);
@@ -261,7 +265,7 @@ TEST(Given_ReadOnlyMapRequest, When_Building_Then_ItFetchesPeersWithoutUpdatingT
     EXPECT_TRUE(request.find("\"Stream\"") == std::string::npos);
 }
 
-TEST(Given_LiteMapRequest, When_Building_Then_KeepAliveAndEndpointsAreSent)
+TEST(Given_ControlRequests, When_LiteMapRequestAndBuilding_Then_KeepAliveAndEndpointsAreSent)
 {
     const tailgate::control::client::HostInfo host = Host();
     const std::vector<tailgate::control::client::MapEndpoint> endpoints{
@@ -272,7 +276,7 @@ TEST(Given_LiteMapRequest, When_Building_Then_KeepAliveAndEndpointsAreSent)
                                                .Type =
                                                    tailgate::control::client::EndpointType::Local}};
 
-    const auto bytes = tailgate::control::client::BuildMapRequest(
+    const auto bytes = tailgate::control::client::ControlRequest::BuildMap(
         "nodekey:test", "discokey:test", host, 5, false, true, endpoints);
     const std::string request(bytes.begin(), bytes.end());
 
@@ -286,7 +290,7 @@ TEST(Given_LiteMapRequest, When_Building_Then_KeepAliveAndEndpointsAreSent)
     EXPECT_TRUE(request.find("\"EndpointTypes\":[2,1]") != std::string::npos);
 }
 
-TEST(Given_MapRequestWithEndpoints, When_Building_Then_EndpointTypesAreSent)
+TEST(Given_ControlRequests, When_MapRequestWithEndpointsAndBuilding_Then_EndpointTypesAreSent)
 {
     const tailgate::control::client::HostInfo host = Host();
     const std::vector<tailgate::control::client::MapEndpoint> endpoints{
@@ -294,7 +298,7 @@ TEST(Given_MapRequestWithEndpoints, When_Building_Then_EndpointTypesAreSent)
                                                .Type =
                                                    tailgate::control::client::EndpointType::Local}};
 
-    const auto bytes = tailgate::control::client::BuildMapRequest(
+    const auto bytes = tailgate::control::client::ControlRequest::BuildMap(
         "nodekey:test", "discokey:test", host, 0, false, false, endpoints);
     const std::string request(bytes.begin(), bytes.end());
 
@@ -302,20 +306,21 @@ TEST(Given_MapRequestWithEndpoints, When_Building_Then_EndpointTypesAreSent)
     EXPECT_TRUE(request.find("\"EndpointTypes\":[1]") != std::string::npos);
 }
 
-TEST(Given_FeatureQuery, When_Building_Then_FeatureAndNodeKeyAreSent)
+TEST(Given_ControlRequests, When_FeatureQueryAndBuilding_Then_FeatureAndNodeKeyAreSent)
 {
     const auto bytes =
-        tailgate::control::client::BuildQueryFeatureRequest("nodekey:test", "funnel");
+        tailgate::control::client::ControlRequest::BuildQueryFeature("nodekey:test", "funnel");
     const std::string request(bytes.begin(), bytes.end());
 
     EXPECT_TRUE(request.find("\"Feature\":\"funnel\"") != std::string::npos);
     EXPECT_TRUE(request.find("\"NodeKey\":\"nodekey:test\"") != std::string::npos);
 }
 
-TEST(Given_DnsChallenge, When_BuildingRequest_Then_CurrentCapabilityAndTxtAreSent)
+TEST(Given_ControlRequests, When_DnsChallengeAndBuildingRequest_Then_CurrentCapabilityAndTxtAreSent)
 {
-    const std::vector<std::uint8_t> encoded = tailgate::control::client::BuildSetDnsRequest(
-        "nodekey:abc", "_acme-challenge.node.ts.net", "txt");
+    const std::vector<std::uint8_t> encoded =
+        tailgate::control::client::ControlRequest::BuildSetDns(
+            "nodekey:abc", "_acme-challenge.node.ts.net", "txt");
 
     const std::string request(encoded.begin(), encoded.end());
 

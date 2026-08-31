@@ -1,5 +1,10 @@
 tailgate_add_test_library(
     tailgate_tests_core_di
-    Given_Bindings.cpp
+    Given_CoreNetworkBindings.cpp
 )
-target_link_libraries(tailgate_tests_core_di PRIVATE tailgate_core)
+target_link_libraries(
+    tailgate_tests_core_di
+    PRIVATE
+        tailgate_core
+        tailgate_tests_core_fakes
+)

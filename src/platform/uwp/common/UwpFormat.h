@@ -8,8 +8,9 @@
 #include <winrt/base.h>
 
 template <>
-struct std::formatter<winrt::hstring, char> : std::formatter<std::string_view, char>
+class std::formatter<winrt::hstring, char> : public std::formatter<std::string_view, char>
 {
+public:
     template <typename FormatContext>
     auto format(const winrt::hstring& value, FormatContext& context) const
     {
@@ -19,8 +20,9 @@ struct std::formatter<winrt::hstring, char> : std::formatter<std::string_view, c
 };
 
 template <>
-struct std::formatter<winrt::hresult, char> : std::formatter<std::int32_t, char>
+class std::formatter<winrt::hresult, char> : public std::formatter<std::int32_t, char>
 {
+public:
     template <typename FormatContext>
     auto format(winrt::hresult value, FormatContext& context) const
     {
@@ -29,8 +31,9 @@ struct std::formatter<winrt::hresult, char> : std::formatter<std::int32_t, char>
 };
 
 template <>
-struct std::formatter<winrt::guid, char> : std::formatter<winrt::hstring, char>
+class std::formatter<winrt::guid, char> : public std::formatter<winrt::hstring, char>
 {
+public:
     template <typename FormatContext>
     auto format(const winrt::guid& value, FormatContext& context) const
     {

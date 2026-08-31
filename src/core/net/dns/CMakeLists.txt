@@ -3,6 +3,7 @@ tailgate_add_library(
     STATIC
     Dns.cpp
     ResolverConfig.cpp
+    ResolverSelection.cpp
     TailnetDns.cpp
 )
 target_link_libraries(
@@ -11,5 +12,6 @@ target_link_libraries(
         tailgate_core_types_netmap
     PRIVATE
         Boost::algorithm
+        tailgate_core_crypto
         tailgate_core_net_packet
 )

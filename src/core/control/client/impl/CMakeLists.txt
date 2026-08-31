@@ -1,0 +1,14 @@
+tailgate_add_library(
+    tailgate_core_control_client_impl
+    STATIC
+    ConnectionImpl.cpp
+    ControlDialer.cpp
+    SessionImpl.cpp
+)
+target_link_libraries(
+    tailgate_core_control_client_impl
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_control_client
+        tailgate_core_types_nettype
+)

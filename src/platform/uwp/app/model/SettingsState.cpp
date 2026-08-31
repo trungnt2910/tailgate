@@ -1,6 +1,7 @@
 #include "app/model/SettingsState.h"
 
 #include <string_view>
+#include <utility>
 
 #include <winrt/Windows.Foundation.h>
 
@@ -25,19 +26,71 @@ winrt::hstring ExtractShortName(const winrt::hstring& name)
 
 } // namespace
 
+UwpDevice::UwpDevice(winrt::hstring group,
+                     winrt::hstring name,
+                     winrt::hstring address,
+                     winrt::hstring ipv6,
+                     winrt::hstring operatingSystem,
+                     bool online,
+                     bool exitNodeOption)
+    : m_group(std::move(group)),
+      m_name(std::move(name)),
+      m_address(std::move(address)),
+      m_ipv6(std::move(ipv6)),
+      m_operatingSystem(std::move(operatingSystem)),
+      m_online(online),
+      m_exitNodeOption(exitNodeOption)
+{
+}
+
 winrt::hstring UwpDevice::MagicDnsName() const
 {
-    return NormalizeMagicDnsName(Name);
+    return NormalizeMagicDnsName(m_name);
 }
 
 bool UwpDevice::MatchesExitNode(const winrt::hstring& nameOrAddress) const
 {
-    if (!ExitNodeOption)
+    if (!m_exitNodeOption)
     {
         return false;
     }
-    return Address == nameOrAddress || MagicDnsName() == nameOrAddress ||
+    return m_address == nameOrAddress || MagicDnsName() == nameOrAddress ||
            ShortName() == nameOrAddress;
+}
+
+const winrt::hstring& UwpDevice::Group() const noexcept
+{
+    return m_group;
+}
+
+const winrt::hstring& UwpDevice::Name() const noexcept
+{
+    return m_name;
+}
+
+const winrt::hstring& UwpDevice::Address() const noexcept
+{
+    return m_address;
+}
+
+const winrt::hstring& UwpDevice::Ipv6() const noexcept
+{
+    return m_ipv6;
+}
+
+const winrt::hstring& UwpDevice::OperatingSystem() const noexcept
+{
+    return m_operatingSystem;
+}
+
+bool UwpDevice::Online() const noexcept
+{
+    return m_online;
+}
+
+bool UwpDevice::ExitNodeOption() const noexcept
+{
+    return m_exitNodeOption;
 }
 
 winrt::hstring UwpDevice::ShortName() const

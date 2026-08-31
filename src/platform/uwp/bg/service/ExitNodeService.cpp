@@ -10,6 +10,7 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/base.h>
 
+#include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 
 #include "common/Settings.h"
@@ -31,13 +32,13 @@ constexpr wchar_t PreserveSelectionField[] = L"PreserveSelection";
 
 std::string ShortExitNodeName(const tailgate::types::netmap::PeerConfig& peer)
 {
-    std::string name = peer.Name;
+    std::string name = peer.Name();
     if (!name.empty() && name.back() == '.')
     {
         name.pop_back();
     }
     const std::string shortName = name.substr(0, name.find('.'));
-    return shortName.empty() ? peer.Address : shortName;
+    return shortName.empty() ? peer.Address() : shortName;
 }
 
 std::vector<std::uint8_t> BuildResponse(std::uint32_t appAddress,
@@ -52,11 +53,11 @@ std::vector<std::uint8_t> BuildResponse(std::uint32_t appAddress,
             .Sequence = sequence,
             .ExitNode = exitNode,
         });
-    return tailgate::net::packet::BuildUdpPacket(VpnConstants::Network::ServiceIpv4Address,
-                                                 appAddress,
-                                                 VpnConstants::AppService::Port,
-                                                 appPort,
-                                                 payload);
+    return tailgate::net::packet::Ipv4UdpDatagram::Build(VpnConstants::Network::ServiceIpv4Address,
+                                                         appAddress,
+                                                         VpnConstants::AppService::Port,
+                                                         appPort,
+                                                         payload);
 }
 
 } // namespace
@@ -85,31 +86,33 @@ void ExitNodeService::Reset()
 void ExitNodeService::Encapsulate(EncapsulationContext& context)
 {
     const std::optional<tailgate::net::packet::Ipv4UdpDatagram> datagram =
-        tailgate::net::packet::ParseIpv4UdpDatagram(context.Original);
-    if (!datagram || datagram->Destination != VpnConstants::Network::ServiceIpv4Address ||
-        datagram->DestinationPort != VpnConstants::AppService::Port)
+        tailgate::net::packet::Ipv4UdpDatagram::Parse(context.Original);
+    if (!datagram || datagram->Destination() != VpnConstants::Network::ServiceIpv4Address ||
+        datagram->DestinationPort() != VpnConstants::AppService::Port)
     {
         return;
     }
     const std::optional<app_service::Message> message =
-        app_service::DecodeMessage(datagram->Payload);
+        app_service::DecodeMessage(datagram->Payload());
     if (!message || message->Type != app_service::MessageType::ExitNodeRequest)
     {
         return;
     }
-    const std::optional<std::uint32_t> self =
-        tailgate::net::packet::ParseIpv4(context.Config.SelfAddress);
+    const std::optional<tailgate::net::Ipv4Address> self =
+        tailgate::net::Ipv4Address::TryParse(context.Client.Network().SelfAddress());
     const std::optional<app_service::ExitNodeRequest> request =
         app_service::DecodeExitNodeRequest(*message);
-    if (!self || datagram->Source != *self || datagram->SourcePort == 0 || !request)
+    if (!self || datagram->Source() != self->HostOrder() || datagram->SourcePort() == 0 || !request)
     {
         m_logger.LogWarning("discarding invalid in-tunnel exit-node request");
         return;
     }
     context.ReconnectRequested =
-        context.ReconnectRequested ||
-        Handle(*datagram, *request, context.Config, context.ExitNode, m_responses) ==
-            ExitNodeAction::Reconnect;
+        context.ReconnectRequested || Handle(*datagram,
+                                             *request,
+                                             context.Client.Network(),
+                                             context.Client.ExitNode(),
+                                             m_responses) == ExitNodeAction::Reconnect;
 }
 
 void ExitNodeService::Decapsulate(DecapsulationContext&)
@@ -136,11 +139,10 @@ void ExitNodeService::LoadPending(const tailgate::types::netmap::NetworkConfig& 
     }
     const std::string& requested = m_pending->RequestedExitNode;
     const std::optional<std::size_t> selected =
-        requested.empty() ? std::optional<std::size_t>{}
-                          : tailgate::types::netmap::FindExitNode(config.Peers, requested, true);
+        requested.empty() ? std::optional<std::size_t>{} : config.FindExitNode(requested, true);
     if (requested.empty() || selected)
     {
-        exitNode = selected ? ShortExitNodeName(config.Peers[*selected]) : std::string{};
+        exitNode = selected ? ShortExitNodeName(config.Peers()[*selected]) : std::string{};
         m_pending->Result = app_service::Status::Ok;
         return;
     }
@@ -175,12 +177,11 @@ ExitNodeAction ExitNodeService::Handle(const tailgate::net::packet::Ipv4UdpDatag
     std::string activeExitNode;
     if (!request.ExitNode.empty())
     {
-        const std::optional<std::size_t> selected =
-            tailgate::types::netmap::FindExitNode(config.Peers, request.ExitNode, true);
+        const std::optional<std::size_t> selected = config.FindExitNode(request.ExitNode, true);
         if (!selected)
         {
-            appResponses.push_back(BuildResponse(datagram.Source,
-                                                 datagram.SourcePort,
+            appResponses.push_back(BuildResponse(datagram.Source(),
+                                                 datagram.SourcePort(),
                                                  app_service::Status::NoMatchingExitNode,
                                                  request.Sequence,
                                                  currentExitNode));
@@ -188,12 +189,12 @@ ExitNodeAction ExitNodeService::Handle(const tailgate::net::packet::Ipv4UdpDatag
                                 request.ExitNode);
             return ExitNodeAction::Handled;
         }
-        activeExitNode = ShortExitNodeName(config.Peers[*selected]);
+        activeExitNode = ShortExitNodeName(config.Peers()[*selected]);
     }
     Store(PendingChange{
         .Sequence = request.Sequence,
-        .AppAddress = datagram.Source,
-        .AppPort = datagram.SourcePort,
+        .AppAddress = datagram.Source(),
+        .AppPort = datagram.SourcePort(),
         .RequestedExitNode = activeExitNode,
         .ActiveExitNode = {},
         .PreserveSelection = request.PreserveSelection,

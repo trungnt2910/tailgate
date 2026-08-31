@@ -7,6 +7,7 @@ target_link_libraries(
     tailgate_core_disco
     PUBLIC
         tailgate_core_crypto
+        tailgate_core_net
     PRIVATE
         sodium
 )

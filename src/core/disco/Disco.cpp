@@ -1,4 +1,4 @@
-#include <tailgate/disco/Disco.h>
+#include "tailgate/disco/Disco.h"
 
 #include <algorithm>
 #include <cstring>
@@ -67,37 +67,34 @@ std::vector<std::uint8_t> Disco::BuildPing(const Bytes32& recipient,
 
 std::vector<std::uint8_t> Disco::BuildPong(const Bytes32& recipient,
                                            const TransactionId& transaction,
-                                           std::uint32_t sourceAddress,
+                                           tailgate::net::Ipv4Address sourceAddress,
                                            std::uint16_t sourcePort) const
 {
     std::vector<std::uint8_t> message{PongType, ProtocolVersion};
     message.insert(message.end(), transaction.begin(), transaction.end());
     message.insert(message.end(), Ipv4MappedPrefixZeroBytes, 0);
     message.insert(message.end(), Ipv4AddressOffset - Ipv4MappedPrefixZeroBytes, 0xff);
-    message.push_back(static_cast<std::uint8_t>(sourceAddress >> 24U));
-    message.push_back(static_cast<std::uint8_t>(sourceAddress >> 16U));
-    message.push_back(static_cast<std::uint8_t>(sourceAddress >> 8U));
-    message.push_back(static_cast<std::uint8_t>(sourceAddress));
+    const std::array<std::uint8_t, 4> sourceOctets = sourceAddress.Octets();
+    message.insert(message.end(), sourceOctets.begin(), sourceOctets.end());
     message.push_back(static_cast<std::uint8_t>(sourcePort >> 8U));
     message.push_back(static_cast<std::uint8_t>(sourcePort));
     return Seal(recipient, message);
 }
 
-std::vector<std::uint8_t> Disco::BuildCallMeMaybe(const Bytes32& recipient,
-                                                  const std::vector<Endpoint>& endpoints) const
+std::vector<std::uint8_t>
+Disco::BuildCallMeMaybe(const Bytes32& recipient,
+                        const std::vector<tailgate::net::Endpoint>& endpoints) const
 {
     std::vector<std::uint8_t> message{CallMeMaybeType, ProtocolVersion};
-    for (const Endpoint& endpoint : endpoints)
+    for (const tailgate::net::Endpoint& endpoint : endpoints)
     {
         message.insert(message.end(), Ipv4MappedPrefixZeroBytes, 0);
         message.push_back(0xff);
         message.push_back(0xff);
-        message.push_back(static_cast<std::uint8_t>(endpoint.Address >> 24U));
-        message.push_back(static_cast<std::uint8_t>(endpoint.Address >> 16U));
-        message.push_back(static_cast<std::uint8_t>(endpoint.Address >> 8U));
-        message.push_back(static_cast<std::uint8_t>(endpoint.Address));
-        message.push_back(static_cast<std::uint8_t>(endpoint.Port >> 8U));
-        message.push_back(static_cast<std::uint8_t>(endpoint.Port));
+        const std::array<std::uint8_t, 4> address = endpoint.Address().Octets();
+        message.insert(message.end(), address.begin(), address.end());
+        message.push_back(static_cast<std::uint8_t>(endpoint.Port() >> 8U));
+        message.push_back(static_cast<std::uint8_t>(endpoint.Port()));
     }
     return Seal(recipient, message);
 }
@@ -138,6 +135,33 @@ std::optional<Disco::Message> Disco::Parse(const std::vector<std::uint8_t>& pack
         std::copy_n(plaintext.begin() + MessageHeaderSize,
                     result.Transaction.size(),
                     result.Transaction.begin());
+        const std::size_t endpointOffset = MessageHeaderSize + result.Transaction.size();
+        if (result.Type == MessageType::Pong && plaintext.size() >= endpointOffset + EndpointSize)
+        {
+            const bool ipv4Mapped =
+                std::all_of(plaintext.begin() + static_cast<std::ptrdiff_t>(endpointOffset),
+                            plaintext.begin() + static_cast<std::ptrdiff_t>(
+                                                    endpointOffset + Ipv4MappedPrefixZeroBytes),
+                            [](std::uint8_t value)
+                            {
+                                return value == 0;
+                            }) &&
+                plaintext[endpointOffset + Ipv4MappedMarkerOffset] == 0xff &&
+                plaintext[endpointOffset + Ipv4MappedMarkerOffset + 1] == 0xff;
+            if (ipv4Mapped)
+            {
+                result.SourceEndpoint = tailgate::net::Endpoint(
+                    tailgate::net::Ipv4Address::FromOctets(
+                        plaintext[endpointOffset + Ipv4AddressOffset],
+                        plaintext[endpointOffset + Ipv4AddressOffset + 1],
+                        plaintext[endpointOffset + Ipv4AddressOffset + 2],
+                        plaintext[endpointOffset + Ipv4AddressOffset + 3]),
+                    static_cast<std::uint16_t>(
+                        (static_cast<std::uint16_t>(plaintext[endpointOffset + EndpointPortOffset])
+                         << 8U) |
+                        plaintext[endpointOffset + EndpointPortOffset + 1]));
+            }
+        }
     }
     else if (plaintext[0] == CallMeMaybeType)
     {
@@ -164,15 +188,13 @@ std::optional<Disco::Message> Disco::Parse(const std::vector<std::uint8_t>& pack
                 plaintext[offset + EndpointPortOffset + 1];
             if (ipv4Mapped && port != 0)
             {
-                result.Endpoints.push_back(Endpoint{
-                    .Address =
-                        (static_cast<std::uint32_t>(plaintext[offset + Ipv4AddressOffset]) << 24U) |
-                        (static_cast<std::uint32_t>(plaintext[offset + Ipv4AddressOffset + 1])
-                         << 16U) |
-                        (static_cast<std::uint32_t>(plaintext[offset + Ipv4AddressOffset + 2])
-                         << 8U) |
-                        plaintext[offset + Ipv4AddressOffset + 3],
-                    .Port = port});
+                result.Endpoints.push_back(
+                    tailgate::net::Endpoint(tailgate::net::Ipv4Address::FromOctets(
+                                                plaintext[offset + Ipv4AddressOffset],
+                                                plaintext[offset + Ipv4AddressOffset + 1],
+                                                plaintext[offset + Ipv4AddressOffset + 2],
+                                                plaintext[offset + Ipv4AddressOffset + 3]),
+                                            port));
             }
         }
     }

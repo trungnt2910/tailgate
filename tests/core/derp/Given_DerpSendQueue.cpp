@@ -2,7 +2,7 @@
 
 #include <tailgate/derp/SendQueue.h>
 
-TEST(Given_QueuedDerpData, When_ControlArrives_Then_ControlIsSentFirst)
+TEST(Given_DerpSendQueue, When_QueuedDerpDataAndControlArrives_Then_ControlIsSentFirst)
 {
     tailgate::derp::DerpSendQueue queue(4, 64);
     EXPECT_TRUE(
@@ -19,7 +19,7 @@ TEST(Given_QueuedDerpData, When_ControlArrives_Then_ControlIsSentFirst)
     EXPECT_EQ(std::vector<std::uint8_t>({1}), second->Payload);
 }
 
-TEST(Given_FullDerpQueue, When_ControlArrives_Then_OldestDataIsDropped)
+TEST(Given_DerpSendQueue, When_FullDerpQueueAndControlArrives_Then_OldestDataIsDropped)
 {
     tailgate::derp::DerpSendQueue queue(2, 64);
     EXPECT_TRUE(
@@ -40,7 +40,7 @@ TEST(Given_FullDerpQueue, When_ControlArrives_Then_OldestDataIsDropped)
     EXPECT_EQ(std::vector<std::uint8_t>({2}), second->Payload);
 }
 
-TEST(Given_OversizedDerpPacket, When_Queued_Then_ItIsRejected)
+TEST(Given_DerpSendQueue, When_OversizedDerpPacketAndQueued_Then_ItIsRejected)
 {
     tailgate::derp::DerpSendQueue queue(2, 2);
 

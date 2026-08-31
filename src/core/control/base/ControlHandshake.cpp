@@ -1,4 +1,4 @@
-#include <tailgate/control/base/ControlHandshake.h>
+#include "tailgate/control/base/ControlHandshake.h"
 
 #include <algorithm>
 #include <array>
@@ -52,7 +52,7 @@ std::size_t ControlHandshake::FindHeaderEnd(const std::vector<std::uint8_t>& dat
     return static_cast<std::size_t>(std::distance(data.begin(), match)) + delimiter.size();
 }
 
-ControlHandshakeResult ControlHandshake::Run(tailgate::base::IByteStream& stream,
+ControlHandshakeResult ControlHandshake::Run(tailgate::base::ByteStream& stream,
                                              const std::string& host)
 {
     std::vector<std::uint8_t> message1 = m_noise.WriteMessage1();

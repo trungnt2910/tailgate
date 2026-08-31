@@ -119,8 +119,8 @@ void MainWindowControllerImpl::RunCommand(const tailgate::cli::Arguments& argume
                                          settings.Devices().end(),
                                          [&target](const UwpDevice& candidate)
                                          {
-                                             return candidate.Address == target ||
-                                                    candidate.Name == target ||
+                                             return candidate.Address() == target ||
+                                                    candidate.Name() == target ||
                                                     candidate.ShortName() == target;
                                          });
         if (device == settings.Devices().end())
@@ -131,11 +131,11 @@ void MainWindowControllerImpl::RunCommand(const tailgate::cli::Arguments& argume
         winrt::hstring selfAddress = settings.SelfAddress();
         if (selfAddress.empty() && !settings.Devices().empty())
         {
-            selfAddress = settings.Devices().front().Address;
+            selfAddress = settings.Devices().front().Address();
         }
         const winrt::hstring deviceName =
-            device->Name.empty() ? device->Address : device->ShortName();
-        m_pingDialogController.Show(deviceName, device->Address, selfAddress);
+            device->Name().empty() ? device->Address() : device->ShortName();
+        m_pingDialogController.Show(deviceName, device->Address(), selfAddress);
         return;
     }
     default:

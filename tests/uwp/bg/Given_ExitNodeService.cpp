@@ -6,6 +6,7 @@
 #include <boost/di.hpp>
 #include <gtest/gtest.h>
 
+#include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 
 #include "common/Settings.h"
@@ -22,7 +23,8 @@ namespace
 
 namespace di = boost::di;
 
-constexpr std::uint32_t AppAddress = 0x64400001U;
+constexpr std::uint32_t AppAddress =
+    tailgate::net::Ipv4Address::FromOctets(100, 64, 0, 1).HostOrder();
 constexpr std::uint16_t AppPort = 49152;
 constexpr std::uint64_t RequestSequence = 43;
 
@@ -33,12 +35,12 @@ DecodeResponse(const std::vector<std::vector<std::uint8_t>>& packets)
     {
         return std::nullopt;
     }
-    const auto datagram = tailgate::net::packet::ParseIpv4UdpDatagram(packets.front());
+    const auto datagram = tailgate::net::packet::Ipv4UdpDatagram::Parse(packets.front());
     if (!datagram)
     {
         return std::nullopt;
     }
-    const auto message = app_service::DecodeMessage(datagram->Payload);
+    const auto message = app_service::DecodeMessage(datagram->Payload());
     return message ? app_service::DecodeExitNodeResponse(*message) : std::nullopt;
 }
 
@@ -70,9 +72,7 @@ protected:
 
 TEST_F(Given_ExitNodeService, When_ExitNodeDoesNotExist_Then_RequestIsRejected)
 {
-    tailgate::net::packet::Ipv4UdpDatagram datagram;
-    datagram.Source = AppAddress;
-    datagram.SourcePort = AppPort;
+    const tailgate::net::packet::Ipv4UdpDatagram datagram(AppAddress, 0, AppPort, 0, {});
     const app_service::ExitNodeRequest request{
         .Sequence = RequestSequence,
         .ExitNode = "missing.example.ts.net",
@@ -97,21 +97,19 @@ TEST_F(Given_ExitNodeService, When_ExitNodeDoesNotExist_Then_RequestIsRejected)
 
 TEST_F(Given_ExitNodeService, When_OnlineExitNodeExists_Then_ReconnectIsRequested)
 {
-    tailgate::net::packet::Ipv4UdpDatagram datagram;
-    datagram.Source = AppAddress;
-    datagram.SourcePort = AppPort;
+    const tailgate::net::packet::Ipv4UdpDatagram datagram(AppAddress, 0, AppPort, 0, {});
     const app_service::ExitNodeRequest request{
         .Sequence = RequestSequence,
         .ExitNode = "exit",
         .PreserveSelection = false,
     };
     tailgate::types::netmap::PeerConfig peer;
-    peer.Name = "exit.example.ts.net.";
-    peer.Address = "100.64.0.2";
-    peer.Online = true;
-    peer.ExitNodeOption = true;
+    peer.Name("exit.example.ts.net.");
+    peer.Address("100.64.0.2");
+    peer.Online(true);
+    peer.ExitNodeOption(true);
     tailgate::types::netmap::NetworkConfig config;
-    config.Peers.push_back(peer);
+    config.Peers({peer});
     std::vector<std::vector<std::uint8_t>> appResponses;
 
     const bg::service::ExitNodeAction action =
@@ -123,21 +121,19 @@ TEST_F(Given_ExitNodeService, When_OnlineExitNodeExists_Then_ReconnectIsRequeste
 
 TEST_F(Given_ExitNodeService, When_AcceptedChangeCommits_Then_SuccessResponseIsQueued)
 {
-    tailgate::net::packet::Ipv4UdpDatagram datagram;
-    datagram.Source = AppAddress;
-    datagram.SourcePort = AppPort;
+    const tailgate::net::packet::Ipv4UdpDatagram datagram(AppAddress, 0, AppPort, 0, {});
     const app_service::ExitNodeRequest request{
         .Sequence = RequestSequence,
         .ExitNode = "exit.example.ts.net",
         .PreserveSelection = false,
     };
     tailgate::types::netmap::PeerConfig peer;
-    peer.Name = "exit.example.ts.net.";
-    peer.Address = "100.64.0.2";
-    peer.Online = true;
-    peer.ExitNodeOption = true;
+    peer.Name("exit.example.ts.net.");
+    peer.Address("100.64.0.2");
+    peer.Online(true);
+    peer.ExitNodeOption(true);
     tailgate::types::netmap::NetworkConfig config;
-    config.Peers.push_back(peer);
+    config.Peers({peer});
     std::vector<std::vector<std::uint8_t>> ignoredResponses;
     const auto action = m_subject->Handle(datagram, request, config, "", ignoredResponses);
     ASSERT_EQ(action, bg::service::ExitNodeAction::Reconnect);
@@ -160,21 +156,19 @@ TEST_F(Given_ExitNodeService, When_AcceptedChangeCommits_Then_SuccessResponseIsQ
 
 TEST_F(Given_ExitNodeService, When_ExitNodeIsOffline_Then_RequestIsRejected)
 {
-    tailgate::net::packet::Ipv4UdpDatagram datagram;
-    datagram.Source = AppAddress;
-    datagram.SourcePort = AppPort;
+    const tailgate::net::packet::Ipv4UdpDatagram datagram(AppAddress, 0, AppPort, 0, {});
     const app_service::ExitNodeRequest request{
         .Sequence = RequestSequence,
         .ExitNode = "offline",
         .PreserveSelection = false,
     };
     tailgate::types::netmap::PeerConfig peer;
-    peer.Name = "offline.example.ts.net.";
-    peer.Address = "100.64.0.3";
-    peer.Online = false;
-    peer.ExitNodeOption = true;
+    peer.Name("offline.example.ts.net.");
+    peer.Address("100.64.0.3");
+    peer.Online(false);
+    peer.ExitNodeOption(true);
     tailgate::types::netmap::NetworkConfig config;
-    config.Peers.push_back(peer);
+    config.Peers({peer});
     std::vector<std::vector<std::uint8_t>> appResponses;
 
     const auto action = m_subject->Handle(datagram, request, config, "current", appResponses);

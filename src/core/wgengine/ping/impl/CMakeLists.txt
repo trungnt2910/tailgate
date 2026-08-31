@@ -1,0 +1,12 @@
+tailgate_add_library(
+    tailgate_core_wgengine_ping_impl
+    STATIC
+    TrackerImpl.cpp
+)
+target_link_libraries(
+    tailgate_core_wgengine_ping_impl
+    PUBLIC
+        tailgate_core_wgengine_ping
+    PRIVATE
+        tailgate_core_net_packet
+)

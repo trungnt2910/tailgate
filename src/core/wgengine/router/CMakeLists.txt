@@ -1,0 +1,10 @@
+tailgate_add_library(
+    tailgate_core_wgengine_router
+    STATIC
+    Config.cpp
+)
+target_link_libraries(
+    tailgate_core_wgengine_router
+    PUBLIC
+        tailgate_core_types_netmap
+)

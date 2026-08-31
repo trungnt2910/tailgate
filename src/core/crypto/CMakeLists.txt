@@ -6,6 +6,7 @@ tailgate_add_library(
     Keys.cpp
     PsaCryptoContext.cpp
     PsaCryptoContext.h
+    Random.cpp
 )
 target_link_libraries(
     tailgate_core_crypto
@@ -15,3 +16,5 @@ target_link_libraries(
         MbedTLS::mbedtls
         tailgate_wireguard_crypto
 )
+
+add_subdirectory(impl)

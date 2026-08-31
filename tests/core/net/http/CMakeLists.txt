@@ -1,0 +1,11 @@
+tailgate_add_test_library(
+    tailgate_tests_core_net_http
+    Given_HttpClient.cpp
+    Given_HttpCodec.cpp
+)
+target_link_libraries(
+    tailgate_tests_core_net_http
+    PRIVATE
+        tailgate_core
+        tailgate_tests_core_fakes
+)

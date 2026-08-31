@@ -1,0 +1,22 @@
+tailgate_add_library(
+    tailgate_linux_impl
+    STATIC
+    EventLoop.cpp
+    HostInfoProvider.cpp
+    TcpSocketFactory.cpp
+    TcpStream.cpp
+    TimeProvider.cpp
+    TunDevice.cpp
+    UdpSocketFactory.cpp
+)
+target_include_directories(
+    tailgate_linux_impl
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(
+    tailgate_linux_impl
+    PUBLIC
+        tailgate_core
+        tailgate_linux_event
+)

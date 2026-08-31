@@ -3,4 +3,9 @@ tailgate_add_library(
     STATIC
     Stun.cpp
 )
-target_link_libraries(tailgate_core_net_stun PRIVATE tailgate_core_net_packet)
+target_link_libraries(
+    tailgate_core_net_stun
+    PUBLIC
+        tailgate_core_crypto
+        tailgate_core_net
+)
