@@ -73,6 +73,7 @@ ExternalProject_Add(
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_INSTALL_PREFIX=${UWP_HOST_SDK_INSTALL_DIR}
         -DBUILD_TESTING=FALSE
+        "-DCMAKE_CXX_FLAGS:STRING=-include algorithm -include chrono"
 )
 ExternalProject_Add_StepTargets(cppwinrt install)
 set(UWP_CPPWINRT_EXECUTABLE "${UWP_HOST_SDK_INSTALL_DIR}/bin/cppwinrt")
