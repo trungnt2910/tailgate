@@ -47,11 +47,6 @@ CPMAddPackage(
         "ZINT_TEST OFF"
         "ZINT_UNINSTALL OFF"
 )
-# LLVM 22 miscompiles Zint's dynamic stack allocations for 32-bit Windows ARM at optimized
-# levels by using condition flags clobbered by __chkstk. Keep Zint unoptimized until the
-# toolchain issue is fixed.
-# See: https://github.com/llvm/llvm-project/issues/210939
-target_compile_options(zint-static PRIVATE -O0)
 
 CPMAddPackage(
     NAME CLI11
