@@ -1,4 +1,5 @@
 #include <condition_variable>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -23,6 +24,7 @@ namespace
 
 constexpr tailgate::base::EventToken ControlToken{.Value = 500};
 constexpr tailgate::base::EventToken DifferentToken{.Value = 501};
+constexpr auto ControlSilenceTimeout = std::chrono::minutes(2);
 
 tailgate::control::client::SessionOptions ControlOptions()
 {
@@ -57,6 +59,21 @@ void ConfigureStreamingRegistration(ControlConnectionContext& context,
     network.DerpRegion(derpRegion);
     context.State->Registration.Network = std::move(network);
     context.State->Registration.NetworkMapStreaming = true;
+}
+
+std::shared_ptr<tailgate::tests::fakes::control::client::SessionState>
+ReplacementSession(int derpRegion, std::uint8_t generatedDiscoByte)
+{
+    auto result = std::make_shared<tailgate::tests::fakes::control::client::SessionState>();
+    tailgate::types::netmap::NetworkConfig network;
+    network.Domain("reconnected.example.ts.net");
+    network.DerpRegion(derpRegion);
+    result->Registration.Network = std::move(network);
+    result->Registration.NetworkMapStreaming = true;
+    tailgate::crypto::Bytes32 generatedDiscoKey{};
+    generatedDiscoKey.fill(generatedDiscoByte);
+    result->GeneratedDiscoPrivateKey = generatedDiscoKey;
+    return result;
 }
 
 std::vector<tailgate::types::netmap::NetworkConfig>
@@ -299,4 +316,48 @@ TEST(Given_ControlConnectionEvents,
 
     EXPECT_TRUE(registrationEntered);
     EXPECT_EQ(updates.size(), 1U);
+}
+
+TEST(Given_ControlConnectionEvents,
+     When_RegisteredKeyReconnectsAfterTransportError_Then_KeyIsPreserved)
+{
+    ControlConnectionContext context;
+    ConfigureStreamingRegistration(context, 5);
+    context.State->DiscoPrivateKey.fill(3);
+    (void)context.Connection.RegisterUntilAuthorized({}, {});
+    const tailgate::crypto::Bytes32 registeredKey = context.Connection.DiscoPrivateKey();
+    auto replacement = ReplacementSession(5, 7);
+    context.SessionFactory.QueueState(replacement);
+    context.Connection.StartStreaming();
+
+    (void)context.Connection.ProcessEvent(tailgate::base::Event{
+        .Token = ControlToken,
+        .Readiness = tailgate::base::EventReadiness::Error,
+    });
+    context.TimeProvider.Advance(std::chrono::seconds(1));
+    const std::vector<tailgate::types::netmap::NetworkConfig> updates = CompleteReconnect(context);
+
+    ASSERT_EQ(updates.size(), 1U);
+    EXPECT_EQ(replacement->DiscoPrivateKey, registeredKey);
+}
+
+TEST(Given_ControlConnectionEvents,
+     When_RegisteredKeyReconnectsAfterStreamSilence_Then_KeyIsPreserved)
+{
+    ControlConnectionContext context;
+    ConfigureStreamingRegistration(context, 5);
+    context.State->DiscoPrivateKey.fill(3);
+    (void)context.Connection.RegisterUntilAuthorized({}, {});
+    const tailgate::crypto::Bytes32 registeredKey = context.Connection.DiscoPrivateKey();
+    auto replacement = ReplacementSession(5, 7);
+    context.SessionFactory.QueueState(replacement);
+    context.Connection.StartStreaming();
+
+    context.TimeProvider.Advance(ControlSilenceTimeout);
+    (void)context.Connection.Maintain();
+    context.TimeProvider.Advance(std::chrono::seconds(1));
+    const std::vector<tailgate::types::netmap::NetworkConfig> updates = CompleteReconnect(context);
+
+    ASSERT_EQ(updates.size(), 1U);
+    EXPECT_EQ(replacement->DiscoPrivateKey, registeredKey);
 }

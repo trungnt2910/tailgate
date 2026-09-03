@@ -711,6 +711,7 @@ tailgate::platform::UpResult RunUp(const tailgate::cli::UpOptions& options)
                     host,
                     machineKey,
                     nodePrivateKey,
+                    discoPrivateKey,
                     settings ? settings->AcceptDns : options.AcceptDns,
                     settings ? settings->ExitNode : options.ExitNode,
                     settings ? settings->FunnelPort : 0,

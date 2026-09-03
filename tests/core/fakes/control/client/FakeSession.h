@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +24,7 @@ struct SessionState
     std::vector<std::string> Operations;
     tailgate::crypto::Bytes32 NodePublicKey{};
     tailgate::crypto::Bytes32 DiscoPrivateKey{};
+    std::optional<tailgate::crypto::Bytes32> GeneratedDiscoPrivateKey;
     std::size_t PollCalls{};
     std::function<void()> BeforeRegister;
     std::function<void(bool)> NonBlockingChanged;
@@ -47,6 +49,15 @@ public:
         if (m_state->BeforeRegister)
         {
             m_state->BeforeRegister();
+        }
+        if (m_state->GeneratedDiscoPrivateKey && std::all_of(m_state->DiscoPrivateKey.begin(),
+                                                             m_state->DiscoPrivateKey.end(),
+                                                             [](std::uint8_t byte)
+                                                             {
+                                                                 return byte == 0;
+                                                             }))
+        {
+            m_state->DiscoPrivateKey = *m_state->GeneratedDiscoPrivateKey;
         }
         m_state->Operations.emplace_back("register");
         return m_state->Registration;
@@ -162,15 +173,27 @@ public:
     {
     }
 
+    void QueueState(std::shared_ptr<SessionState> state)
+    {
+        m_queuedStates.push_back(std::move(state));
+    }
+
     std::unique_ptr<tailgate::control::client::Session>
     CreateSession(tailgate::control::client::SessionOptions,
                   tailgate::types::nettype::TcpSocketFactory&) override
     {
+        if (!m_queuedStates.empty())
+        {
+            std::shared_ptr<SessionState> state = std::move(m_queuedStates.front());
+            m_queuedStates.pop_front();
+            return std::make_unique<FakeSession>(std::move(state));
+        }
         return std::make_unique<FakeSession>(m_state);
     }
 
 private:
     std::shared_ptr<SessionState> m_state;
+    std::deque<std::shared_ptr<SessionState>> m_queuedStates;
 };
 
 } // namespace tailgate::tests::fakes::control::client

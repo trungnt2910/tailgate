@@ -165,6 +165,7 @@ tailgate::control::client::RegistrationResult ConnectionImpl::RegisterUntilAutho
 {
     tailgate::control::client::RegistrationResult result =
         ActiveSession().RegisterUntilAuthorized(authKey, options);
+    m_discoPrivateKey = ActiveSession().DiscoPrivateKey();
     if (result.NetworkMapStreaming && result.Network)
     {
         m_preferredDerp = result.Network->DerpRegion();
