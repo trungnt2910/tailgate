@@ -109,6 +109,20 @@ TEST(Given_RelayProtocol, When_CoalescedRelayFramesAndDecoding_Then_EachFrameIsR
     EXPECT_EQ((std::vector<std::uint8_t>{9, 8}), secondFrame->Payload());
 }
 
+TEST(Given_RelayProtocol, When_DataPathReadyFrameAndRoundTripping_Then_FrameIsPreserved)
+{
+    const tailgate::hosted::Frame source(tailgate::hosted::MessageType::DataPathReady, {});
+
+    const std::vector<std::uint8_t> encoded = source.Encode();
+    tailgate::hosted::Decoder decoder;
+    decoder.Feed(encoded);
+    const std::optional<tailgate::hosted::Frame> decoded = decoder.Next();
+
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(decoded->Type(), tailgate::hosted::MessageType::DataPathReady);
+    EXPECT_TRUE(decoded->Payload().empty());
+}
+
 TEST(Given_RelayProtocol, When_MaximumRelayPayloadAndEncoding_Then_ExactFrameLimitIsUsed)
 {
     const std::vector<std::uint8_t> payload(tailgate::hosted::Frame::MaximumPayloadSize, 0x42);
@@ -183,6 +197,49 @@ TEST(Given_RelayProtocol,
     EXPECT_EQ(packet.Disco(), decoded.Disco());
     EXPECT_EQ(packet.EndpointAddress(), decoded.EndpointAddress());
     EXPECT_EQ(packet.EndpointPort(), decoded.EndpointPort());
+    EXPECT_FALSE(decoded.DerpIngressRoute().has_value());
+}
+
+TEST(Given_RelayProtocol, When_DerpRoutedPeerPacketAndRoundTripping_Then_OpaqueRouteIsPreserved)
+{
+    constexpr std::uint64_t RouteToken = 0x1020304050607080ULL;
+    constexpr std::uint16_t DerpRegion = 5;
+    tailgate::crypto::Bytes32 peer{};
+    peer[0] = 42;
+    const tailgate::hosted::PeerPacket packet(
+        peer, {1, 2, 3}, false, true, 0, 0, tailgate::hosted::DerpRoute(RouteToken, DerpRegion));
+
+    const std::vector<std::uint8_t> encoded =
+        tailgate::hosted::ProtocolCodec::EncodePeerPacket(packet);
+    const tailgate::hosted::PeerPacket decoded =
+        tailgate::hosted::ProtocolCodec::DecodePeerPacket(encoded);
+
+    ASSERT_TRUE(decoded.DerpIngressRoute().has_value());
+    EXPECT_EQ(decoded.Peer(), peer);
+    EXPECT_EQ(decoded.Payload(), packet.Payload());
+    EXPECT_EQ(decoded.EndpointAddress(), 0U);
+    EXPECT_EQ(decoded.EndpointPort(), 0U);
+    EXPECT_EQ(*decoded.DerpIngressRoute(), tailgate::hosted::DerpRoute(RouteToken, DerpRegion));
+}
+
+TEST(Given_RelayProtocol, When_PeerPacketHasDirectAndDerpRoutes_Then_EncodingIsRejected)
+{
+    tailgate::crypto::Bytes32 peer{};
+    const tailgate::hosted::PeerPacket packet(
+        peer,
+        {1},
+        false,
+        true,
+        tailgate::net::Ipv4Address::FromOctets(192, 0, 2, 10).HostOrder(),
+        41641,
+        tailgate::hosted::DerpRoute(1, 5));
+
+    const auto encode = [&]()
+    {
+        (void)tailgate::hosted::ProtocolCodec::EncodePeerPacket(packet);
+    };
+
+    EXPECT_THROW(encode(), std::invalid_argument);
 }
 
 TEST(Given_RelayProtocol, When_PeerPacketWithoutWireGuardDataAndDecoding_Then_ItIsRejected)

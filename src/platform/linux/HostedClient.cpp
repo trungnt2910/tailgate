@@ -500,13 +500,6 @@ void RunRelayConnectionImpl(const std::string& url,
         eventRegistry.Register(upstreamDns.Fd,
                                EventInterest::Readable,
                                DataplaneEvent(DataplaneEvent::Kind::UpstreamDns).Token());
-    if (readyFd >= 0)
-    {
-        const char ready = '1';
-        (void)write(readyFd, &ready, 1);
-        close(readyFd);
-        readyFd = -1;
-    }
     std::deque<std::vector<std::uint8_t>> socketOutput;
     std::size_t socketOffset = 0;
     std::size_t socketOutputBytes = 0;
@@ -557,6 +550,37 @@ void RunRelayConnectionImpl(const std::string& url,
     const auto queueFrame = [&](tailgate::hosted::Frame frame)
     {
         queueEncoded(frame.Encode());
+    };
+    const auto flushSocketOutput = [&]()
+    {
+        if (socketOutput.empty() || tls.ReadNeedsWrite())
+        {
+            return;
+        }
+        const std::vector<std::uint8_t>& output = socketOutput.front();
+        const std::optional<std::size_t> written =
+            tls.TryWriteSome(output.data() + socketOffset, output.size() - socketOffset);
+        if (written)
+        {
+            socketOffset += *written;
+            if (socketOffset == output.size())
+            {
+                socketOutputBytes -= output.size();
+                socketOutput.pop_front();
+                socketOffset = 0;
+            }
+        }
+        updateSocketEvents();
+    };
+    const auto notifyReady = [&]()
+    {
+        if (readyFd >= 0)
+        {
+            const char ready = '1';
+            (void)write(readyFd, &ready, 1);
+            close(readyFd);
+            readyFd = -1;
+        }
     };
     const auto queueDisco = [&](const tailgate::crypto::Bytes32& peer,
                                 std::vector<std::uint8_t> payload,
@@ -644,6 +668,8 @@ void RunRelayConnectionImpl(const std::string& url,
             throw std::runtime_error("packet device rejected a hosted packet");
         }
     };
+    queueEncoded(hostedClient.BuildKeepAlive());
+    flushSocketOutput();
     while (!Lifecycle::Stopping() && !Lifecycle::Reloading())
     {
         constexpr std::size_t MaximumRelayEvents = 8;
@@ -863,6 +889,10 @@ void RunRelayConnectionImpl(const std::string& url,
                         }
                         (void)applyNetworkMap(hostedClient.Network());
                     }
+                    if (processed.DataPathReady)
+                    {
+                        notifyReady();
+                    }
                     if (processed.Pong)
                     {
                         const std::optional<tailgate::wgengine::ping::Result> result =
@@ -892,20 +922,7 @@ void RunRelayConnectionImpl(const std::string& url,
                 (HasReadiness(ready.Readiness, EventReadiness::Writable) ||
                  (HasReadiness(ready.Readiness, EventReadiness::Readable) && tls.WriteNeedsRead())))
             {
-                const std::vector<std::uint8_t>& output = socketOutput.front();
-                const std::optional<std::size_t> written =
-                    tls.TryWriteSome(output.data() + socketOffset, output.size() - socketOffset);
-                if (written)
-                {
-                    socketOffset += *written;
-                    if (socketOffset == output.size())
-                    {
-                        socketOutputBytes -= output.size();
-                        socketOutput.pop_front();
-                        socketOffset = 0;
-                        updateSocketEvents();
-                    }
-                }
+                flushSocketOutput();
             }
         }
         if (waitResult.MaintenanceDue)

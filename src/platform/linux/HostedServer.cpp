@@ -223,25 +223,13 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
     const std::string profileKey =
         tailgate::crypto::BytesToHex(authentication.Identity.NodePublicKey().data(),
                                      authentication.Identity.NodePublicKey().size());
-    tailgate::linux_frontend::HostedConnectionRegistrationResult registration =
-        hostedConnections.Register(profileKey, closeConnection, authentication.Identity.NodeId());
-    const std::shared_ptr<tailgate::linux_frontend::HostedConnectionRegistration> active =
-        registration.Current;
-    std::shared_ptr<tailgate::linux_frontend::HostedConnectionRegistration> previous =
-        std::move(registration.Previous);
-    if (previous)
-    {
-        constexpr std::chrono::seconds ReplacementTimeout(30);
-        previous->Close();
-        if (!previous->WaitForCompletion(ReplacementTimeout))
-        {
-            throw std::runtime_error("previous relay connection did not stop during replacement");
-        }
-        previous.reset();
-    }
+    std::shared_ptr<tailgate::linux_frontend::HostedConnectionRegistration> active;
     const auto unregisterActive = [&]()
     {
-        hostedConnections.Unregister(profileKey, active);
+        if (active)
+        {
+            hostedConnections.Unregister(profileKey, active);
+        }
     };
 
     int packets[2]{};
@@ -512,6 +500,26 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
         }
         tailgate::linux_frontend::DaemonStatus hostedStatus;
         int readyFd = -1;
+        const auto dataPathReady = [&]()
+        {
+            tailgate::linux_frontend::HostedConnectionRegistrationResult registration =
+                hostedConnections.Register(
+                    profileKey, closeConnection, authentication.Identity.NodeId());
+            active = std::move(registration.Current);
+            std::shared_ptr<tailgate::linux_frontend::HostedConnectionRegistration> previous =
+                std::move(registration.Previous);
+            if (previous)
+            {
+                constexpr std::chrono::seconds ReplacementTimeout(30);
+                previous->Close();
+                if (!previous->WaitForCompletion(ReplacementTimeout))
+                {
+                    throw std::runtime_error(
+                        "previous relay connection did not stop during replacement");
+                }
+            }
+            writeFrame(tailgate::hosted::Frame(tailgate::hosted::MessageType::DataPathReady, {}));
+        };
         tailgate::linux_frontend::RunTunnel(
             {},
             authentication.Identity.NodePublicKey(),
@@ -546,6 +554,7 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
             true,
             brokerControls.Fd,
             {},
+            dataPathReady,
             derpAuthenticator);
     }
     catch (...)

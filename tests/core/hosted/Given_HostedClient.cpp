@@ -79,6 +79,18 @@ TEST(Given_HostedClient, When_KeepAliveIsBuilt_Then_HeartbeatFrameIsReturned)
     EXPECT_FALSE(decoder.Next().has_value());
 }
 
+TEST(Given_HostedClient, When_DataPathReadyArrives_Then_ReadinessIsReported)
+{
+    tailgate::hosted::Client subject;
+    (void)subject.Start(MakeConfig());
+    const tailgate::hosted::Frame ready(tailgate::hosted::MessageType::DataPathReady, {});
+
+    const tailgate::hosted::ClientProcessResult result = subject.Process(ready);
+
+    EXPECT_TRUE(result.DataPathReady);
+    EXPECT_TRUE(result.RemoteOutput.empty());
+}
+
 TEST(Given_HostedClient, When_NetworkMapIsUpdated_Then_RelayUpdateFrameIsReturned)
 {
     tailgate::hosted::Client subject;
@@ -232,6 +244,63 @@ TEST(Given_HostedClient, When_DirectDiscoPongArrives_Then_VerifiedEndpointIsAckn
     EXPECT_EQ(endpoint ? endpoint->Peer() : tailgate::crypto::Bytes32{}, peerNodePublic);
     EXPECT_EQ(endpoint ? endpoint->Endpoint() : tailgate::net::Endpoint{},
               tailgate::net::Endpoint(directAddress, DirectPort));
+    EXPECT_FALSE(decoder.Next().has_value());
+}
+
+TEST(Given_HostedClient, When_DerpDiscoPingArrives_Then_PongUsesIngressRoute)
+{
+    constexpr std::uint64_t RouteToken = 42;
+    constexpr std::uint16_t ConfiguredDerpRegion = 5;
+    constexpr std::uint16_t IngressDerpRegion = 7;
+    tailgate::hosted::Client subject;
+    tailgate::hosted::ClientConfig config = MakeConfig();
+    config.Network.DerpRegion(ConfiguredDerpRegion);
+    const tailgate::crypto::Bytes32 clientDiscoPrivate = config.DiscoPrivateKey;
+    const tailgate::crypto::Bytes32 clientNodePublic = config.NodePublicKey;
+    const tailgate::crypto::Bytes32 peerNodePrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 peerNodePublic =
+        tailgate::crypto::X25519PublicFromPrivate(peerNodePrivate);
+    tailgate::disco::Disco clientDisco(clientDiscoPrivate, clientNodePublic);
+    tailgate::disco::Disco peerDisco(tailgate::crypto::GeneratePrivateKey(), peerNodePublic);
+    tailgate::types::netmap::PeerConfig peer = MakePeer(peerNodePublic, "192.0.2.2");
+    peer.DiscoKey("discokey:" + tailgate::crypto::BytesToHex(peerDisco.PublicKey().data(),
+                                                             peerDisco.PublicKey().size()));
+    config.Network.Peers({std::move(peer)});
+    (void)subject.Start(std::move(config));
+    const tailgate::disco::Disco::TransactionId transaction = peerDisco.NewTransactionId();
+    const tailgate::hosted::PeerPacket ping(
+        peerNodePublic,
+        peerDisco.BuildPing(clientDisco.PublicKey(), transaction),
+        false,
+        true,
+        0,
+        0,
+        tailgate::hosted::DerpRoute(RouteToken, IngressDerpRegion));
+    const tailgate::hosted::Frame input(tailgate::hosted::MessageType::ServerPacket,
+                                        tailgate::hosted::ProtocolCodec::EncodePeerPacket(ping));
+
+    const tailgate::hosted::ClientProcessResult result = subject.Process(input);
+    tailgate::hosted::Decoder decoder;
+    decoder.Feed(result.RemoteOutput);
+    const std::optional<tailgate::hosted::Frame> response = decoder.Next();
+    const std::optional<tailgate::hosted::PeerPacket> responsePacket =
+        response && response->Type() == tailgate::hosted::MessageType::ClientPacket
+            ? std::optional(tailgate::hosted::ProtocolCodec::DecodePeerPacket(response->Payload()))
+            : std::nullopt;
+    const std::optional<tailgate::disco::Disco::Message> pong =
+        responsePacket ? peerDisco.Parse(responsePacket->Payload()) : std::nullopt;
+
+    ASSERT_TRUE(responsePacket.has_value());
+    ASSERT_TRUE(pong.has_value());
+    ASSERT_TRUE(pong->SourceEndpoint.has_value());
+    ASSERT_TRUE(responsePacket->DerpIngressRoute().has_value());
+    EXPECT_EQ(pong->Type, tailgate::disco::Disco::MessageType::Pong);
+    EXPECT_EQ(pong->Transaction, transaction);
+    EXPECT_EQ(
+        *pong->SourceEndpoint,
+        tailgate::net::Endpoint(tailgate::disco::Disco::DerpMagicIpv4Address, IngressDerpRegion));
+    EXPECT_EQ(*responsePacket->DerpIngressRoute(),
+              tailgate::hosted::DerpRoute(RouteToken, IngressDerpRegion));
     EXPECT_FALSE(decoder.Next().has_value());
 }
 

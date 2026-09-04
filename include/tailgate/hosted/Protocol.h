@@ -35,6 +35,7 @@ enum class MessageType : std::uint16_t
     TailnetDnsQuery = 16,
     TailnetDnsResponse = 17,
     PeerEndpoint = 18,
+    DataPathReady = 19,
 };
 
 class Frame
@@ -222,6 +223,30 @@ private:
     std::string m_reason;
 };
 
+class DerpRoute
+{
+public:
+    DerpRoute(std::uint64_t token, std::uint16_t region) noexcept : m_token(token), m_region(region)
+    {
+    }
+
+    [[nodiscard]] std::uint64_t Token() const noexcept
+    {
+        return m_token;
+    }
+
+    [[nodiscard]] std::uint16_t Region() const noexcept
+    {
+        return m_region;
+    }
+
+    [[nodiscard]] bool operator==(const DerpRoute&) const noexcept = default;
+
+private:
+    std::uint64_t m_token;
+    std::uint16_t m_region;
+};
+
 class PeerPacket
 {
 public:
@@ -230,13 +255,15 @@ public:
                bool control = false,
                bool disco = false,
                std::uint32_t endpointAddress = 0,
-               std::uint16_t endpointPort = 0)
+               std::uint16_t endpointPort = 0,
+               std::optional<DerpRoute> derpRoute = std::nullopt)
         : m_peer(peer),
           m_payload(std::move(payload)),
           m_control(control),
           m_disco(disco),
           m_endpointAddress(endpointAddress),
-          m_endpointPort(endpointPort)
+          m_endpointPort(endpointPort),
+          m_derpRoute(std::move(derpRoute))
     {
     }
 
@@ -270,6 +297,11 @@ public:
         return m_endpointPort;
     }
 
+    [[nodiscard]] const std::optional<DerpRoute>& DerpIngressRoute() const noexcept
+    {
+        return m_derpRoute;
+    }
+
 private:
     tailgate::crypto::Bytes32 m_peer;
     std::vector<std::uint8_t> m_payload;
@@ -277,6 +309,7 @@ private:
     bool m_disco;
     std::uint32_t m_endpointAddress;
     std::uint16_t m_endpointPort;
+    std::optional<DerpRoute> m_derpRoute;
 };
 
 class PeerEndpoint

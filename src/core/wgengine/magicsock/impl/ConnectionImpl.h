@@ -34,6 +34,8 @@ public:
     [[nodiscard]] std::optional<tailgate::types::nettype::SocketIoResult>
     TrySendProbe(const tailgate::net::Endpoint& destination,
                  const std::vector<std::uint8_t>& payload) override;
+    void ProbePeer(const tailgate::crypto::Bytes32& peer,
+                   const std::vector<std::uint8_t>& payload) override;
     [[nodiscard]] std::optional<tailgate::types::nettype::SocketIoResult>
     TrySendDirect(const tailgate::crypto::Bytes32& peer,
                   const tailgate::net::Endpoint& destination,

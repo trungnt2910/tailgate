@@ -297,4 +297,67 @@ TEST(Given_WgengineSession, When_DirectDiscoPingArrives_Then_CoreRepliesAndSelec
     }
 }
 
+TEST(Given_WgengineSession, When_DirectPathBecomesUnavailable_Then_DiscoPingRetriesVerifiedEndpoint)
+{
+    tailgate::crypto::Bytes32 nodePrivateKey{};
+    nodePrivateKey[1] = 7;
+    const tailgate::crypto::Bytes32 nodePublicKey =
+        tailgate::crypto::X25519PublicFromPrivate(nodePrivateKey);
+    tailgate::crypto::Bytes32 discoPrivateKey{};
+    discoPrivateKey[1] = 8;
+    tailgate::crypto::Bytes32 peerPrivateKey{};
+    peerPrivateKey[1] = 9;
+    const tailgate::crypto::Bytes32 peerPublicKey =
+        tailgate::crypto::X25519PublicFromPrivate(peerPrivateKey);
+    tailgate::crypto::Bytes32 peerDiscoPrivateKey{};
+    peerDiscoPrivateKey[1] = 10;
+    const tailgate::disco::Disco peerDisco(peerDiscoPrivateKey, peerPublicKey);
+    tailgate::types::netmap::PeerConfig peer;
+    peer.Address("192.0.2.2");
+    peer.Addresses({peer.Address()});
+    peer.Key("nodekey:" + tailgate::crypto::BytesToHex(peerPublicKey.data(), peerPublicKey.size()));
+    peer.DiscoKey("discokey:" + tailgate::crypto::BytesToHex(peerDisco.PublicKey().data(),
+                                                             peerDisco.PublicKey().size()));
+    peer.DerpRegion(1);
+    const tailgate::net::Endpoint verifiedEndpoint(
+        tailgate::net::Ipv4Address::FromOctets(198, 51, 100, 30), 41641);
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto* socketFactory = &dynamic_cast<FakeUdpSocketFactory&>(
+        injector.create<tailgate::types::nettype::UdpSocketFactory&>());
+    tailgate::wgengine::magicsock::Connection& magicsock =
+        injector.create<tailgate::wgengine::magicsock::Connection&>();
+    ASSERT_TRUE(magicsock.Open(tailgate::types::nettype::UdpSocketOptions{
+        .BindEndpoint = {},
+        .NetworkInterface = std::nullopt,
+        .ReadinessToken = MagicsockToken,
+    }));
+    ASSERT_EQ(socketFactory->States.size(), 1U);
+    tailgate::wgengine::Session& session = injector.create<tailgate::wgengine::Session&>();
+    session.Configure(tailgate::wgengine::SessionOptions{
+        .NodePrivateKey = nodePrivateKey,
+        .NodePublicKey = nodePublicKey,
+        .DiscoPrivateKey = discoPrivateKey,
+        .AdvertisedEndpoint = {},
+        .HomeDerpRegion = 1,
+        .Peers = {peer},
+        .ExitNode = {},
+    });
+    ASSERT_TRUE(magicsock.MarkDirect(peerPublicKey, verifiedEndpoint));
+    magicsock.ResetPath(
+        peerPublicKey,
+        tailgate::wgengine::magicsock::PeerPathState::ResetMode::PreserveVerifiedEndpoints);
+
+    const std::optional<tailgate::disco::Disco::TransactionId> transaction =
+        session.SendDiscoPing(peerPublicKey);
+    const auto& sent = socketFactory->States.front()->Sent;
+    const std::optional<tailgate::net::Endpoint> destination =
+        sent.empty() ? std::nullopt
+                     : std::optional<tailgate::net::Endpoint>(sent.front().Destination);
+
+    EXPECT_TRUE(transaction.has_value());
+    EXPECT_EQ(sent.size(), 1U);
+    EXPECT_EQ(destination, verifiedEndpoint);
+}
+
 } // namespace

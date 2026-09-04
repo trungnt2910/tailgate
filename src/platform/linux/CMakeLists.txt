@@ -13,6 +13,7 @@ tailgate_add_library(
     Frontend.cpp
     HostedClient.cpp
     HostedConnectionRegistry.cpp
+    HostedDerpRouteTable.cpp
     HostedServer.cpp
     Lifecycle.cpp
     Network.cpp

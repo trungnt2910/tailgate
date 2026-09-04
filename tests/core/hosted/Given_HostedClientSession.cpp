@@ -60,6 +60,19 @@ TEST(Given_HostedClientSession, When_HeartbeatArrives_Then_CoreReturnsResponse)
     EXPECT_TRUE(response->Payload().empty());
 }
 
+TEST(Given_HostedClientSession, When_DataPathReadyArrives_Then_CoreReportsReadiness)
+{
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto& subject = injector.create<tailgate::hosted::ClientSession&>();
+    const tailgate::hosted::Frame ready(tailgate::hosted::MessageType::DataPathReady, {});
+
+    const tailgate::hosted::ClientSessionProcessResult result = subject.ProcessFrame(ready);
+
+    EXPECT_TRUE(result.DataPathReady);
+    EXPECT_TRUE(result.RemoteOutput.empty());
+}
+
 TEST(Given_HostedClientSession, When_DeviceIsClosed_Then_CoreReportsClosed)
 {
     tailgate::di::Injector injector;

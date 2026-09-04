@@ -282,6 +282,7 @@ SessionImpl::SendDiscoPing(const tailgate::crypto::Bytes32& peerKey)
     const tailgate::disco::Disco::TransactionId transaction = m_disco->NewTransactionId();
     const std::vector<std::uint8_t> ping = m_disco->BuildPing(*peer->DiscoKey, transaction);
     SendRelay(*peer, ping, tailgate::derp::DerpSendQueue::Priority::Control);
+    m_connection.ProbePeer(peerKey, ping);
     for (const tailgate::net::Endpoint& endpoint : peer->Endpoints)
     {
         (void)m_connection.TrySendProbe(endpoint, ping);
@@ -406,6 +407,7 @@ void SessionImpl::StartDirectProbe(PeerState& peer)
               tailgate::derp::DerpSendQueue::Priority::Control);
     const tailgate::disco::Disco::TransactionId transaction = m_disco->NewTransactionId();
     const std::vector<std::uint8_t> ping = m_disco->BuildPing(*peer.DiscoKey, transaction);
+    m_connection.ProbePeer(peer.PublicKey, ping);
     for (const tailgate::net::Endpoint& endpoint : peer.Endpoints)
     {
         (void)m_connection.TrySendProbe(endpoint, ping);

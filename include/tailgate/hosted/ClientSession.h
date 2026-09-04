@@ -25,6 +25,7 @@ struct ClientSessionProcessResult
     std::vector<std::uint8_t> RemoteOutput;
     std::optional<DiscoPong> Pong;
     bool NetworkMapChanged = false;
+    bool DataPathReady = false;
 };
 
 class ClientSession

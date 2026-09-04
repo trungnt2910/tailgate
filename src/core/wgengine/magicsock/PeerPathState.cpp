@@ -15,6 +15,11 @@ const std::optional<tailgate::net::Endpoint>& PeerPathState::DirectEndpoint() co
     return m_directEndpoint;
 }
 
+const std::vector<tailgate::net::Endpoint>& PeerPathState::VerifiedEndpoints() const noexcept
+{
+    return m_verifiedEndpoints;
+}
+
 bool PeerPathState::IsVerified(const tailgate::net::Endpoint& endpoint) const noexcept
 {
     return std::find(m_verifiedEndpoints.begin(), m_verifiedEndpoints.end(), endpoint) !=

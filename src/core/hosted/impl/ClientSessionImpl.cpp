@@ -57,6 +57,7 @@ ClientSessionImpl::ProcessFrame(const tailgate::hosted::Frame& frame)
         .RemoteOutput = std::move(processed.RemoteOutput),
         .Pong = std::move(processed.Pong),
         .NetworkMapChanged = processed.NetworkMapChanged,
+        .DataPathReady = processed.DataPathReady,
     };
     for (std::vector<std::uint8_t>& packet : processed.LocalPackets)
     {

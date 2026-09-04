@@ -16,6 +16,7 @@
 #include <format>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -80,6 +81,7 @@
 #include "DataplaneEvents.h"
 #include "Files.h"
 #include "HostedConnectionRegistry.h"
+#include "HostedDerpRouteTable.h"
 #include "Network.h"
 #include "PeerApiServer.h"
 #include "PingIpc.h"
@@ -161,6 +163,7 @@ struct DerpRuntime
     int Region = 0;
     std::string Host;
     tailgate::wgengine::DerpConnectionId Connection = 0;
+    tailgate::hosted::DerpRoute Route;
 };
 
 constexpr auto DataplaneSlowSection = std::chrono::milliseconds(50);
@@ -281,6 +284,7 @@ void RunTunnel(
     bool encryptedPacketTransport,
     int relayControlFd,
     std::function<void(const tailgate::types::netmap::NetworkConfig&)> networkMapUpdated,
+    std::function<void()> dataPathReady,
     tailgate::derp::DerpClient::Authenticator derpAuthenticator)
 {
     if (controlConnection)
@@ -429,6 +433,7 @@ void RunTunnel(
     }
 
     std::vector<DerpRuntime> derps;
+    tailgate::linux_frontend::HostedDerpRouteTable hostedDerpRoutes;
     auto ensureDerpIndex = [&](int region, const std::string& host, bool preferred) -> std::size_t
     {
         auto found = std::find_if(derps.begin(),
@@ -441,7 +446,7 @@ void RunTunnel(
         {
             return static_cast<std::size_t>(found - derps.begin());
         }
-        if (region == 0 || host.empty())
+        if (region <= 0 || region > std::numeric_limits<std::uint16_t>::max() || host.empty())
         {
             throw std::runtime_error("peer has no usable DERP region");
         }
@@ -450,22 +455,26 @@ void RunTunnel(
             "derp",
             std::format(
                 "connecting region={} host={}{}", region, host, preferred ? " preferred" : ""));
+        const tailgate::wgengine::DerpConnectionId connectionId = session.AddDerpConnection(
+            region,
+            derpConnectionFactory.CreateConnection(tailgate::derp::ConnectionOptions{
+                .Host = host,
+                .NetworkInterface = underlayInterface,
+                .PrivateKey = nodePrivateKey,
+                .PublicKey = nodePublicKey,
+                .Authenticator = derpAuthenticator,
+                .ReadinessToken = DataplaneEvent(DataplaneEvent::Kind::Derp,
+                                                 static_cast<std::uint32_t>(derps.size()))
+                                      .Token(),
+                .Preferred = preferred,
+            }));
+        const tailgate::hosted::DerpRoute route =
+            hostedDerpRoutes.Register(connectionId, static_cast<std::uint16_t>(region));
         derps.push_back(DerpRuntime{
             .Region = region,
             .Host = host,
-            .Connection = session.AddDerpConnection(
-                region,
-                derpConnectionFactory.CreateConnection(tailgate::derp::ConnectionOptions{
-                    .Host = host,
-                    .NetworkInterface = underlayInterface,
-                    .PrivateKey = nodePrivateKey,
-                    .PublicKey = nodePublicKey,
-                    .Authenticator = derpAuthenticator,
-                    .ReadinessToken = DataplaneEvent(DataplaneEvent::Kind::Derp,
-                                                     static_cast<std::uint32_t>(derps.size()))
-                                          .Token(),
-                    .Preferred = preferred,
-                })),
+            .Connection = connectionId,
+            .Route = route,
         });
         return derps.size() - 1;
     };
@@ -474,7 +483,7 @@ void RunTunnel(
     {
         return session.DerpConnection(derps[ensureDerpIndex(region, host, preferred)].Connection);
     };
-    (void)ensureDerp(derpRegion, derpHost, true);
+    const std::size_t homeDerpIndex = ensureDerpIndex(derpRegion, derpHost, true);
     for (const PeerRuntime& peer : peers)
     {
         if (peer.Config.DerpRegion() != 0 && !peer.Config.DerpHost().empty())
@@ -482,6 +491,20 @@ void RunTunnel(
             (void)ensureDerp(peer.Config.DerpRegion(), peer.Config.DerpHost(), false);
         }
     }
+    bool dataPathReadinessReported = false;
+    const auto reportDataPathReadiness = [&]()
+    {
+        if (!dataPathReadinessReported &&
+            session.DerpConnection(derps[homeDerpIndex].Connection).Connected())
+        {
+            if (dataPathReady)
+            {
+                dataPathReady();
+            }
+            dataPathReadinessReported = true;
+        }
+    };
+    reportDataPathReadiness();
     if (configureHost && acceptDns)
     {
         WriteResolver("127.0.0.1", currentDnsDomains);
@@ -506,6 +529,12 @@ void RunTunnel(
                              tailgate::derp::DerpSendQueue::Priority::Data)
     {
         derpForPeer(peer).Send(peer.PublicKey, packet, priority);
+    };
+    auto derpForRoute = [&](const tailgate::hosted::DerpRoute& route) -> tailgate::derp::Connection*
+    {
+        const std::optional<tailgate::wgengine::DerpConnectionId> connection =
+            hostedDerpRoutes.Resolve(route);
+        return connection ? &session.DerpConnection(*connection) : nullptr;
     };
 
     std::vector<TailPeer> routablePeers;
@@ -737,14 +766,16 @@ void RunTunnel(
     const auto forwardEncryptedPacket = [&](const PeerRuntime& peer,
                                             const std::vector<std::uint8_t>& packet,
                                             bool isDisco,
-                                            const std::optional<sockaddr_in>& source)
+                                            const std::optional<sockaddr_in>& source,
+                                            std::optional<tailgate::hosted::DerpRoute> derpRoute)
     {
         const tailgate::hosted::PeerPacket forwarded(peer.PublicKey,
                                                      packet,
                                                      false,
                                                      isDisco,
                                                      source ? ntohl(source->sin_addr.s_addr) : 0,
-                                                     source ? ntohs(source->sin_port) : 0);
+                                                     source ? ntohs(source->sin_port) : 0,
+                                                     std::move(derpRoute));
         writePacket(tailgate::hosted::ProtocolCodec::EncodePeerPacket(forwarded));
     };
     UniqueFd upstreamDns = OpenUdpSocket(underlayInterface);
@@ -833,6 +864,26 @@ void RunTunnel(
                         (void)connection.MarkDirect(peer->PublicKey, destination);
                         (void)connection.SendDirect(
                             peer->PublicKey, destination, transportPacket.Payload());
+                    }
+                    else if (transportPacket.DerpIngressRoute())
+                    {
+                        tailgate::derp::Connection* route =
+                            derpForRoute(*transportPacket.DerpIngressRoute());
+                        if (route == nullptr)
+                        {
+                            tailgate::base::Log(
+                                tailgate::base::LogLevel::Warning,
+                                "relay",
+                                std::format(
+                                    "dropping hosted disco packet with stale DERP route token={} "
+                                    "region={}",
+                                    transportPacket.DerpIngressRoute()->Token(),
+                                    transportPacket.DerpIngressRoute()->Region()));
+                            continue;
+                        }
+                        route->Send(peer->PublicKey,
+                                    transportPacket.Payload(),
+                                    tailgate::derp::DerpSendQueue::Priority::Control);
                     }
                     else
                     {
@@ -1409,6 +1460,7 @@ void RunTunnel(
             std::max<std::size_t>(16, peers.size() + session.DerpConnectionCount() + 7);
         tailgate::wgengine::SessionWaitResult waitResult =
             session.Wait(maximumEvents, MaximumPacketsPerDescriptorCycle, RelayPacketBufferSize);
+        reportDataPathReadiness();
         if (waitResult.Status == tailgate::base::EventWaitStatus::Woken)
         {
             continue;
@@ -1727,54 +1779,55 @@ void RunTunnel(
                          });
         }
 
-        TimedSection("magicsock UDP",
-                     [&]()
-                     {
-                         for (const auto& receivedDatagram : waitResult.Datagrams)
-                         {
-                             const std::vector<std::uint8_t>& data = receivedDatagram.Payload;
-                             const sockaddr_in source = ToSockaddr(receivedDatagram.Source);
-                             PeerRuntime* peer = nullptr;
-                             if (tailgate::disco::Disco::IsDiscoPacket(data))
-                             {
-                                 if (data.size() < 38)
-                                 {
-                                     continue;
-                                 }
-                                 tailgate::crypto::Bytes32 sender{};
-                                 std::copy_n(data.begin() + 6, sender.size(), sender.begin());
-                                 peer = peerForDiscoKey(sender);
-                                 if (peer != nullptr)
-                                 {
-                                     peer->RxBytes += data.size();
-                                     if (encryptedPacketTransport)
-                                     {
-                                         forwardEncryptedPacket(*peer, data, true, source);
-                                     }
-                                 }
-                                 continue;
-                             }
-                             if (encryptedPacketTransport)
-                             {
-                                 const std::optional<tailgate::crypto::Bytes32> sourcePeer =
-                                     connection.AcceptDirectSource(receivedDatagram.Source);
-                                 auto found = std::find_if(
-                                     peers.begin(),
-                                     peers.end(),
-                                     [&](const PeerRuntime& candidate)
-                                     {
-                                         return sourcePeer && candidate.PublicKey == *sourcePeer;
-                                     });
-                                 if (found != peers.end())
-                                 {
-                                     found->RxBytes += data.size();
-                                     forwardEncryptedPacket(*found, data, false, source);
-                                 }
-                                 continue;
-                             }
-                             continue;
-                         }
-                     });
+        TimedSection(
+            "magicsock UDP",
+            [&]()
+            {
+                for (const auto& receivedDatagram : waitResult.Datagrams)
+                {
+                    const std::vector<std::uint8_t>& data = receivedDatagram.Payload;
+                    const sockaddr_in source = ToSockaddr(receivedDatagram.Source);
+                    PeerRuntime* peer = nullptr;
+                    if (tailgate::disco::Disco::IsDiscoPacket(data))
+                    {
+                        if (data.size() < 38)
+                        {
+                            continue;
+                        }
+                        tailgate::crypto::Bytes32 sender{};
+                        std::copy_n(data.begin() + 6, sender.size(), sender.begin());
+                        peer = peerForDiscoKey(sender);
+                        if (peer != nullptr)
+                        {
+                            peer->RxBytes += data.size();
+                            if (encryptedPacketTransport)
+                            {
+                                forwardEncryptedPacket(*peer, data, true, source, std::nullopt);
+                            }
+                        }
+                        continue;
+                    }
+                    if (encryptedPacketTransport)
+                    {
+                        const std::optional<tailgate::crypto::Bytes32> sourcePeer =
+                            connection.AcceptDirectSource(receivedDatagram.Source);
+                        auto found = std::find_if(peers.begin(),
+                                                  peers.end(),
+                                                  [&](const PeerRuntime& candidate)
+                                                  {
+                                                      return sourcePeer &&
+                                                             candidate.PublicKey == *sourcePeer;
+                                                  });
+                        if (found != peers.end())
+                        {
+                            found->RxBytes += data.size();
+                            forwardEncryptedPacket(*found, data, false, source, std::nullopt);
+                        }
+                        continue;
+                    }
+                    continue;
+                }
+            });
 
         TimedSection(
             "DERP notify",
@@ -1803,8 +1856,22 @@ void RunTunnel(
                         {
                             if (encryptedPacketTransport)
                             {
+                                const auto derp = std::ranges::find_if(
+                                    derps,
+                                    [&](const DerpRuntime& candidate)
+                                    {
+                                        return candidate.Connection == receivedPacket.Connection;
+                                    });
+                                if (derp == derps.end())
+                                {
+                                    tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                                                        "relay",
+                                                        "dropping hosted disco packet from an "
+                                                        "unknown DERP connection");
+                                    continue;
+                                }
                                 forwardEncryptedPacket(
-                                    *discoPeer, packet.Payload, true, std::nullopt);
+                                    *discoPeer, packet.Payload, true, std::nullopt, derp->Route);
                             }
                         }
                         else
@@ -1824,7 +1891,8 @@ void RunTunnel(
                     }
                     if (encryptedPacketTransport)
                     {
-                        forwardEncryptedPacket(*peer, packet.Payload, false, std::nullopt);
+                        forwardEncryptedPacket(
+                            *peer, packet.Payload, false, std::nullopt, std::nullopt);
                         continue;
                     }
                     continue;

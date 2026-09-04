@@ -498,6 +498,7 @@ void RunConnectionImpl(const std::string& authKey,
                                         false,
                                         -1,
                                         handleUpdate,
+                                        {},
                                         {});
 }
 

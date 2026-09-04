@@ -87,7 +87,7 @@ nlohmann::json ParseJson(const std::vector<std::uint8_t>& payload)
 bool IsKnownType(std::uint16_t value)
 {
     return value >= static_cast<std::uint16_t>(MessageType::Authenticate) &&
-           value <= static_cast<std::uint16_t>(MessageType::PeerEndpoint);
+           value <= static_cast<std::uint16_t>(MessageType::DataPathReady);
 }
 
 tailgate::crypto::Bytes32
@@ -329,18 +329,34 @@ std::vector<std::uint8_t> ProtocolCodec::EncodePeerPacket(const PeerPacket& pack
     constexpr std::uint8_t ControlFlag = 1U << 0U;
     constexpr std::uint8_t DiscoFlag = 1U << 1U;
     constexpr std::uint8_t EndpointFlag = 1U << 2U;
+    constexpr std::uint8_t DerpRouteFlag = 1U << 3U;
     if (packet.Payload().empty())
     {
         throw std::invalid_argument("Relay peer packet has no payload.");
     }
-    std::vector<std::uint8_t> result(packet.Peer().begin(), packet.Peer().end());
     const bool hasEndpoint = packet.EndpointAddress() != 0 && packet.EndpointPort() != 0;
+    const bool hasDerpRoute = packet.DerpIngressRoute().has_value();
+    if (hasEndpoint && hasDerpRoute)
+    {
+        throw std::invalid_argument("Relay peer packet has conflicting routes.");
+    }
+    if (hasDerpRoute &&
+        (packet.DerpIngressRoute()->Token() == 0 || packet.DerpIngressRoute()->Region() == 0))
+    {
+        throw std::invalid_argument("Relay peer packet has an invalid DERP route.");
+    }
+    std::vector<std::uint8_t> result(packet.Peer().begin(), packet.Peer().end());
     result.push_back((packet.Control() ? ControlFlag : 0U) | (packet.Disco() ? DiscoFlag : 0U) |
-                     (hasEndpoint ? EndpointFlag : 0U));
+                     (hasEndpoint ? EndpointFlag : 0U) | (hasDerpRoute ? DerpRouteFlag : 0U));
     if (hasEndpoint)
     {
         Append32(result, packet.EndpointAddress());
         Append16(result, packet.EndpointPort());
+    }
+    else if (hasDerpRoute)
+    {
+        Append64(result, packet.DerpIngressRoute()->Token());
+        Append16(result, packet.DerpIngressRoute()->Region());
     }
     result.insert(result.end(), packet.Payload().begin(), packet.Payload().end());
     return result;
@@ -351,6 +367,8 @@ PeerPacket ProtocolCodec::DecodePeerPacket(const std::vector<std::uint8_t>& payl
     constexpr std::uint8_t ControlFlag = 1U << 0U;
     constexpr std::uint8_t DiscoFlag = 1U << 1U;
     constexpr std::uint8_t EndpointFlag = 1U << 2U;
+    constexpr std::uint8_t DerpRouteFlag = 1U << 3U;
+    constexpr std::uint8_t KnownFlags = ControlFlag | DiscoFlag | EndpointFlag | DerpRouteFlag;
     constexpr std::size_t FlagsSize = 1;
     if (payload.size() <= tailgate::crypto::Bytes32{}.size() + FlagsSize)
     {
@@ -359,10 +377,19 @@ PeerPacket ProtocolCodec::DecodePeerPacket(const std::vector<std::uint8_t>& payl
     tailgate::crypto::Bytes32 peer{};
     std::copy_n(payload.begin(), peer.size(), peer.begin());
     const std::uint8_t flags = payload[peer.size()];
+    if ((flags & static_cast<std::uint8_t>(~KnownFlags)) != 0)
+    {
+        throw std::runtime_error("Relay peer packet has unknown flags.");
+    }
+    if ((flags & EndpointFlag) != 0 && (flags & DerpRouteFlag) != 0)
+    {
+        throw std::runtime_error("Relay peer packet has conflicting routes.");
+    }
     const bool control = (flags & ControlFlag) != 0;
     const bool disco = (flags & DiscoFlag) != 0;
     std::uint32_t endpointAddress = 0;
     std::uint16_t endpointPort = 0;
+    std::optional<DerpRoute> derpRoute;
     std::size_t dataOffset = peer.size() + FlagsSize;
     if ((flags & EndpointFlag) != 0)
     {
@@ -375,9 +402,26 @@ PeerPacket ProtocolCodec::DecodePeerPacket(const std::vector<std::uint8_t>& payl
         endpointPort = Read16(payload.data() + dataOffset + sizeof(std::uint32_t));
         dataOffset += EndpointSize;
     }
+    else if ((flags & DerpRouteFlag) != 0)
+    {
+        constexpr std::size_t DerpRouteSize = sizeof(std::uint64_t) + sizeof(std::uint16_t);
+        if (payload.size() <= dataOffset + DerpRouteSize)
+        {
+            throw std::runtime_error("Relay peer packet DERP route is truncated.");
+        }
+        const std::uint64_t token = Read64(payload.data() + dataOffset);
+        const std::uint16_t region = Read16(payload.data() + dataOffset + sizeof(std::uint64_t));
+        if (token == 0 || region == 0)
+        {
+            throw std::runtime_error("Relay peer packet has an invalid DERP route.");
+        }
+        derpRoute.emplace(token, region);
+        dataOffset += DerpRouteSize;
+    }
     std::vector<std::uint8_t> data(payload.begin() + static_cast<std::ptrdiff_t>(dataOffset),
                                    payload.end());
-    return PeerPacket(peer, std::move(data), control, disco, endpointAddress, endpointPort);
+    return PeerPacket(
+        peer, std::move(data), control, disco, endpointAddress, endpointPort, std::move(derpRoute));
 }
 
 std::vector<std::uint8_t> ProtocolCodec::EncodePeerEndpoint(const PeerEndpoint& endpoint)

@@ -28,6 +28,7 @@ public:
 
     [[nodiscard]] bool HasDirectPath() const noexcept;
     [[nodiscard]] const std::optional<tailgate::net::Endpoint>& DirectEndpoint() const noexcept;
+    [[nodiscard]] const std::vector<tailgate::net::Endpoint>& VerifiedEndpoints() const noexcept;
     [[nodiscard]] bool IsVerified(const tailgate::net::Endpoint& endpoint) const noexcept;
 
     [[nodiscard]] bool TryBeginProbe(TimePoint now) noexcept;

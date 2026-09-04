@@ -53,6 +53,7 @@ struct ClientProcessResult
     std::vector<std::uint8_t> RemoteOutput;
     std::optional<DiscoPong> Pong;
     bool NetworkMapChanged = false;
+    bool DataPathReady = false;
 };
 
 class Client final

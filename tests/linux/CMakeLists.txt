@@ -3,6 +3,7 @@ tailgate_add_test_executable(
     Given_DataplaneEvent.cpp
     Given_FdStream.cpp
     Given_HostedConnectionRegistry.cpp
+    Given_HostedDerpRouteTable.cpp
     Given_Lifecycle.cpp
     Given_LinuxBindings.cpp
     Given_LinuxEventLoop.cpp

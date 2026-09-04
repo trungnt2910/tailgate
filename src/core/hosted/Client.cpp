@@ -109,6 +109,9 @@ public:
         case MessageType::DerpChallenge:
             ProcessDerpChallenge(frame, result.RemoteOutput);
             break;
+        case MessageType::DataPathReady:
+            result.DataPathReady = true;
+            break;
         default:
             break;
         }
@@ -259,20 +262,23 @@ public:
                             message && message->Sender == discoKey);
             return;
         }
-        const bool viaDerp = packet.EndpointAddress() == 0 || packet.EndpointPort() == 0;
+        const bool viaDerp = packet.DerpIngressRoute().has_value() ||
+                             packet.EndpointAddress() == 0 || packet.EndpointPort() == 0;
         const tailgate::net::Ipv4Address pongAddress =
             viaDerp ? tailgate::disco::Disco::DerpMagicIpv4Address
                     : tailgate::net::Ipv4Address::FromHostOrder(packet.EndpointAddress());
-        const std::uint16_t pongPort = viaDerp
-                                           ? static_cast<std::uint16_t>(Config.Network.DerpRegion())
-                                           : packet.EndpointPort();
+        const std::uint16_t pongPort =
+            packet.DerpIngressRoute() ? packet.DerpIngressRoute()->Region()
+            : viaDerp                 ? static_cast<std::uint16_t>(Config.Network.DerpRegion())
+                                      : packet.EndpointPort();
         const PeerPacket response(
             packet.Peer(),
             DiscoState->BuildPong(discoKey, message->Transaction, pongAddress, pongPort),
             false,
             true,
             packet.EndpointAddress(),
-            packet.EndpointPort());
+            packet.EndpointPort(),
+            packet.DerpIngressRoute());
         AppendFrame(result.RemoteOutput,
                     Frame(MessageType::ClientPacket, ProtocolCodec::EncodePeerPacket(response)));
     }

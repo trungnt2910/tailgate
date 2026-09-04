@@ -53,6 +53,8 @@ public:
     [[nodiscard]] virtual std::optional<tailgate::types::nettype::SocketIoResult>
     TrySendProbe(const tailgate::net::Endpoint& destination,
                  const std::vector<std::uint8_t>& payload) = 0;
+    virtual void ProbePeer(const tailgate::crypto::Bytes32& peer,
+                           const std::vector<std::uint8_t>& payload) = 0;
     [[nodiscard]] virtual std::optional<tailgate::types::nettype::SocketIoResult>
     TrySendDirect(const tailgate::crypto::Bytes32& peer,
                   const tailgate::net::Endpoint& destination,

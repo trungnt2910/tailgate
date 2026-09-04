@@ -76,6 +76,20 @@ ConnectionImpl::TrySendProbe(const tailgate::net::Endpoint& destination,
     return m_socket->TrySendTo(destination, payload);
 }
 
+void ConnectionImpl::ProbePeer(const tailgate::crypto::Bytes32& peer,
+                               const std::vector<std::uint8_t>& payload)
+{
+    const auto found = m_peers.find(peer);
+    if (!m_socket || found == m_peers.end())
+    {
+        return;
+    }
+    for (const tailgate::net::Endpoint& endpoint : found->second.Path.VerifiedEndpoints())
+    {
+        (void)m_socket->TrySendTo(endpoint, payload);
+    }
+}
+
 std::optional<tailgate::types::nettype::SocketIoResult>
 ConnectionImpl::TrySendDirect(const tailgate::crypto::Bytes32& peer,
                               const tailgate::net::Endpoint& destination,

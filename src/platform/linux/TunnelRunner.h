@@ -56,6 +56,7 @@ void RunTunnel(
     bool encryptedPacketTransport = false,
     int relayControlFd = -1,
     std::function<void(const tailgate::types::netmap::NetworkConfig&)> networkMapUpdated = {},
+    std::function<void()> dataPathReady = {},
     tailgate::derp::DerpClient::Authenticator derpAuthenticator = {});
 
 } // namespace tailgate::linux_frontend
