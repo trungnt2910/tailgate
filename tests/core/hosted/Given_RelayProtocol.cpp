@@ -123,6 +123,51 @@ TEST(Given_RelayProtocol, When_DataPathReadyFrameAndRoundTripping_Then_FrameIsPr
     EXPECT_TRUE(decoded->Payload().empty());
 }
 
+TEST(Given_RelayProtocol,
+     When_ServerEndpointCandidatesAndRoundTripping_Then_AllCandidatesArePreserved)
+{
+    const std::vector<tailgate::net::Endpoint> endpoints{
+        tailgate::net::Endpoint(tailgate::net::Ipv4Address::FromOctets(198, 51, 100, 10), 41641),
+        tailgate::net::Endpoint(tailgate::net::Ipv4Address::FromOctets(192, 0, 2, 20), 51234)};
+    const tailgate::hosted::ServerEndpointCandidates source(endpoints);
+
+    const std::vector<std::uint8_t> encoded =
+        tailgate::hosted::ProtocolCodec::EncodeServerEndpointCandidates(source);
+    const tailgate::hosted::ServerEndpointCandidates decoded =
+        tailgate::hosted::ProtocolCodec::DecodeServerEndpointCandidates(encoded);
+
+    EXPECT_EQ(decoded.Endpoints(), endpoints);
+}
+
+TEST(Given_RelayProtocol, When_ServerEndpointCandidatesPayloadIsTruncated_Then_ItIsRejected)
+{
+    const std::vector<std::uint8_t> truncated{192, 0, 2, 1, 0};
+
+    const auto decode = [&]()
+    {
+        (void)tailgate::hosted::ProtocolCodec::DecodeServerEndpointCandidates(truncated);
+    };
+
+    EXPECT_THROW(decode(), std::runtime_error);
+}
+
+TEST(Given_RelayProtocol, When_ServerEndpointCandidatesAreEmpty_Then_TheyAreRejected)
+{
+    const tailgate::hosted::ServerEndpointCandidates candidates({});
+
+    const auto encode = [&]()
+    {
+        (void)tailgate::hosted::ProtocolCodec::EncodeServerEndpointCandidates(candidates);
+    };
+    const auto decode = [&]()
+    {
+        (void)tailgate::hosted::ProtocolCodec::DecodeServerEndpointCandidates({});
+    };
+
+    EXPECT_THROW(encode(), std::invalid_argument);
+    EXPECT_THROW(decode(), std::runtime_error);
+}
+
 TEST(Given_RelayProtocol, When_MaximumRelayPayloadAndEncoding_Then_ExactFrameLimitIsUsed)
 {
     const std::vector<std::uint8_t> payload(tailgate::hosted::Frame::MaximumPayloadSize, 0x42);

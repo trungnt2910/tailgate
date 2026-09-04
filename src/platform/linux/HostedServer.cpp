@@ -108,6 +108,7 @@ using tailgate::linux_frontend::ParseIpv4Endpoint;
 using tailgate::linux_frontend::ReadResolverAddresses;
 using tailgate::linux_frontend::ReceiveUdp;
 using tailgate::linux_frontend::RemoveRoute;
+using tailgate::linux_frontend::ResolveIpv4UdpEndpoint;
 using tailgate::linux_frontend::SendUdp;
 using tailgate::linux_frontend::SetInterfaceAddress;
 using tailgate::linux_frontend::SetInterfaceIpv6Address;
@@ -123,8 +124,54 @@ using tailgate::base::EventReadiness;
 using tailgate::base::HasReadiness;
 
 constexpr auto RelayHeartbeatInterval = std::chrono::seconds(20);
+constexpr auto StunResponseTimeout = std::chrono::seconds(3);
 constexpr std::size_t MaximumRelayPacketBatch = 64;
 constexpr std::size_t RelayPacketBufferSize = 4096;
+
+std::vector<tailgate::net::Endpoint>
+DiscoverHostedEndpointCandidates(const std::string& underlayInterface,
+                                 const tailgate::types::netmap::NetworkConfig& config,
+                                 tailgate::wgengine::Session& session,
+                                 const tailgate::wgengine::magicsock::Connection& connection)
+{
+    const std::optional<tailgate::net::Endpoint> socketEndpoint = connection.LocalEndpoint();
+    if (!socketEndpoint)
+    {
+        throw std::system_error(std::make_error_code(std::errc::not_connected));
+    }
+    std::vector<tailgate::net::Endpoint> candidates{tailgate::net::Endpoint(
+        tailgate::net::Ipv4Address::FromHostOrder(InterfaceIpv4Address(underlayInterface)),
+        socketEndpoint->Port())};
+    if (config.DerpRegion() == 0 || config.DerpHost().empty())
+    {
+        return candidates;
+    }
+    try
+    {
+        const tailgate::net::Endpoint stunServer = ResolveIpv4UdpEndpoint(
+            config.StunHost().empty() ? config.DerpHost() : config.StunHost(), config.StunPort());
+        const std::optional<tailgate::net::Endpoint> stunEndpoint =
+            session.DiscoverEndpoint(stunServer, StunResponseTimeout);
+        if (stunEndpoint &&
+            std::find(candidates.begin(), candidates.end(), *stunEndpoint) == candidates.end())
+        {
+            candidates.insert(candidates.begin(), *stunEndpoint);
+            tailgate::base::Log(tailgate::base::LogLevel::Info,
+                                "relay",
+                                std::format("hosted proxy discovered STUN endpoint {} via {}",
+                                            stunEndpoint->ToString(),
+                                            config.DerpHost()));
+        }
+    }
+    catch (const std::exception& error)
+    {
+        tailgate::base::Log(tailgate::base::LogLevel::Warning,
+                            "relay",
+                            "failed to discover hosted proxy STUN endpoint: " +
+                                std::string(error.what()));
+    }
+    return candidates;
+}
 
 } // namespace
 
@@ -498,6 +545,8 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
         {
             throw std::system_error(std::make_error_code(std::errc::address_not_available));
         }
+        const std::vector<tailgate::net::Endpoint> serverEndpointCandidates =
+            DiscoverHostedEndpointCandidates(underlayInterface, config, networkSession, connection);
         tailgate::linux_frontend::DaemonStatus hostedStatus;
         int readyFd = -1;
         const auto dataPathReady = [&]()
@@ -518,6 +567,10 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
                         "previous relay connection did not stop during replacement");
                 }
             }
+            writeFrame(tailgate::hosted::Frame(
+                tailgate::hosted::MessageType::ServerEndpointCandidates,
+                tailgate::hosted::ProtocolCodec::EncodeServerEndpointCandidates(
+                    tailgate::hosted::ServerEndpointCandidates(serverEndpointCandidates))));
             writeFrame(tailgate::hosted::Frame(tailgate::hosted::MessageType::DataPathReady, {}));
         };
         tailgate::linux_frontend::RunTunnel(

@@ -87,7 +87,7 @@ nlohmann::json ParseJson(const std::vector<std::uint8_t>& payload)
 bool IsKnownType(std::uint16_t value)
 {
     return value >= static_cast<std::uint16_t>(MessageType::Authenticate) &&
-           value <= static_cast<std::uint16_t>(MessageType::DataPathReady);
+           value <= static_cast<std::uint16_t>(MessageType::ServerEndpointCandidates);
 }
 
 tailgate::crypto::Bytes32
@@ -456,6 +456,58 @@ PeerEndpoint ProtocolCodec::DecodePeerEndpoint(const std::vector<std::uint8_t>& 
         throw std::runtime_error("Relay peer endpoint is unspecified.");
     }
     return PeerEndpoint(peer, tailgate::net::Endpoint(address, port));
+}
+
+std::vector<std::uint8_t>
+ProtocolCodec::EncodeServerEndpointCandidates(const ServerEndpointCandidates& candidates)
+{
+    if (candidates.Endpoints().empty())
+    {
+        throw std::invalid_argument("Relay server has no endpoint candidates.");
+    }
+    if (candidates.Endpoints().size() > ServerEndpointCandidates::MaximumCount)
+    {
+        throw std::invalid_argument("Relay server has too many endpoint candidates.");
+    }
+    constexpr std::size_t EndpointSize = sizeof(std::uint32_t) + sizeof(std::uint16_t);
+    std::vector<std::uint8_t> result;
+    result.reserve(candidates.Endpoints().size() * EndpointSize);
+    for (const tailgate::net::Endpoint& endpoint : candidates.Endpoints())
+    {
+        if (endpoint.Address().HostOrder() == 0 || endpoint.Port() == 0)
+        {
+            throw std::invalid_argument("Relay server endpoint candidate is unspecified.");
+        }
+        Append32(result, endpoint.Address().HostOrder());
+        Append16(result, endpoint.Port());
+    }
+    return result;
+}
+
+ServerEndpointCandidates
+ProtocolCodec::DecodeServerEndpointCandidates(const std::vector<std::uint8_t>& payload)
+{
+    constexpr std::size_t AddressSize = sizeof(std::uint32_t);
+    constexpr std::size_t EndpointSize = AddressSize + sizeof(std::uint16_t);
+    if (payload.empty() || payload.size() % EndpointSize != 0 ||
+        payload.size() / EndpointSize > ServerEndpointCandidates::MaximumCount)
+    {
+        throw std::runtime_error("Relay server endpoint candidates have an invalid size.");
+    }
+    std::vector<tailgate::net::Endpoint> endpoints;
+    endpoints.reserve(payload.size() / EndpointSize);
+    for (std::size_t offset = 0; offset < payload.size(); offset += EndpointSize)
+    {
+        const tailgate::net::Ipv4Address address =
+            tailgate::net::Ipv4Address::FromHostOrder(Read32(payload.data() + offset));
+        const std::uint16_t port = Read16(payload.data() + offset + AddressSize);
+        if (address.HostOrder() == 0 || port == 0)
+        {
+            throw std::runtime_error("Relay server endpoint candidate is unspecified.");
+        }
+        endpoints.emplace_back(address, port);
+    }
+    return ServerEndpointCandidates(std::move(endpoints));
 }
 
 std::vector<std::uint8_t>

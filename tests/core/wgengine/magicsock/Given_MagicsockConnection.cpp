@@ -101,6 +101,22 @@ TEST_F(Given_MagicsockConnection, When_ProbeIsSent_Then_SocketCarriesDatagram)
     EXPECT_EQ(m_socketFactory->States.front()->Sent.front().Payload, payload);
 }
 
+TEST_F(Given_MagicsockConnection, When_ProbeIsSentToKnownPeerEndpoint_Then_PathIsNotPromoted)
+{
+    const tailgate::crypto::Bytes32 peer = Peer(1);
+    const std::vector<std::uint8_t> payload{1, 2, 3};
+    const tailgate::net::Endpoint destination = Destination();
+    ASSERT_TRUE(m_subject->Open(Options()));
+    ASSERT_TRUE(m_subject->AddPeer(peer));
+
+    const std::optional<nettype::SocketIoResult> result =
+        m_subject->TrySendProbe(destination, payload);
+
+    EXPECT_EQ(result, nettype::SocketIoResult::Complete);
+    EXPECT_FALSE(m_subject->HasDirectPath(peer));
+    EXPECT_FALSE(m_subject->DirectEndpoint(peer).has_value());
+}
+
 TEST_F(Given_MagicsockConnection, When_DirectPacketIsSent_Then_TheSharedSocketCarriesDatagram)
 {
     const tailgate::crypto::Bytes32 peer = Peer(1);
@@ -117,6 +133,22 @@ TEST_F(Given_MagicsockConnection, When_DirectPacketIsSent_Then_TheSharedSocketCa
     EXPECT_EQ(result, nettype::SocketIoResult::Complete);
     EXPECT_EQ(m_socketFactory->States.front()->Sent.front().Destination, destination);
     EXPECT_EQ(m_socketFactory->States.front()->Sent.front().Payload, payload);
+}
+
+TEST_F(Given_MagicsockConnection, When_ExplicitEndpointPacketIsSent_Then_PathIsNotPromoted)
+{
+    const tailgate::crypto::Bytes32 peer = Peer(1);
+    const std::vector<std::uint8_t> payload{4, 5, 6};
+    const tailgate::net::Endpoint destination = Destination();
+    ASSERT_TRUE(m_subject->Open(Options()));
+    ASSERT_TRUE(m_subject->AddPeer(peer));
+
+    const magicsock::Connection::DirectSendResult result =
+        m_subject->SendDirect(peer, destination, payload);
+
+    EXPECT_EQ(result, magicsock::Connection::DirectSendResult::Sent);
+    EXPECT_FALSE(m_subject->HasDirectPath(peer));
+    EXPECT_FALSE(m_subject->DirectEndpoint(peer).has_value());
 }
 
 TEST_F(Given_MagicsockConnection, When_PeerHasNoSelectedPath_Then_PathSelectedSendIsUnavailable)

@@ -861,7 +861,6 @@ void RunTunnel(
                         endpoint.sin_addr.s_addr = htonl(transportPacket.EndpointAddress());
                         endpoint.sin_port = htons(transportPacket.EndpointPort());
                         const tailgate::net::Endpoint destination = ToEndpoint(endpoint);
-                        (void)connection.MarkDirect(peer->PublicKey, destination);
                         (void)connection.SendDirect(
                             peer->PublicKey, destination, transportPacket.Payload());
                     }

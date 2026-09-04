@@ -91,6 +91,60 @@ TEST(Given_HostedClient, When_DataPathReadyArrives_Then_ReadinessIsReported)
     EXPECT_TRUE(result.RemoteOutput.empty());
 }
 
+TEST(Given_HostedClient, When_ServerEndpointCandidatesArrive_Then_DirectDiscoveryStartsImmediately)
+{
+    constexpr std::uint16_t PeerPort = 41641;
+    constexpr std::uint16_t ServerPort = 51234;
+    tailgate::hosted::Client subject;
+    tailgate::hosted::ClientConfig config = MakeConfig();
+    const tailgate::crypto::Bytes32 peerNodePrivate = tailgate::crypto::GeneratePrivateKey();
+    const tailgate::crypto::Bytes32 peerNodePublic =
+        tailgate::crypto::X25519PublicFromPrivate(peerNodePrivate);
+    const tailgate::disco::Disco peerDisco(tailgate::crypto::GeneratePrivateKey(), peerNodePublic);
+    tailgate::types::netmap::PeerConfig peer = MakePeer(peerNodePublic, "192.0.2.2");
+    peer.DiscoKey("discokey:" + tailgate::crypto::BytesToHex(peerDisco.PublicKey().data(),
+                                                             peerDisco.PublicKey().size()));
+    peer.Endpoints({"192.0.2.10:41641"});
+    peer.Online(true);
+    config.Network.Peers({std::move(peer)});
+    (void)subject.Start(std::move(config));
+    const tailgate::net::Endpoint serverEndpoint(
+        tailgate::net::Ipv4Address::FromOctets(198, 51, 100, 20), ServerPort);
+    const tailgate::hosted::Frame candidates(
+        tailgate::hosted::MessageType::ServerEndpointCandidates,
+        tailgate::hosted::ProtocolCodec::EncodeServerEndpointCandidates(
+            tailgate::hosted::ServerEndpointCandidates({serverEndpoint})));
+
+    const tailgate::hosted::ClientProcessResult result = subject.Process(candidates);
+    tailgate::hosted::Decoder decoder;
+    decoder.Feed(result.RemoteOutput);
+    const std::optional<tailgate::hosted::Frame> relayPingFrame = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> directPingFrame = decoder.Next();
+    const std::optional<tailgate::hosted::Frame> callMeMaybeFrame = decoder.Next();
+    const std::optional<tailgate::hosted::PeerPacket> directPing =
+        directPingFrame ? std::optional(tailgate::hosted::ProtocolCodec::DecodePeerPacket(
+                              directPingFrame->Payload()))
+                        : std::nullopt;
+    const std::optional<tailgate::hosted::PeerPacket> callMeMaybe =
+        callMeMaybeFrame ? std::optional(tailgate::hosted::ProtocolCodec::DecodePeerPacket(
+                               callMeMaybeFrame->Payload()))
+                         : std::nullopt;
+    const std::optional<tailgate::disco::Disco::Message> advertised =
+        callMeMaybe ? peerDisco.Parse(callMeMaybe->Payload()) : std::nullopt;
+
+    EXPECT_TRUE(relayPingFrame.has_value());
+    EXPECT_TRUE(directPingFrame.has_value());
+    EXPECT_TRUE(callMeMaybeFrame.has_value());
+    EXPECT_EQ(directPing ? directPing->EndpointAddress() : 0U,
+              tailgate::net::Ipv4Address::FromOctets(192, 0, 2, 10).HostOrder());
+    EXPECT_EQ(directPing ? directPing->EndpointPort() : 0U, PeerPort);
+    EXPECT_TRUE(advertised.has_value());
+    EXPECT_EQ(advertised ? advertised->Endpoints : std::vector<tailgate::net::Endpoint>{},
+              (std::vector<tailgate::net::Endpoint>{serverEndpoint}));
+    EXPECT_FALSE(result.DataPathReady);
+    EXPECT_FALSE(decoder.Next().has_value());
+}
+
 TEST(Given_HostedClient, When_NetworkMapIsUpdated_Then_RelayUpdateFrameIsReturned)
 {
     tailgate::hosted::Client subject;

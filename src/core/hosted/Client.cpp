@@ -66,6 +66,7 @@ public:
     [[nodiscard]] std::vector<std::uint8_t> Start(ClientConfig config)
     {
         Config = std::move(config);
+        ServerCandidates.clear();
         Router = std::make_unique<tailgate::wgengine::wireguard::WireGuardRouter>(
             Config.NodePrivateKey, Config.Network.Peers(), Config.ExitNode);
         DiscoState =
@@ -77,6 +78,7 @@ public:
     {
         Router.reset();
         DiscoState.reset();
+        ServerCandidates.clear();
         Config = {};
     }
 
@@ -111,6 +113,9 @@ public:
             break;
         case MessageType::DataPathReady:
             result.DataPathReady = true;
+            break;
+        case MessageType::ServerEndpointCandidates:
+            ProcessServerEndpointCandidates(frame, result.RemoteOutput);
             break;
         default:
             break;
@@ -281,6 +286,11 @@ public:
             packet.DerpIngressRoute());
         AppendFrame(result.RemoteOutput,
                     Frame(MessageType::ClientPacket, ProtocolCodec::EncodePeerPacket(response)));
+        if (viaDerp)
+        {
+            AppendPeerPackets(result.RemoteOutput,
+                              BuildDiscoEndpointProbes(*DiscoState, *peer, ServerCandidates));
+        }
     }
 
     void ProcessHeartbeat(std::vector<std::uint8_t>& output)
@@ -299,14 +309,29 @@ public:
         std::vector<std::uint8_t> output;
         if (DiscoState)
         {
-            for (const PeerPacket& probe : BuildDiscoProbes(*DiscoState, Config.Network.Peers()))
-            {
-                AppendFrame(
-                    output,
-                    Frame(MessageType::ClientPacket, ProtocolCodec::EncodePeerPacket(probe)));
-            }
+            AppendPeerPackets(
+                output, BuildDiscoProbes(*DiscoState, Config.Network.Peers(), ServerCandidates));
         }
         return output;
+    }
+
+    void ProcessServerEndpointCandidates(const Frame& frame, std::vector<std::uint8_t>& output)
+    {
+        ServerCandidates =
+            ProtocolCodec::DecodeServerEndpointCandidates(frame.Payload()).Endpoints();
+        Logger.LogDebug("received {} hosted server endpoint candidates", ServerCandidates.size());
+        std::vector<std::uint8_t> probes = ProbePeers();
+        output.insert(output.end(), probes.begin(), probes.end());
+    }
+
+    static void AppendPeerPackets(std::vector<std::uint8_t>& output,
+                                  std::vector<PeerPacket> packets)
+    {
+        for (PeerPacket& packet : packets)
+        {
+            AppendFrame(output,
+                        Frame(MessageType::ClientPacket, ProtocolCodec::EncodePeerPacket(packet)));
+        }
     }
 
     void ProcessDerpChallenge(const Frame& frame, std::vector<std::uint8_t>& output)
@@ -324,6 +349,7 @@ public:
     ClientConfig Config;
     std::unique_ptr<tailgate::wgengine::wireguard::WireGuardRouter> Router;
     std::unique_ptr<tailgate::disco::Disco> DiscoState;
+    std::vector<tailgate::net::Endpoint> ServerCandidates;
     tailgate::base::Logger Logger{"hosted-client"};
 };
 

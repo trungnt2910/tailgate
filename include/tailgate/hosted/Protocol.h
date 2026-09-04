@@ -36,6 +36,7 @@ enum class MessageType : std::uint16_t
     TailnetDnsResponse = 17,
     PeerEndpoint = 18,
     DataPathReady = 19,
+    ServerEndpointCandidates = 20,
 };
 
 class Frame
@@ -335,6 +336,25 @@ private:
     tailgate::net::Endpoint m_endpoint;
 };
 
+class ServerEndpointCandidates
+{
+public:
+    static constexpr std::size_t MaximumCount = 16;
+
+    explicit ServerEndpointCandidates(std::vector<tailgate::net::Endpoint> endpoints)
+        : m_endpoints(std::move(endpoints))
+    {
+    }
+
+    [[nodiscard]] const std::vector<tailgate::net::Endpoint>& Endpoints() const noexcept
+    {
+        return m_endpoints;
+    }
+
+private:
+    std::vector<tailgate::net::Endpoint> m_endpoints;
+};
+
 class DerpAuthenticationChallenge
 {
 public:
@@ -399,6 +419,10 @@ public:
     [[nodiscard]] static PeerPacket DecodePeerPacket(const std::vector<std::uint8_t>& payload);
     [[nodiscard]] static std::vector<std::uint8_t> EncodePeerEndpoint(const PeerEndpoint& endpoint);
     [[nodiscard]] static PeerEndpoint DecodePeerEndpoint(const std::vector<std::uint8_t>& payload);
+    [[nodiscard]] static std::vector<std::uint8_t>
+    EncodeServerEndpointCandidates(const ServerEndpointCandidates& candidates);
+    [[nodiscard]] static ServerEndpointCandidates
+    DecodeServerEndpointCandidates(const std::vector<std::uint8_t>& payload);
     [[nodiscard]] static std::vector<std::uint8_t>
     EncodeDerpChallenge(const DerpAuthenticationChallenge& challenge);
     [[nodiscard]] static DerpAuthenticationChallenge
