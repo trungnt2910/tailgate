@@ -142,6 +142,7 @@ TEST_F(Given_SettingsController, When_StateFileIsValid_Then_AccountAndDeviceData
         "SelfAddress": "100.64.0.1",
         "Devices": [
             {
+                "NodeID": "101",
                 "Name": "local.example.ts.net",
                 "Address": "100.64.0.1",
                 "IPv6": "fd7a:115c:a1e0::1",
@@ -155,6 +156,7 @@ TEST_F(Given_SettingsController, When_StateFileIsValid_Then_AccountAndDeviceData
                 "Name": "Example Group",
                 "Devices": [
                     {
+                        "NodeID": "202",
                         "Name": "peer.example.ts.net",
                         "Address": "100.64.0.2",
                         "ExitNodeOption": true
@@ -181,9 +183,11 @@ TEST_F(Given_SettingsController, When_StateFileIsValid_Then_AccountAndDeviceData
     EXPECT_EQ(state.TailnetDisplayName(), L"example.ts.net");
     EXPECT_EQ(state.AccountName(), L"user@example.com");
     EXPECT_EQ(state.SelfAddress(), L"100.64.0.1");
+    EXPECT_EQ(state.Devices()[0].NodeId(), 101U);
     EXPECT_EQ(state.Devices()[0].Name(), L"local.example.ts.net");
     EXPECT_TRUE(state.Devices()[0].Online());
     EXPECT_EQ(state.Devices()[1].Group(), L"Example Group");
+    EXPECT_EQ(state.Devices()[1].NodeId(), 202U);
     EXPECT_TRUE(state.Devices()[1].ExitNodeOption());
 }
 

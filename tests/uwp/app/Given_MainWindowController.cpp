@@ -183,8 +183,8 @@ TEST_F(Given_MainWindowController, When_UpCommandHasNoCredentials_Then_SignInIsS
 
 TEST_F(Given_MainWindowController, When_KnownPeerIsPinged_Then_DialogReceivesResolvedDevice)
 {
-    const UwpDevice self({}, L"local.example.ts.net", L"100.64.0.1", {}, {}, false, false);
-    const UwpDevice peer({}, L"peer.example.ts.net", L"100.64.0.2", {}, {}, false, false);
+    const UwpDevice self(1, {}, L"local.example.ts.net", L"100.64.0.1", {}, {}, false, false);
+    const UwpDevice peer(2, {}, L"peer.example.ts.net", L"100.64.0.2", {}, {}, false, false);
     TestHost::RunOnUiThread(
         [this, &self, &peer]
         {

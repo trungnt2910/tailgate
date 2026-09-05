@@ -64,7 +64,7 @@ TEST_F(Given_ExitNodeController, When_UnknownNodeIsSelected_Then_NextConnectionU
 
 TEST_F(Given_ExitNodeController, When_KnownNodeIsSelected_Then_NextConnectionUsesThatNode)
 {
-    const UwpDevice device({}, L"exit.example.ts.net.", L"100.64.0.2", {}, {}, false, true);
+    const UwpDevice device(2, {}, L"exit.example.ts.net.", L"100.64.0.2", {}, {}, false, true);
     TestHost::RunOnUiThread(
         [this, &device]
         {
