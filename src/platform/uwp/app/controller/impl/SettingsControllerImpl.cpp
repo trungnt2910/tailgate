@@ -1,6 +1,7 @@
 #include "app/controller/impl/SettingsControllerImpl.h"
 
 #include <algorithm>
+#include <charconv>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -45,11 +46,21 @@ bool BoolValue(const json::JsonObject& object, const wchar_t* name, bool fallbac
     return value.ValueType() == json::JsonValueType::Boolean ? value.GetBoolean() : fallback;
 }
 
+std::uint64_t
+UInt64Value(const json::JsonObject& object, const wchar_t* name, std::uint64_t fallback = 0)
+{
+    const std::string text = winrt::to_string(StringValue(object, name));
+    std::uint64_t result = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), result);
+    return error == std::errc() && end == text.data() + text.size() ? result : fallback;
+}
+
 void AddDevice(std::vector<UwpDevice>& devices,
                const json::JsonObject& object,
                const winrt::hstring& groupName)
 {
-    UwpDevice device(StringValue(object, L"Group", groupName),
+    UwpDevice device(UInt64Value(object, L"NodeID"),
+                     StringValue(object, L"Group", groupName),
                      StringValue(object, L"Name"),
                      StringValue(object, L"Address"),
                      StringValue(object, L"IPv6"),

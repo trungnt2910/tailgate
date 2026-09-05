@@ -31,7 +31,8 @@ protected:
         m_devicePage->GetState().SelectedDeviceId(L"peer.example.ts.net");
         m_settings->GetState().SelfAddress(L"100.64.0.1");
         m_settings->GetState().Devices(std::vector<UwpDevice>{
-            UwpDevice(L"Example User",
+            UwpDevice(1,
+                      L"Example User",
                       L"peer.example.ts.net",
                       L"100.64.0.2",
                       L"fd7a:115c:a1e0::2",

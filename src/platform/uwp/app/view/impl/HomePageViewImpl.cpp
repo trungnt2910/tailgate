@@ -1,6 +1,7 @@
 #include "app/view/impl/HomePageViewImpl.h"
 
 #include <algorithm>
+#include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -29,6 +30,64 @@ winrt::hstring TailnetTitle(const SettingsState& state, ResourceLoader& resource
 {
     const winrt::hstring title = state.TailnetTitle();
     return title.empty() ? resourceLoader.Get(Resources::Brand::ProductName) : title;
+}
+
+winrt::hstring DeviceIdentity(const UwpDevice& device)
+{
+    if (device.NodeId() != 0)
+    {
+        return L"node:" + winrt::to_hstring(device.NodeId());
+    }
+    if (!device.Address().empty())
+    {
+        return L"address:" + device.Address();
+    }
+    if (!device.Ipv6().empty())
+    {
+        return L"ipv6:" + device.Ipv6();
+    }
+    return L"name:" + device.Name();
+}
+
+bool Contains(const std::vector<foundation::IInspectable>& items,
+              const foundation::IInspectable& candidate)
+{
+    return std::find(items.begin(), items.end(), candidate) != items.end();
+}
+
+void RemoveMissing(const collections::IObservableVector<foundation::IInspectable>& current,
+                   const std::vector<foundation::IInspectable>& desired)
+{
+    for (std::uint32_t index = current.Size(); index > 0; --index)
+    {
+        if (!Contains(desired, current.GetAt(index - 1)))
+        {
+            current.RemoveAt(index - 1);
+        }
+    }
+}
+
+void InsertInOrder(const collections::IObservableVector<foundation::IInspectable>& current,
+                   const std::vector<foundation::IInspectable>& desired)
+{
+    for (std::uint32_t desiredIndex = 0; desiredIndex < desired.size(); ++desiredIndex)
+    {
+        if (desiredIndex < current.Size() && current.GetAt(desiredIndex) == desired[desiredIndex])
+        {
+            continue;
+        }
+        std::uint32_t currentIndex = desiredIndex;
+        while (currentIndex < current.Size() &&
+               current.GetAt(currentIndex) != desired[desiredIndex])
+        {
+            ++currentIndex;
+        }
+        if (currentIndex < current.Size())
+        {
+            current.RemoveAt(currentIndex);
+        }
+        current.InsertAt(desiredIndex, desired[desiredIndex]);
+    }
 }
 
 } // namespace
@@ -192,7 +251,7 @@ void HomePageViewImpl::Render()
                const controls::AutoSuggestBoxTextChangedEventArgs&)
         {
             m_controller.SearchText(sender.Text());
-            RebuildDeviceItems();
+            ReconcileDeviceItems();
         });
     controls::Grid::SetRow(m_search, 1);
     m_connectedBody.Children().Append(m_search);
@@ -208,6 +267,9 @@ void HomePageViewImpl::Render()
     m_deviceList.GroupStyle().Append(groupStyle);
     m_deviceGroups.IsSourceGrouped(true);
     m_deviceGroups.ItemsPath(xaml::PropertyPath(L"Items"));
+    m_groupedDeviceItems = winrt::single_threaded_observable_vector<foundation::IInspectable>();
+    m_deviceGroups.Source(m_groupedDeviceItems);
+    m_deviceList.ItemsSource(m_deviceGroups.View());
     controls::Grid::SetRow(m_deviceList, 2);
     m_connectedBody.Children().Append(m_deviceList);
     m_body.Children().Append(m_connectedBody);
@@ -285,7 +347,7 @@ void HomePageViewImpl::OnStateChange(const std::string& stateName)
     {
         m_search.Text(m_pageState.SearchText());
     }
-    RebuildDeviceItems();
+    ReconcileDeviceItems();
 }
 
 winrt::hstring HomePageViewImpl::DisplayStatus() const
@@ -460,15 +522,149 @@ xaml::UIElement HomePageViewImpl::BuildExitNodeCard()
     return card;
 }
 
-void HomePageViewImpl::RebuildDeviceItems()
+std::shared_ptr<HomePageViewImpl::DeviceListItem>
+HomePageViewImpl::CreateDeviceListItem(const UwpDevice& device)
 {
-    if (m_deviceList == nullptr)
+    auto result = std::make_shared<DeviceListItem>();
+    result->Identity = DeviceIdentity(device);
+    result->Device = device;
+    result->Item = m_uiFactory.ListItem(controls::StackPanel());
+    const std::weak_ptr<DeviceListItem> weakResult = result;
+    result->Item.Tapped(
+        [this, weakResult](const auto&, const auto&)
+        {
+            const std::shared_ptr<DeviceListItem> selected = weakResult.lock();
+            if (!selected)
+            {
+                return;
+            }
+            m_devicePageController.SelectDevice(selected->Device.Address());
+            m_navigationController.OpenPage(NavigationControllerState::Device);
+        });
+    return result;
+}
+
+void HomePageViewImpl::UpdateDeviceListItem(DeviceListItem& item, const winrt::hstring& selfAddress)
+{
+    const UwpDevice& device = item.Device;
+    controls::StackPanel row;
+    row.Orientation(controls::Orientation::Horizontal);
+    row.Children().Append(m_uiFactory.StatusDot(device.Online()));
+    controls::StackPanel labels;
+    labels.Margin(m_resources.Thickness(AppThickness::DeviceLabelsMargin));
+    labels.Children().Append(m_uiFactory.Text(
+        device.Name().empty() ? device.Address() : device.ShortName(), AppStyle::TextBodyStrong));
+    labels.Children().Append(m_uiFactory.Text(device.Address(), AppStyle::TextSecondaryCaption));
+    row.Children().Append(labels);
+    item.Item.Content(row);
+
+    const bool isSelf = !device.Address().empty() && device.Address() == selfAddress;
+    controls::MenuFlyout menu;
+    controls::MenuFlyoutItem copyItem;
+    copyItem.Text(m_resourceLoader.Get(Resources::Home::CopyIpAddress));
+    copyItem.Icon(m_uiFactory.FluentIcon(Glyphs::Copy));
+    copyItem.Click(
+        [this, address = device.Address()](const auto&, const auto&)
+        {
+            m_clipboardController.SetText(address);
+        });
+    menu.Items().Append(copyItem);
+    if (!isSelf)
+    {
+        controls::MenuFlyoutItem pingItem;
+        pingItem.Text(m_resourceLoader.Get(Resources::Home::Ping));
+        pingItem.Icon(m_uiFactory.FluentIcon(Glyphs::SpeedHigh));
+        pingItem.Click(
+            [this, device, selfAddress](const auto&, const auto&)
+            {
+                const winrt::hstring deviceName =
+                    device.Name().empty() ? device.Address() : device.ShortName();
+                m_pingDialogController.Show(deviceName, device.Address(), selfAddress);
+            });
+        menu.Items().Append(pingItem);
+    }
+    item.Item.ContextFlyout(menu);
+}
+
+void HomePageViewImpl::ReconcileDeviceItems()
+{
+    if (m_groupedDeviceItems == nullptr)
     {
         return;
     }
-    std::vector<std::pair<winrt::hstring, std::vector<const UwpDevice*>>> groups;
+    const winrt::hstring selfAddress =
+        m_state.Devices().empty() ? winrt::hstring{} : m_state.Devices().front().Address();
+    const bool selfAddressChanged = selfAddress != m_renderedSelfAddress;
+    std::vector<std::shared_ptr<DeviceListItem>> nextDeviceItems;
     for (const UwpDevice& device : m_state.Devices())
     {
+        const winrt::hstring identity = DeviceIdentity(device);
+        const auto existing = std::find_if(
+            m_deviceItems.begin(),
+            m_deviceItems.end(),
+            [&identity, &nextDeviceItems](const std::shared_ptr<DeviceListItem>& candidate)
+            {
+                return candidate->Identity == identity &&
+                       std::find(nextDeviceItems.begin(), nextDeviceItems.end(), candidate) ==
+                           nextDeviceItems.end();
+            });
+        const bool created = existing == m_deviceItems.end();
+        std::shared_ptr<DeviceListItem> item = created ? CreateDeviceListItem(device) : *existing;
+        if (created || selfAddressChanged || item->Device != device)
+        {
+            item->Device = device;
+            UpdateDeviceListItem(*item, selfAddress);
+        }
+        nextDeviceItems.push_back(std::move(item));
+    }
+
+    std::vector<std::shared_ptr<DeviceListGroup>> nextGroups;
+    for (const std::shared_ptr<DeviceListItem>& deviceItem : nextDeviceItems)
+    {
+        const winrt::hstring& groupName = deviceItem->Device.Group();
+        const auto alreadyAdded = std::find_if(nextGroups.begin(),
+                                               nextGroups.end(),
+                                               [&groupName](const auto& group)
+                                               {
+                                                   return group->Name == groupName;
+                                               });
+        if (alreadyAdded != nextGroups.end())
+        {
+            continue;
+        }
+        const auto existing = std::find_if(m_deviceItemGroups.begin(),
+                                           m_deviceItemGroups.end(),
+                                           [&groupName](const auto& group)
+                                           {
+                                               return group->Name == groupName;
+                                           });
+        if (existing != m_deviceItemGroups.end())
+        {
+            nextGroups.push_back(*existing);
+            continue;
+        }
+        auto group = std::make_shared<DeviceListGroup>();
+        group->Name = groupName;
+        group->Items = winrt::single_threaded_observable_vector<foundation::IInspectable>();
+        group->Source = collections::PropertySet();
+        group->Source.Insert(
+            L"Name",
+            winrt::box_value(groupName.empty() ? m_resourceLoader.Get(Resources::Home::OtherDevices)
+                                               : groupName));
+        group->Source.Insert(L"Items", group->Items);
+        nextGroups.push_back(std::move(group));
+    }
+
+    struct DesiredGroup
+    {
+        std::shared_ptr<DeviceListGroup> Group;
+        std::vector<foundation::IInspectable> Items;
+    };
+
+    std::vector<DesiredGroup> desiredGroups;
+    for (const std::shared_ptr<DeviceListItem>& deviceItem : nextDeviceItems)
+    {
+        const UwpDevice& device = deviceItem->Device;
         const std::wstring_view searchText(m_pageState.SearchText());
         if (!boost::algorithm::icontains(std::wstring_view(device.Name()), searchText) &&
             !boost::algorithm::icontains(std::wstring_view(device.Address()), searchText) &&
@@ -476,88 +672,59 @@ void HomePageViewImpl::RebuildDeviceItems()
         {
             continue;
         }
-        const auto found = std::find_if(groups.begin(),
-                                        groups.end(),
-                                        [&device](const auto& group)
+        const auto group = std::find_if(nextGroups.begin(),
+                                        nextGroups.end(),
+                                        [&device](const auto& candidate)
                                         {
-                                            return group.first == device.Group();
+                                            return candidate->Name == device.Group();
                                         });
-        if (found == groups.end())
+        const auto desired = std::find_if(desiredGroups.begin(),
+                                          desiredGroups.end(),
+                                          [&group](const DesiredGroup& candidate)
+                                          {
+                                              return candidate.Group == *group;
+                                          });
+        if (desired == desiredGroups.end())
         {
-            groups.push_back({device.Group(), {&device}});
+            DesiredGroup next;
+            next.Group = *group;
+            next.Items.push_back(deviceItem->Item);
+            desiredGroups.push_back(std::move(next));
         }
         else
         {
-            found->second.push_back(&device);
+            desired->Items.push_back(deviceItem->Item);
         }
     }
-    const winrt::hstring selfAddress =
-        m_state.Devices().empty() ? winrt::hstring{} : m_state.Devices().front().Address();
-    auto groupedItems = winrt::single_threaded_observable_vector<foundation::IInspectable>();
-    for (const auto& [groupName, devices] : groups)
+
+    for (const std::shared_ptr<DeviceListGroup>& group : m_deviceItemGroups)
     {
-        auto items = winrt::single_threaded_observable_vector<foundation::IInspectable>();
-        for (const UwpDevice* devicePointer : devices)
-        {
-            const UwpDevice device = *devicePointer;
-            controls::StackPanel row;
-            row.Orientation(controls::Orientation::Horizontal);
-            row.Children().Append(m_uiFactory.StatusDot(device.Online()));
-            controls::StackPanel labels;
-            labels.Margin(m_resources.Thickness(AppThickness::DeviceLabelsMargin));
-            labels.Children().Append(
-                m_uiFactory.Text(device.Name().empty() ? device.Address() : device.ShortName(),
-                                 AppStyle::TextBodyStrong));
-            auto address = m_uiFactory.Text(device.Address(), AppStyle::TextSecondaryCaption);
-            labels.Children().Append(address);
-            row.Children().Append(labels);
-
-            auto item = m_uiFactory.ListItem(row);
-            item.Tapped(
-                [this, device](const auto&, const auto&)
-                {
-                    m_devicePageController.SelectDevice(device.Address());
-                    m_navigationController.OpenPage(NavigationControllerState::Device);
-                });
-
-            const bool isSelf = !device.Address().empty() && device.Address() == selfAddress;
-            controls::MenuFlyout menu;
-            controls::MenuFlyoutItem copyItem;
-            copyItem.Text(m_resourceLoader.Get(Resources::Home::CopyIpAddress));
-            copyItem.Icon(m_uiFactory.FluentIcon(Glyphs::Copy));
-            copyItem.Click(
-                [this, address = device.Address()](const auto&, const auto&)
-                {
-                    m_clipboardController.SetText(address);
-                });
-            menu.Items().Append(copyItem);
-            if (!isSelf)
-            {
-                controls::MenuFlyoutItem pingItem;
-                pingItem.Text(m_resourceLoader.Get(Resources::Home::Ping));
-                pingItem.Icon(m_uiFactory.FluentIcon(Glyphs::SpeedHigh));
-                pingItem.Click(
-                    [this, device, selfAddress](const auto&, const auto&)
-                    {
-                        const winrt::hstring deviceName =
-                            device.Name().empty() ? device.Address() : device.ShortName();
-                        m_pingDialogController.Show(deviceName, device.Address(), selfAddress);
-                    });
-                menu.Items().Append(pingItem);
-            }
-            item.ContextFlyout(menu);
-            items.Append(item);
-        }
-        collections::PropertySet group;
-        group.Insert(L"Name",
-                     winrt::box_value(groupName.empty()
-                                          ? m_resourceLoader.Get(Resources::Home::OtherDevices)
-                                          : groupName));
-        group.Insert(L"Items", items);
-        groupedItems.Append(group);
+        const auto desired = std::find_if(desiredGroups.begin(),
+                                          desiredGroups.end(),
+                                          [&group](const DesiredGroup& candidate)
+                                          {
+                                              return candidate.Group == group;
+                                          });
+        const std::vector<foundation::IInspectable> empty;
+        RemoveMissing(group->Items, desired == desiredGroups.end() ? empty : desired->Items);
     }
-    m_deviceGroups.Source(groupedItems);
-    m_deviceList.ItemsSource(m_deviceGroups.View());
+    for (const DesiredGroup& desired : desiredGroups)
+    {
+        InsertInOrder(desired.Group->Items, desired.Items);
+    }
+
+    std::vector<foundation::IInspectable> desiredGroupSources;
+    desiredGroupSources.reserve(desiredGroups.size());
+    for (const DesiredGroup& desired : desiredGroups)
+    {
+        desiredGroupSources.push_back(desired.Group->Source);
+    }
+    RemoveMissing(m_groupedDeviceItems, desiredGroupSources);
+    InsertInOrder(m_groupedDeviceItems, desiredGroupSources);
+
+    m_deviceItems = std::move(nextDeviceItems);
+    m_deviceItemGroups = std::move(nextGroups);
+    m_renderedSelfAddress = selfAddress;
 }
 
 } // namespace tailgate::uwp

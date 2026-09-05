@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -16,7 +17,8 @@ class UwpDevice
 {
 public:
     UwpDevice() = default;
-    UwpDevice(winrt::hstring group,
+    UwpDevice(std::uint64_t nodeId,
+              winrt::hstring group,
               winrt::hstring name,
               winrt::hstring address,
               winrt::hstring ipv6,
@@ -29,6 +31,7 @@ public:
     [[nodiscard]] winrt::hstring MagicDnsName() const;
     [[nodiscard]] bool MatchesExitNode(const winrt::hstring& nameOrAddress) const;
     [[nodiscard]] winrt::hstring ShortName() const;
+    [[nodiscard]] std::uint64_t NodeId() const noexcept;
     [[nodiscard]] const winrt::hstring& Group() const noexcept;
     [[nodiscard]] const winrt::hstring& Name() const noexcept;
     [[nodiscard]] const winrt::hstring& Address() const noexcept;
@@ -38,6 +41,7 @@ public:
     [[nodiscard]] bool ExitNodeOption() const noexcept;
 
 private:
+    std::uint64_t m_nodeId = 0;
     winrt::hstring m_group;
     winrt::hstring m_name;
     winrt::hstring m_address;

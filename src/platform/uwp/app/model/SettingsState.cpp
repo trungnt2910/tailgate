@@ -26,14 +26,16 @@ winrt::hstring ExtractShortName(const winrt::hstring& name)
 
 } // namespace
 
-UwpDevice::UwpDevice(winrt::hstring group,
+UwpDevice::UwpDevice(std::uint64_t nodeId,
+                     winrt::hstring group,
                      winrt::hstring name,
                      winrt::hstring address,
                      winrt::hstring ipv6,
                      winrt::hstring operatingSystem,
                      bool online,
                      bool exitNodeOption)
-    : m_group(std::move(group)),
+    : m_nodeId(nodeId),
+      m_group(std::move(group)),
       m_name(std::move(name)),
       m_address(std::move(address)),
       m_ipv6(std::move(ipv6)),
@@ -41,6 +43,11 @@ UwpDevice::UwpDevice(winrt::hstring group,
       m_online(online),
       m_exitNodeOption(exitNodeOption)
 {
+}
+
+std::uint64_t UwpDevice::NodeId() const noexcept
+{
+    return m_nodeId;
 }
 
 winrt::hstring UwpDevice::MagicDnsName() const

@@ -29,8 +29,8 @@ protected:
         m_session = std::make_shared<FakeSessionController>();
         m_settings = std::make_shared<FakeSettingsController>();
         m_settings->GetState().Devices(std::vector<UwpDevice>{
-            UwpDevice({}, L"online-exit.example.ts.net", L"100.64.0.2", {}, {}, true, true),
-            UwpDevice({}, L"offline-exit.example.ts.net", L"100.64.0.3", {}, {}, false, true),
+            UwpDevice(2, {}, L"online-exit.example.ts.net", L"100.64.0.2", {}, {}, true, true),
+            UwpDevice(3, {}, L"offline-exit.example.ts.net", L"100.64.0.3", {}, {}, false, true),
         });
         m_exitNode->GetState().Selection(L"online-exit.example.ts.net");
         m_subject = m_dependencies.Create<ExitNodeControlViewImpl>(

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "app/controller/ClipboardController.h"
 #include "app/controller/DevicePageController.h"
 #include "app/controller/ExitNodeController.h"
@@ -41,6 +44,20 @@ public:
     [[nodiscard]] xaml::UIElement Page() const override;
 
 private:
+    struct DeviceListItem
+    {
+        winrt::hstring Identity;
+        UwpDevice Device;
+        controls::ListViewItem Item{nullptr};
+    };
+
+    struct DeviceListGroup
+    {
+        winrt::hstring Name;
+        collections::PropertySet Source{nullptr};
+        collections::IObservableVector<foundation::IInspectable> Items{nullptr};
+    };
+
     struct Presentation
     {
         winrt::hstring Status;
@@ -55,7 +72,9 @@ private:
     [[nodiscard]] winrt::hstring DisplayStatus() const;
     [[nodiscard]] AppStyle StatusStyle() const;
     [[nodiscard]] xaml::UIElement BuildExitNodeCard();
-    void RebuildDeviceItems();
+    [[nodiscard]] std::shared_ptr<DeviceListItem> CreateDeviceListItem(const UwpDevice& device);
+    void UpdateDeviceListItem(DeviceListItem& item, const winrt::hstring& selfAddress);
+    void ReconcileDeviceItems();
 
     const SettingsState& m_state;
     const HomePageState& m_pageState;
@@ -90,6 +109,10 @@ private:
     controls::AutoSuggestBox m_search;
     controls::ListView m_deviceList;
     xaml_data::CollectionViewSource m_deviceGroups;
+    collections::IObservableVector<foundation::IInspectable> m_groupedDeviceItems{nullptr};
+    std::vector<std::shared_ptr<DeviceListItem>> m_deviceItems;
+    std::vector<std::shared_ptr<DeviceListGroup>> m_deviceItemGroups;
+    winrt::hstring m_renderedSelfAddress;
 };
 
 } // namespace tailgate::uwp

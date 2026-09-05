@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -29,6 +30,7 @@ namespace storage = winrt::Windows::Storage;
 
 struct StateDevice
 {
+    std::uint64_t NodeId = 0;
     std::string Group;
     std::string Name;
     std::string Address;
@@ -52,7 +54,8 @@ std::string FirstIpv6(const std::vector<std::string>& addresses)
 std::vector<StateDevice> DevicesFromNetworkMap(const tailgate::types::netmap::NetworkConfig& config)
 {
     std::vector<StateDevice> devices;
-    devices.push_back(StateDevice{.Group = config.AccountDisplayName(),
+    devices.push_back(StateDevice{.NodeId = config.SelfNodeId(),
+                                  .Group = config.AccountDisplayName(),
                                   .Name = config.SelfName(),
                                   .Address = config.SelfAddress(),
                                   .Ipv6 = FirstIpv6(config.SelfAddresses()),
@@ -61,7 +64,8 @@ std::vector<StateDevice> DevicesFromNetworkMap(const tailgate::types::netmap::Ne
                                   .ExitNodeOption = false});
     for (const auto& peer : config.Peers())
     {
-        devices.push_back(StateDevice{.Group = peer.Owner(),
+        devices.push_back(StateDevice{.NodeId = peer.NodeId(),
+                                      .Group = peer.Owner(),
                                       .Name = peer.Name(),
                                       .Address = peer.Address(),
                                       .Ipv6 = FirstIpv6(peer.Addresses()),
@@ -226,7 +230,8 @@ void SessionManagerImpl::WriteState(const tailgate::types::netmap::NetworkConfig
     nlohmann::json devicesJson = nlohmann::json::array();
     for (const StateDevice& device : DevicesFromNetworkMap(config))
     {
-        devicesJson.push_back({{"Group", device.Group},
+        devicesJson.push_back({{"NodeID", std::to_string(device.NodeId)},
+                               {"Group", device.Group},
                                {"Name", device.Name},
                                {"Address", device.Address},
                                {"IPv6", device.Ipv6},

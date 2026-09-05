@@ -1,7 +1,15 @@
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
+#include <string>
 
 #include <boost/di.hpp>
 #include <gtest/gtest.h>
+#include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Storage.h>
 
 #include "common/AuthorizationState.h"
 
@@ -21,6 +29,19 @@ protected:
     {
         auto injector = di::make_injector();
         m_subject = injector.create<std::unique_ptr<bg::manager::SessionManagerImpl>>();
+    }
+
+    void TearDown() override
+    {
+        std::error_code error;
+        (void)std::filesystem::remove(StatePath(), error);
+    }
+
+    [[nodiscard]] static std::filesystem::path StatePath()
+    {
+        const auto folder =
+            winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
+        return std::filesystem::path(folder.c_str()) / L"tailgate-state.json";
     }
 
     std::unique_ptr<bg::manager::SessionManagerImpl> m_subject;
@@ -141,6 +162,29 @@ TEST_F(Given_SessionManager, When_Stopping_Then_LateReportsAreIgnoredUntilComple
     EXPECT_EQ(stateBeforeComplete, bg::manager::SessionState::Stopping);
     EXPECT_EQ(m_subject->State(), bg::manager::SessionState::Stopped);
     EXPECT_GT(m_subject->Generation(), generation);
+}
+
+TEST_F(Given_SessionManager, When_NetworkMapIsWritten_Then_NodeIdsArePersistedExactly)
+{
+    constexpr std::uint64_t SelfNodeId = 9'007'199'254'740'993ULL;
+    constexpr std::uint64_t PeerNodeId = 18'446'744'073'709'551'614ULL;
+    tailgate::types::netmap::NetworkConfig config;
+    config.SelfNodeId(SelfNodeId);
+    config.SelfName("local.example.ts.net");
+    tailgate::types::netmap::PeerConfig peer;
+    peer.NodeId(PeerNodeId);
+    peer.Name("peer.example.ts.net");
+    config.Peers({peer});
+
+    m_subject->WriteState(config);
+
+    std::ifstream stream(StatePath());
+    const std::string text(std::istreambuf_iterator<char>(stream), {});
+    const auto state = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(text));
+    const auto devices = state.GetNamedArray(L"Devices");
+    ASSERT_EQ(devices.Size(), 2U);
+    EXPECT_EQ(devices.GetObjectAt(0).GetNamedString(L"NodeID"), winrt::to_hstring(SelfNodeId));
+    EXPECT_EQ(devices.GetObjectAt(1).GetNamedString(L"NodeID"), winrt::to_hstring(PeerNodeId));
 }
 
 } // namespace
