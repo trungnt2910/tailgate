@@ -4,6 +4,7 @@ extern "C"
 }
 
 #include <chrono>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 
@@ -15,7 +16,6 @@ namespace
 constexpr std::uint64_t Tai64UnixEpochOffset = 0x400000000000000aULL;
 constexpr int Tai64SecondsSize = 8;
 constexpr int Tai64NanosecondsSize = 4;
-constexpr int BitsPerByte = 8;
 
 } // namespace
 
@@ -46,13 +46,13 @@ extern "C"
 
         for (int index = 0; index < Tai64SecondsSize; ++index)
         {
-            output[index] = static_cast<std::uint8_t>(
-                taiSeconds >> ((Tai64SecondsSize - 1 - index) * BitsPerByte));
+            output[index] = static_cast<std::uint8_t>(taiSeconds >>
+                                                      ((Tai64SecondsSize - 1 - index) * CHAR_BIT));
         }
         for (int index = 0; index < Tai64NanosecondsSize; ++index)
         {
-            output[Tai64SecondsSize + index] = static_cast<std::uint8_t>(
-                nanos >> ((Tai64NanosecondsSize - 1 - index) * BitsPerByte));
+            output[Tai64SecondsSize + index] =
+                static_cast<std::uint8_t>(nanos >> ((Tai64NanosecondsSize - 1 - index) * CHAR_BIT));
         }
     }
 

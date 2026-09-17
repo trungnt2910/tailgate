@@ -33,6 +33,7 @@ public:
     void Encapsulate(EncapsulationContext& context) override;
     void Decapsulate(DecapsulationContext& context) override;
     void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
+    [[nodiscard]] bool HasLocalOutput() const override;
 
     void Handle(const tailgate::net::packet::Ipv4UdpDatagram& datagram,
                 const app_service::PingRequest& request,

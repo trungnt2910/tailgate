@@ -44,7 +44,6 @@ constexpr std::uint32_t MaximumH2FrameLength = 1024U * 1024U;
 constexpr std::uint32_t InitialH2WindowSize = 1024U * 1024U;
 constexpr std::uint8_t H2EndOrAckFlag = 0x01;
 constexpr int MaximumControlResponseFrames = 80;
-constexpr std::size_t MapLengthSize = 4;
 constexpr std::size_t MaximumSmallHpackLiteral = 127;
 constexpr int MaximumInitialMapAttempts = 12;
 constexpr std::chrono::milliseconds InitialMapRetryDelay{250};
@@ -321,30 +320,6 @@ std::optional<std::string> DescribeIncrementalNetworkMap(const std::string& text
         description += ']';
     }
     return description;
-}
-
-NetworkConfig ParseMapResponseBody(const std::vector<std::uint8_t>& body)
-{
-    const auto start = std::find(body.begin(), body.end(), static_cast<std::uint8_t>('{'));
-    if (start == body.end())
-    {
-        throw std::runtime_error("Control map response did not contain JSON.");
-    }
-    const std::size_t jsonOffset = static_cast<std::size_t>(start - body.begin());
-    std::size_t jsonLength = body.size() - jsonOffset;
-    if (jsonOffset >= MapLengthSize)
-    {
-        const std::size_t framedLength = body[jsonOffset - 4] |
-                                         (static_cast<std::size_t>(body[jsonOffset - 3]) << 8U) |
-                                         (static_cast<std::size_t>(body[jsonOffset - 2]) << 16U) |
-                                         (static_cast<std::size_t>(body[jsonOffset - 1]) << 24U);
-        if (framedLength > 0 && jsonOffset + framedLength <= body.size())
-        {
-            jsonLength = framedLength;
-        }
-    }
-    return NetworkMapParser::Parse(
-        std::string(start, start + static_cast<std::ptrdiff_t>(jsonLength)));
 }
 
 void LogMapResponse(const NetworkConfig& config, std::string_view source)
@@ -863,7 +838,8 @@ NetworkConfig ControlClient::RequestNetworkMap()
         }
     }
 
-    NetworkConfig config = ParseMapResponseBody(body);
+    NetworkConfig config =
+        NetworkMapParser::Parse(MapStreamResponse::DecodeMap(body, MaximumStreamingMapSize));
     LogMapResponse(config, "network map received");
     Implementation->CurrentMap = config;
     return config;

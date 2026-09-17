@@ -173,16 +173,14 @@ TEST_F(Given_MagicsockConnection, When_PeerPathIsSelected_Then_SendUsesSelectedE
     ASSERT_TRUE(m_subject->MarkDirect(peer, destination));
 
     const magicsock::Connection::DirectSendResult result = m_subject->Send(peer, payload);
+    ASSERT_FALSE(m_socketFactory->States.front()->Sent.empty());
 
     EXPECT_EQ(result, magicsock::Connection::DirectSendResult::Sent);
     EXPECT_TRUE(m_subject->HasDirectPath(peer));
     EXPECT_EQ(m_subject->DirectEndpoint(peer), destination);
     EXPECT_EQ(m_socketFactory->States.front()->Sent.size(), 1U);
-    if (!m_socketFactory->States.front()->Sent.empty())
-    {
-        EXPECT_EQ(m_socketFactory->States.front()->Sent.front().Destination, destination);
-        EXPECT_EQ(m_socketFactory->States.front()->Sent.front().Payload, payload);
-    }
+    EXPECT_EQ(m_socketFactory->States.front()->Sent.front().Destination, destination);
+    EXPECT_EQ(m_socketFactory->States.front()->Sent.front().Payload, payload);
 }
 
 TEST_F(Given_MagicsockConnection, When_VerifiedDirectSourceReplies_Then_SelectedPathRemainsLive)

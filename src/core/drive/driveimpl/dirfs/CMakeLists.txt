@@ -1,0 +1,20 @@
+tailgate_add_library(
+    tailgate_core_drive_driveimpl_dirfs
+    STATIC
+    CollectionReader.cpp
+    FileSystem.cpp
+)
+target_include_directories(
+    tailgate_core_drive_driveimpl_dirfs
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/core
+)
+target_link_libraries(
+    tailgate_core_drive_driveimpl_dirfs
+    PUBLIC
+        tailgate_core_base
+        tailgate_core_drive_driveimpl_compositedav
+        tailgate_core_net_http
+    PRIVATE
+        Boost::url
+)

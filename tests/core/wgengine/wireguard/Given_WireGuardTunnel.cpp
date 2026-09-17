@@ -60,6 +60,44 @@ RestartExchangeResult ExchangeAfterRestart(const WireGuardTunnel::Key& initiator
 
 } // namespace
 
+TEST(Given_WireGuardTunnel, When_HandshakeIsComplete_Then_FramingIsRecognized)
+{
+    const auto privateKey = tailgate::crypto::GeneratePrivateKey();
+    WireGuardTunnel tunnel(privateKey);
+    const auto peer = tunnel.AddPeer(
+        tailgate::crypto::X25519PublicFromPrivate(tailgate::crypto::GeneratePrivateKey()));
+    const auto packet = tunnel.CreateHandshake(peer);
+
+    const bool recognized = WireGuardTunnel::IsPacket(packet);
+
+    EXPECT_TRUE(recognized);
+}
+
+TEST(Given_WireGuardTunnel, When_HandshakeIsTruncated_Then_FramingIsRejected)
+{
+    const auto privateKey = tailgate::crypto::GeneratePrivateKey();
+    WireGuardTunnel tunnel(privateKey);
+    const auto peer = tunnel.AddPeer(
+        tailgate::crypto::X25519PublicFromPrivate(tailgate::crypto::GeneratePrivateKey()));
+    auto packet = tunnel.CreateHandshake(peer);
+    packet.pop_back();
+
+    const bool recognized = WireGuardTunnel::IsPacket(packet);
+
+    EXPECT_FALSE(recognized);
+}
+
+TEST(Given_WireGuardTunnel, When_DatagramIsEmptyOrUnrelated_Then_FramingIsRejected)
+{
+    const std::vector<std::uint8_t> unrelated{0, 1, 2, 3};
+
+    const bool emptyRecognized = WireGuardTunnel::IsPacket({});
+    const bool unrelatedRecognized = WireGuardTunnel::IsPacket(unrelated);
+
+    EXPECT_FALSE(emptyRecognized);
+    EXPECT_FALSE(unrelatedRecognized);
+}
+
 TEST(Given_WireGuardTunnel,
      When_WireGuardHandshakeAndTimerRunsImmediately_Then_InitiationIsNotReplaced)
 {

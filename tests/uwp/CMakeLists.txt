@@ -20,7 +20,9 @@ uwp_add_executable(
     SOURCES
         App.cpp
         Given_Arguments.cpp
+        Given_TcpPortReservation.cpp
         Given_TestHost.cpp
+        Given_TimeProvider.cpp
         IdlingRegistry.cpp
         IdlingRegistry.h
         TestHost.cpp

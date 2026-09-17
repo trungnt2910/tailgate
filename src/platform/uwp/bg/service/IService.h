@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <tailgate/base/TimeProvider.h>
 #include <tailgate/hosted/Client.h>
 
 #include "manager/SessionManager.h"
@@ -41,6 +42,9 @@ public:
     virtual void Encapsulate(EncapsulationContext& context) = 0;
     virtual void Decapsulate(DecapsulationContext& context) = 0;
     virtual void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) = 0;
+    [[nodiscard]] virtual bool HasLocalOutput() const = 0;
+    [[nodiscard]] virtual std::optional<tailgate::base::TimeProvider::TimePoint>
+    NextDeadline() const = 0;
 };
 
 } // namespace tailgate::uwp::bg::service

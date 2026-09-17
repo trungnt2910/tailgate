@@ -65,6 +65,36 @@ std::optional<std::size_t> NetworkConfig::FindRoute(std::uint32_t destination,
     return std::nullopt;
 }
 
+void NetworkConfig::Peers(std::vector<PeerConfig> peers)
+{
+    m_peers = std::move(peers);
+}
+
+std::optional<std::size_t>
+NetworkConfig::FindPeerAddress(const tailgate::net::IpAddress& address) const
+{
+    std::optional<std::size_t> owner;
+    for (std::size_t index = 0; index < m_peers.size(); ++index)
+    {
+        const auto matches = [&](const std::string& text)
+        {
+            return tailgate::net::IpAddress::TryParse(text) == address;
+        };
+        const auto& peer = m_peers[index];
+        if (!matches(peer.Address()) && !std::ranges::any_of(peer.Addresses(), matches))
+        {
+            continue;
+        }
+        if (owner)
+        {
+            // Duplicate spellings on one peer are harmless; multiple owners are ambiguous.
+            return std::nullopt;
+        }
+        owner = index;
+    }
+    return owner;
+}
+
 std::optional<std::size_t> NetworkConfig::FindExitNode(const std::string& nameOrAddress,
                                                        bool requireOnline) const
 {

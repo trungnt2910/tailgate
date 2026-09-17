@@ -6,8 +6,12 @@ tailgate_add_library(
     Connection.cpp
     DiscoProbes.cpp
     Dns.cpp
+    PacketFraming.cpp
     Protocol.cpp
+    Pump.cpp
+    PumpController.cpp
     ServerSession.cpp
+    ServerWriter.cpp
 )
 target_link_libraries(
     tailgate_core_hosted

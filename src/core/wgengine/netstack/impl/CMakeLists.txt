@@ -1,0 +1,22 @@
+tailgate_add_library(
+    tailgate_core_wgengine_netstack_impl
+    STATIC
+    Runtime.cpp
+    StackImpl.cpp
+    StreamImpl.cpp
+    TimerWork.cpp
+)
+target_include_directories(
+    tailgate_core_wgengine_netstack_impl
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/core
+)
+target_link_libraries(
+    tailgate_core_wgengine_netstack_impl
+    PUBLIC
+        tailgate_core_wgengine_netstack
+        tailgate_core_wgengine_netstack_lwip
+    PRIVATE
+        tailgate_core_crypto
+        tailgate_core_types_nettype
+)

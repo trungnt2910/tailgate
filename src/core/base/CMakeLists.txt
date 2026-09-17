@@ -5,4 +5,5 @@ tailgate_add_library(
     Logging.cpp
     Strings.cpp
     TimeProvider.cpp
+    WallClock.cpp
 )

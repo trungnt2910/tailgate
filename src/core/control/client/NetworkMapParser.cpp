@@ -12,6 +12,9 @@
 #include <tailgate/net/Endpoint.h>
 #include <tailgate/net/Ipv4Address.h>
 
+#include "CapabilityFilters.h"
+#include "SelfAddresses.h"
+
 namespace tailgate::control::client
 {
 
@@ -550,30 +553,12 @@ NetworkConfig NetworkMapParser::Parse(const std::string& text)
     result.MagicDnsDomain(MagicDnsDomainFromNodeName(result.SelfName()));
     result.Capabilities(Capabilities(map));
     ApplyHostInfoMetadata(result, node);
-    std::vector<std::string> selfAddresses;
-    for (const std::string& address : StringArray(node, "Addresses"))
-    {
-        selfAddresses.push_back(address.substr(0, address.find('/')));
-    }
-    const auto selfIpv4 =
-        std::find_if(selfAddresses.begin(),
-                     selfAddresses.end(),
-                     [](const std::string& address)
-                     {
-                         return tailgate::net::Ipv4Address::TryParse(address).has_value();
-                     });
-    if (selfIpv4 != selfAddresses.end())
-    {
-        result.SelfAddress(*selfIpv4);
-    }
-    else if (!selfAddresses.empty())
-    {
-        result.SelfAddress(selfAddresses.front());
-    }
-    result.SelfAddresses(std::move(selfAddresses));
+    ApplySelfAddresses(result, node);
     const nlohmann::json& dns = map.at("DNSConfig");
     ApplyDnsConfig(result, dns);
     result.Peers(Peers(map, result.UserProfiles()));
+    (void)ApplyCapabilityFilterUpdate(result, map);
+    types::netmap::RefreshPeerCapabilities(result);
 
     for (const std::string& resolverText : DnsResolvers(dns))
     {
@@ -644,7 +629,7 @@ bool NetworkMapParser::ApplyUpdate(NetworkConfig& config, const std::string& tex
 
     std::vector<PeerConfig> peers = config.Peers();
     std::vector<std::uint64_t> removedPeerNodeIds;
-    bool changed = false;
+    bool changed = ApplyCapabilityFilterUpdate(config, map);
     if (map.contains("Domain"))
     {
         config.Domain(map.value("Domain", ""));
@@ -664,9 +649,14 @@ bool NetworkMapParser::ApplyUpdate(NetworkConfig& config, const std::string& tex
         {
             config.SelfMachineAuthorized(map.at("Node").value("MachineAuthorized", false));
         }
-        if (map.contains("Node") && map.at("Node").is_object() && map.at("Node").contains("CapMap"))
+        if (map.contains("Node") && map.at("Node").is_object())
         {
+            // Node is a replacement snapshot; omitting an empty CapMap revokes old attributes.
             config.Capabilities(Capabilities(map));
+            if (map.at("Node").contains("Addresses"))
+            {
+                ApplySelfAddresses(config, map.at("Node"));
+            }
         }
         ApplyAccountMetadata(config, map);
         changed = true;
@@ -829,12 +819,13 @@ bool NetworkMapParser::ApplyUpdate(NetworkConfig& config, const std::string& tex
             {
                 peer->KeyExpiry(TimeText(patch.at("KeyExpiry")));
             }
-            // Cap and CapMap changes are intentionally not modeled: Tailgate consumes no
-            // per-peer capability metadata.
+            // Peer attributes do not confer application grants. Effective peer capabilities
+            // are derived from the packet-filter grants below, not this node's CapMap.
             changed = true;
         }
     }
     config.Peers(std::move(peers));
+    types::netmap::RefreshPeerCapabilities(config);
     config.RemovedPeerNodeIds(std::move(removedPeerNodeIds));
     if (userProfilesChanged)
     {

@@ -1,12 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <tailgate/net/IpAddress.h>
 #include <tailgate/net/packet/Ipv4.h>
+#include <tailgate/types/netmap/Capabilities.h>
 
 namespace tailgate::types::netmap
 {
@@ -22,6 +25,16 @@ struct UserProfile
 class PeerConfig final
 {
 public:
+    void Capabilities(std::vector<std::string> capabilities)
+    {
+        m_capabilities = std::move(capabilities);
+    }
+
+    [[nodiscard]] const std::vector<std::string>& Capabilities() const noexcept
+    {
+        return m_capabilities;
+    }
+
     void NodeId(std::uint64_t nodeId) noexcept
     {
         m_nodeId = nodeId;
@@ -273,6 +286,7 @@ private:
     std::string m_clientVersion;
     std::string m_owner;
     int m_peerApi4Port = 0;
+    std::vector<std::string> m_capabilities;
     int m_peerApi6Port = 0;
     bool m_wireIngress = false;
     bool m_ingressEnabled = false;
@@ -285,6 +299,16 @@ private:
 class NetworkConfig final
 {
 public:
+    void CapabilityFilters(NamedCapabilityFilters filters)
+    {
+        m_capabilityFilters = std::move(filters);
+    }
+
+    [[nodiscard]] const NamedCapabilityFilters& CapabilityFilters() const noexcept
+    {
+        return m_capabilityFilters;
+    }
+
     struct DnsRoute
     {
         std::string Suffix;
@@ -581,10 +605,7 @@ public:
         return m_userProfiles;
     }
 
-    void Peers(std::vector<PeerConfig> peers)
-    {
-        m_peers = std::move(peers);
-    }
+    void Peers(std::vector<PeerConfig> peers);
 
     [[nodiscard]] const std::vector<PeerConfig>& Peers() const noexcept
     {
@@ -603,6 +624,8 @@ public:
 
     [[nodiscard]] std::optional<std::size_t>
     FindRoute(std::uint32_t destination, std::optional<std::size_t> exitNode = std::nullopt) const;
+    [[nodiscard]] std::optional<std::size_t>
+    FindPeerAddress(const tailgate::net::IpAddress& address) const;
     [[nodiscard]] std::optional<std::size_t> FindPeer(const std::string& nameOrAddress,
                                                       bool requireOnline = false) const;
     [[nodiscard]] std::optional<std::size_t> FindExitNode(const std::string& nameOrAddress,
@@ -616,6 +639,7 @@ public:
 
 private:
     std::uint64_t m_selfNodeId = 0;
+    NamedCapabilityFilters m_capabilityFilters;
     std::string m_selfKey;
     std::string m_selfAddress;
     std::vector<std::string> m_selfAddresses;

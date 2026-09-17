@@ -2,6 +2,7 @@ tailgate_add_library(
     tailgate_core_net_http_impl
     STATIC
     ClientImpl.cpp
+    MessageParserFactoryImpl.cpp
 )
 target_link_libraries(
     tailgate_core_net_http_impl
@@ -9,4 +10,6 @@ target_link_libraries(
         tailgate_core_base
         tailgate_core_net_http
         tailgate_core_types_nettype
+    PRIVATE
+        llhttp::llhttp
 )

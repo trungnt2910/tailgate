@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <climits>
 #include <limits>
 #include <stdexcept>
 #include <string_view>
@@ -25,7 +26,6 @@ constexpr std::uint8_t HpackDynamicTableSizeUpdatePrefixMask = 0x1f;
 constexpr std::uint8_t HpackLiteralPrefixMask = 0x0f;
 constexpr std::uint8_t HpackHuffmanMask = 0x80;
 constexpr std::uint8_t HpackStringLengthPrefixMask = 0x7f;
-constexpr std::size_t BitsPerByte = 8;
 constexpr std::size_t MaximumHpackPaddingBits = 7;
 constexpr std::size_t HpackEntryOverhead = 32;
 constexpr int MinimumHttpStatus = 100;
@@ -445,12 +445,11 @@ std::optional<std::string> DecodeHpackString(const std::vector<std::uint8_t>& da
     std::string result;
     std::uint32_t code = 0;
     std::size_t codeLength = 0;
-    const std::size_t endBit = (field.Offset + field.Length) * BitsPerByte;
-    for (std::size_t bitOffset = field.Offset * BitsPerByte; bitOffset < endBit; ++bitOffset)
+    const std::size_t endBit = (field.Offset + field.Length) * CHAR_BIT;
+    for (std::size_t bitOffset = field.Offset * CHAR_BIT; bitOffset < endBit; ++bitOffset)
     {
-        code =
-            (code << 1) |
-            ((data[bitOffset / BitsPerByte] >> (BitsPerByte - 1 - bitOffset % BitsPerByte)) & 0x01);
+        code = (code << 1) |
+               ((data[bitOffset / CHAR_BIT] >> (CHAR_BIT - 1 - bitOffset % CHAR_BIT)) & 0x01);
         ++codeLength;
 
         bool decoded = false;

@@ -1,8 +1,10 @@
 #include "UdpSocketFactory.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <system_error>
 #include <utility>
@@ -23,6 +25,7 @@ namespace
 {
 
 constexpr int TransportBufferBytes = 4 * 1024 * 1024;
+constexpr std::size_t MaximumIpv4DatagramSize = std::numeric_limits<std::uint16_t>::max();
 
 sockaddr_in NativeEndpoint(const tailgate::net::Endpoint& endpoint)
 {
@@ -125,12 +128,18 @@ public:
                 .Datagram = {},
             };
         }
-        std::vector<std::uint8_t> payload(maximumSize);
+        const std::size_t readSize = std::min(maximumSize, MaximumIpv4DatagramSize);
+        // IPv4 bounds the datagram size. Keep scratch storage rather than initializing
+        // and destroying the full receive budget for every short datagram or idle read.
+        if (m_readBuffer.size() < readSize)
+        {
+            m_readBuffer.resize(readSize);
+        }
         sockaddr_in source{};
         socklen_t sourceSize = sizeof(source);
         const ssize_t received = recvfrom(m_descriptor.Fd,
-                                          payload.data(),
-                                          payload.size(),
+                                          m_readBuffer.data(),
+                                          readSize,
                                           MSG_DONTWAIT,
                                           reinterpret_cast<sockaddr*>(&source),
                                           &sourceSize);
@@ -149,13 +158,13 @@ public:
         {
             throw std::system_error(errno, std::generic_category());
         }
-        payload.resize(static_cast<std::size_t>(received));
         return tailgate::types::nettype::UdpReceiveResult{
             .Result = tailgate::types::nettype::SocketIoResult::Complete,
             .Datagram =
                 tailgate::types::nettype::UdpDatagram{
                     .Source = PortableEndpoint(source),
-                    .Payload = std::move(payload),
+                    .Payload = std::vector<std::uint8_t>(m_readBuffer.begin(),
+                                                         m_readBuffer.begin() + received),
                 },
         };
     }
@@ -201,6 +210,7 @@ private:
     std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> m_eventRegistry;
     tailgate::linux_frontend::event::EventHandle m_eventHandle;
     tailgate::base::EventToken m_readinessToken;
+    std::vector<std::uint8_t> m_readBuffer;
     bool m_writeInterest = false;
 };
 

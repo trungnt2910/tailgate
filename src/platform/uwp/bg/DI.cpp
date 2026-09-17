@@ -5,7 +5,9 @@
 #include <tailgate/wgengine/tstun/Device.h>
 
 #include "common/HostInfo.h"
+#include "common/TcpPortReservationFactory.h"
 #include "common/TcpSocketFactory.h"
+#include "common/TimeProvider.h"
 
 #include "bg/ResourceLoader.h"
 #include "manager/impl/ControlPlaneManagerImpl.h"
@@ -34,8 +36,11 @@ PluginInjector CreateRs2PluginInjector()
         di::bind<NetworkService>(),
         di::bind<PingService>());
     injector->InstallSingleton<PacketDevice, tailgate::wgengine::tstun::Device>();
+    injector->InstallSingleton<tailgate::uwp::TimeProvider, tailgate::base::TimeProvider>();
     injector->InstallSingleton<tailgate::uwp::TcpSocketFactory,
                                tailgate::types::nettype::TcpSocketFactory>();
+    injector->InstallSingleton<tailgate::uwp::TcpPortReservationFactory,
+                               tailgate::types::nettype::TcpPortReservationFactory>();
     tailgate::di::InstallCoreBindings(*injector);
     return injector;
 }

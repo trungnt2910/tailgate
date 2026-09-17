@@ -1,6 +1,8 @@
 tailgate_uwp_add_library(
     Tailgate.Uwp.Background.Manager
     STATIC
+    ChannelPolicy.cpp
+    ChannelPolicy.h
     ControlPlaneManager.h
     ControlRegistrationNotification.cpp
     ControlRegistrationNotification.h

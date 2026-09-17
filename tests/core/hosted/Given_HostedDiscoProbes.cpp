@@ -118,19 +118,16 @@ TEST(Given_HostedDiscoProbes,
         probes.size() > 1 ? receiver.Parse(probes[1].Payload()) : std::nullopt;
     const std::optional<tailgate::disco::Disco::Message> callMeMaybe =
         probes.size() > 2 ? receiver.Parse(probes[2].Payload()) : std::nullopt;
+    ASSERT_EQ(probes.size(), 3U);
+    ASSERT_TRUE(directPing);
+    ASSERT_TRUE(callMeMaybe);
 
-    EXPECT_EQ(probes.size(), 3U);
-    EXPECT_EQ(probes.size() > 1 ? probes[1].EndpointAddress() : 0U,
+    EXPECT_EQ(probes[1].EndpointAddress(),
               tailgate::net::Ipv4Address::FromOctets(192, 0, 2, 10).HostOrder());
-    EXPECT_EQ(probes.size() > 1 ? probes[1].EndpointPort() : 0U, PeerPort);
-    EXPECT_TRUE(directPing.has_value());
-    EXPECT_EQ(directPing ? directPing->Type : tailgate::disco::Disco::MessageType::Pong,
-              tailgate::disco::Disco::MessageType::Ping);
-    EXPECT_TRUE(callMeMaybe.has_value());
-    EXPECT_EQ(callMeMaybe ? callMeMaybe->Type : tailgate::disco::Disco::MessageType::Pong,
-              tailgate::disco::Disco::MessageType::CallMeMaybe);
-    EXPECT_EQ(callMeMaybe ? callMeMaybe->Endpoints : std::vector<tailgate::net::Endpoint>{},
-              (std::vector<tailgate::net::Endpoint>{serverEndpoint}));
+    EXPECT_EQ(probes[1].EndpointPort(), PeerPort);
+    EXPECT_EQ(directPing->Type, tailgate::disco::Disco::MessageType::Ping);
+    EXPECT_EQ(callMeMaybe->Type, tailgate::disco::Disco::MessageType::CallMeMaybe);
+    EXPECT_EQ(callMeMaybe->Endpoints, (std::vector<tailgate::net::Endpoint>{serverEndpoint}));
 }
 
 TEST(Given_HostedDiscoProbes, When_PeerHasNoUsableEndpoint_Then_ServerCandidatesAreNotAdvertised)

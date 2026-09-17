@@ -9,6 +9,7 @@
 
 #include <tailgate/base/ByteStream.h>
 #include <tailgate/crypto/Crypto.h>
+#include <tailgate/hosted/PacketFraming.h>
 #include <tailgate/net/Endpoint.h>
 #include <tailgate/types/netmap/NetworkMap.h>
 
@@ -37,6 +38,9 @@ enum class MessageType : std::uint16_t
     PeerEndpoint = 18,
     DataPathReady = 19,
     ServerEndpointCandidates = 20,
+    PumpSchedule = 21,
+    Pump = 22,
+    Fragment = 23,
 };
 
 class Frame
@@ -66,6 +70,9 @@ public:
     }
 
 private:
+    [[nodiscard]] std::size_t EncodedSize() const;
+    void AppendTo(std::vector<std::uint8_t>& output) const;
+
     MessageType m_type;
     std::vector<std::uint8_t> m_payload;
 };
@@ -479,6 +486,10 @@ public:
 private:
     std::vector<std::uint8_t> m_buffer;
     std::size_t m_offset = 0;
+    PacketReassembler m_fragments;
+    std::vector<std::uint8_t> m_streamBuffer;
+    std::size_t m_streamOffset = 0;
+    bool m_fragmented = false;
 };
 
 } // namespace tailgate::hosted

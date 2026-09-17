@@ -1,12 +1,14 @@
 #include "tailgate/hosted/Client.h"
 
 #include <algorithm>
+#include <map>
 #include <string_view>
 #include <utility>
 
 #include <tailgate/base/Logger.h>
 #include <tailgate/derp/Client.h>
 #include <tailgate/hosted/DiscoProbes.h>
+#include <tailgate/hosted/Pump.h>
 #include <tailgate/net/packet/Ipv4.h>
 #include <tailgate/net/packet/Tsmp.h>
 #include <tailgate/wgengine/wireguard/Router.h>
@@ -20,6 +22,12 @@ constexpr std::string_view IdentityChangedMessage = "Tailgate relay changed the 
 constexpr std::string_view NotActiveMessage = "The hosted client is not active.";
 constexpr std::string_view NodeKeyPrefix = "nodekey:";
 constexpr std::string_view DiscoKeyPrefix = "discokey:";
+
+enum class EndpointProof
+{
+    WireGuardPacket,
+    DiscoPong,
+};
 
 void AppendFrame(std::vector<std::uint8_t>& output, const Frame& frame)
 {
@@ -67,6 +75,7 @@ public:
     {
         Config = std::move(config);
         ServerCandidates.clear();
+        DirectEndpoints.clear();
         Router = std::make_unique<tailgate::wgengine::wireguard::WireGuardRouter>(
             Config.NodePrivateKey, Config.Network.Peers(), Config.ExitNode);
         DiscoState =
@@ -79,7 +88,19 @@ public:
         Router.reset();
         DiscoState.reset();
         ServerCandidates.clear();
+        DirectEndpoints.clear();
         Config = {};
+    }
+
+    [[nodiscard]] std::vector<std::uint8_t> EncapsulateTo(const tailgate::crypto::Bytes32& peer,
+                                                          const std::vector<std::uint8_t>& packet)
+    {
+        std::vector<std::uint8_t> output;
+        if (Router)
+        {
+            AppendTransportPackets(output, Router->SendTo(peer, packet));
+        }
+        return output;
     }
 
     [[nodiscard]] std::vector<std::uint8_t> Encapsulate(const std::vector<std::uint8_t>& packet)
@@ -107,6 +128,13 @@ public:
             break;
         case MessageType::Heartbeat:
             ProcessHeartbeat(result.RemoteOutput);
+            break;
+        case MessageType::Pump:
+            result.PumpReply = TryDecodePumpReply(frame.Payload());
+            if (!result.PumpReply)
+            {
+                throw PumpException(PumpError::InvalidMessage);
+            }
             break;
         case MessageType::DerpChallenge:
             ProcessDerpChallenge(frame, result.RemoteOutput);
@@ -155,6 +183,8 @@ public:
             Config.ExitNode = std::move(*exitNode);
         }
         Config.Network = std::move(config);
+        // The relay refreshes its path state on network-map changes as well.
+        DirectEndpoints.clear();
         Router->UpdatePeers(Config.Network.Peers(), Config.ExitNode);
         return EncodeNetworkMapFrame(Config.Network);
     }
@@ -174,6 +204,11 @@ public:
         tailgate::wgengine::wireguard::WireGuardRouter::ReceiveResult received =
             hasDirectSource ? Router->Receive(packet.Payload())
                             : Router->Receive(packet.Peer(), packet.Payload());
+        if (hasDirectSource && received.Accepted)
+        {
+            RecordDirectEndpoint(
+                received.Source, packet, EndpointProof::WireGuardPacket, result.RemoteOutput);
+        }
         AppendTransportPackets(result.RemoteOutput, std::move(received.Outbound));
         for (auto& plaintext : received.Plaintext)
         {
@@ -185,7 +220,7 @@ public:
                 AppendTransportPackets(result.RemoteOutput, Router->Send(*pong));
                 continue;
             }
-            result.LocalPackets.push_back(std::move(plaintext));
+            result.LocalPackets.push_back({.Peer = received.Source, .Bytes = std::move(plaintext)});
         }
     }
 
@@ -227,14 +262,8 @@ public:
             result.Pong = DiscoPong{.Message = *message, .Packet = packet};
             if (packet.EndpointAddress() != 0 && packet.EndpointPort() != 0)
             {
-                const PeerEndpoint endpoint(
-                    packet.Peer(),
-                    tailgate::net::Endpoint(
-                        tailgate::net::Ipv4Address::FromHostOrder(packet.EndpointAddress()),
-                        packet.EndpointPort()));
-                AppendFrame(
-                    result.RemoteOutput,
-                    Frame(MessageType::PeerEndpoint, ProtocolCodec::EncodePeerEndpoint(endpoint)));
+                RecordDirectEndpoint(
+                    packet.Peer(), packet, EndpointProof::DiscoPong, result.RemoteOutput);
             }
             return;
         }
@@ -291,6 +320,30 @@ public:
             AppendPeerPackets(result.RemoteOutput,
                               BuildDiscoEndpointProbes(*DiscoState, *peer, ServerCandidates));
         }
+    }
+
+    void RecordDirectEndpoint(const tailgate::crypto::Bytes32& authenticatedPeer,
+                              const PeerPacket& packet,
+                              EndpointProof proof,
+                              std::vector<std::uint8_t>& output)
+    {
+        const tailgate::net::Endpoint endpoint(
+            tailgate::net::Ipv4Address::FromHostOrder(packet.EndpointAddress()),
+            packet.EndpointPort());
+        const auto found = DirectEndpoints.find(authenticatedPeer);
+        // The relay can expire a path independently of this cache. Authenticated
+        // probe replies renew its proof of reachability even at the same endpoint;
+        // data packets still avoid sending a control frame for every packet.
+        if (proof == EndpointProof::WireGuardPacket && found != DirectEndpoints.end() &&
+            found->second == endpoint)
+        {
+            return;
+        }
+        DirectEndpoints.insert_or_assign(authenticatedPeer, endpoint);
+        AppendFrame(
+            output,
+            Frame(MessageType::PeerEndpoint,
+                  ProtocolCodec::EncodePeerEndpoint(PeerEndpoint(authenticatedPeer, endpoint))));
     }
 
     void ProcessHeartbeat(std::vector<std::uint8_t>& output)
@@ -350,6 +403,7 @@ public:
     std::unique_ptr<tailgate::wgengine::wireguard::WireGuardRouter> Router;
     std::unique_ptr<tailgate::disco::Disco> DiscoState;
     std::vector<tailgate::net::Endpoint> ServerCandidates;
+    std::map<tailgate::crypto::Bytes32, tailgate::net::Endpoint> DirectEndpoints;
     tailgate::base::Logger Logger{"hosted-client"};
 };
 
@@ -398,6 +452,12 @@ const std::string& Client::ExitNode() const noexcept
 std::vector<std::uint8_t> Client::Encapsulate(const std::vector<std::uint8_t>& packet)
 {
     return m_impl->Encapsulate(packet);
+}
+
+std::vector<std::uint8_t> Client::EncapsulateTo(const tailgate::crypto::Bytes32& peer,
+                                                const std::vector<std::uint8_t>& packet)
+{
+    return m_impl->EncapsulateTo(peer, packet);
 }
 
 ClientProcessResult Client::Process(const Frame& frame)

@@ -1,5 +1,6 @@
 tailgate_add_test_library(
     tailgate_tests_core_control_client
+    Given_CapabilityFilters.cpp
     Given_ControlConnection.cpp
     Given_ControlConnectionEvents.cpp
     Given_ControlDialer.cpp

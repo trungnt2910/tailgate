@@ -18,8 +18,12 @@ tailgate_uwp_add_library(
     Settings.h
     TailgateRelay.cpp
     TailgateRelay.h
+    TcpPortReservationFactory.cpp
+    TcpPortReservationFactory.h
     TcpSocketFactory.cpp
     TcpSocketFactory.h
+    TimeProvider.cpp
+    TimeProvider.h
     UwpAliases.h
     UwpAppServiceProtocol.cpp
     UwpAppServiceProtocol.h
@@ -42,4 +46,4 @@ target_include_directories(
         ${TAILGATE_UWP_GENERATED_DIR}
 )
 target_link_libraries(Tailgate.Uwp.Common PUBLIC tailgate_core)
-target_link_libraries(Tailgate.Uwp.Common PRIVATE Boost::algorithm)
+target_link_libraries(Tailgate.Uwp.Common PRIVATE Boost::algorithm ws2_32)

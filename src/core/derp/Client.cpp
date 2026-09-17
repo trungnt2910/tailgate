@@ -149,9 +149,7 @@ void DerpClient::Connect(const std::string& hostname)
 
 void DerpClient::Send(const Key& destination, const std::vector<std::uint8_t>& packet)
 {
-    std::vector<std::uint8_t> payload(destination.begin(), destination.end());
-    payload.insert(payload.end(), packet.begin(), packet.end());
-    WriteFrame(SendPacketFrame, payload);
+    WriteFrame(SendPacketFrame, packet, destination);
 }
 
 DerpClient::Packet DerpClient::Receive()
@@ -333,7 +331,8 @@ bool DerpClient::HasBufferedInput() const
 
 void DerpClient::SetPreferred(bool preferred)
 {
-    WriteFrame(PreferredFrame, {static_cast<std::uint8_t>(preferred ? 1 : 0)});
+    const std::array<std::uint8_t, 1> payload{static_cast<std::uint8_t>(preferred ? 1 : 0)};
+    WriteFrame(PreferredFrame, payload);
 }
 
 void DerpClient::Flush()
@@ -361,20 +360,24 @@ bool DerpClient::HasPendingOutput() const
     return SendOffset < SendBuffer.size();
 }
 
-void DerpClient::WriteFrame(std::uint8_t type, const std::vector<std::uint8_t>& payload)
+void DerpClient::WriteFrame(std::uint8_t type,
+                            std::span<const std::uint8_t> payload,
+                            std::span<const std::uint8_t> prefix)
 {
-    if (payload.size() > MaximumFrameSize)
+    if (prefix.size() > MaximumFrameSize || payload.size() > MaximumFrameSize - prefix.size())
     {
         throw std::runtime_error("DERP frame is too large.");
     }
-    const std::uint32_t size = static_cast<std::uint32_t>(payload.size());
-    std::vector<std::uint8_t> frame{type,
-                                    static_cast<std::uint8_t>(size >> 24),
-                                    static_cast<std::uint8_t>(size >> 16),
-                                    static_cast<std::uint8_t>(size >> 8),
-                                    static_cast<std::uint8_t>(size)};
-    frame.insert(frame.end(), payload.begin(), payload.end());
-    SendBuffer.insert(SendBuffer.end(), frame.begin(), frame.end());
+    const std::uint32_t size = static_cast<std::uint32_t>(prefix.size() + payload.size());
+    const std::array<std::uint8_t, FrameHeaderSize> header{type,
+                                                           static_cast<std::uint8_t>(size >> 24),
+                                                           static_cast<std::uint8_t>(size >> 16),
+                                                           static_cast<std::uint8_t>(size >> 8),
+                                                           static_cast<std::uint8_t>(size)};
+    // Queue owned bytes once; intermediate payload/frame vectors multiply per-packet work.
+    SendBuffer.insert(SendBuffer.end(), header.begin(), header.end());
+    SendBuffer.insert(SendBuffer.end(), prefix.begin(), prefix.end());
+    SendBuffer.insert(SendBuffer.end(), payload.begin(), payload.end());
     Flush();
 }
 

@@ -2,6 +2,8 @@
 // any standard-library header includes libc++'s configuration.
 #define _LIBCPP_ENABLE_EXPERIMENTAL
 
+#include "DirectConnection.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -77,10 +79,14 @@
 #include <tailgate/wgengine/router/Config.h>
 #include <tailgate/wgengine/wireguard/Router.h>
 
+#include "event/EventRegistry.h"
+
 #include "DI.h"
 #include "DataplaneEvents.h"
 #include "Files.h"
 #include "HostedConnectionRegistry.h"
+#include "HostedServer.h"
+#include "Lifecycle.h"
 #include "Network.h"
 #include "PeerApiServer.h"
 #include "PingIpc.h"
@@ -88,13 +94,8 @@
 #include "RelayServer.h"
 #include "State.h"
 #include "StatusWriter.h"
-#include "UniqueFd.h"
-#include "event/EventRegistry.h"
-
-#include "DirectConnection.h"
-#include "HostedServer.h"
-#include "Lifecycle.h"
 #include "TunnelRunner.h"
+#include "UniqueFd.h"
 
 namespace
 {
@@ -464,42 +465,35 @@ void RunConnectionImpl(const std::string& authKey,
     {
         hostedConnections.UpdateNetworkMap(next);
     };
-    tailgate::linux_frontend::RunTunnel(nodePrivateKey,
-                                        control.NodePublicKey(),
-                                        control.DiscoPrivateKey(),
-                                        config.SelfAddress(),
-                                        config.FirstIpv6Address(),
-                                        config.SelfName(),
-                                        config.MagicDnsDomain().empty() ? config.Domain()
-                                                                        : config.MagicDnsDomain(),
-                                        config.DnsResolver(),
-                                        config.DnsDomains(),
-                                        config.DnsDefaultResolvers(),
-                                        config.DnsRoutes(),
-                                        config.Peers(),
-                                        derpRegion,
-                                        derpHost,
-                                        exitNode,
-                                        acceptDns,
-                                        funnel,
-                                        funnelCertificatePem,
-                                        funnelPrivateKeyPem,
-                                        std::move(ownedControl),
-                                        eventRegistry,
-                                        engine,
-                                        session,
-                                        connection,
-                                        derpConnectionFactory,
-                                        hostedConnections,
-                                        status,
-                                        readyFd,
-                                        true,
-                                        true,
-                                        false,
-                                        -1,
-                                        handleUpdate,
-                                        {},
-                                        {});
+    tailgate::linux_frontend::RunTunnel(
+        nodePrivateKey,
+        control.NodePublicKey(),
+        control.DiscoPrivateKey(),
+        config,
+        derpRegion,
+        derpHost,
+        exitNode,
+        acceptDns,
+        funnel,
+        funnelCertificatePem,
+        funnelPrivateKeyPem,
+        std::move(ownedControl),
+        eventRegistry,
+        engine,
+        session,
+        &networkInjector.create<tailgate::ipn::ipnlocal::LocalServices&>(),
+        connection,
+        derpConnectionFactory,
+        hostedConnections,
+        status,
+        readyFd,
+        true,
+        true,
+        false,
+        -1,
+        handleUpdate,
+        {},
+        {});
 }
 
 } // namespace

@@ -1,14 +1,27 @@
+#include <memory>
+
 #include <gtest/gtest.h>
 
+#include <tailgate/base/TimeProvider.h>
 #include <tailgate/hosted/Client.h>
 #include <tailgate/hosted/ClientSession.h>
 #include <tailgate/types/nettype/TcpSocket.h>
 #include <tailgate/wgengine/tstun/Device.h>
 
+#include "common/TcpPortReservationFactory.h"
 #include "common/TcpSocketFactory.h"
 
 #include "bg/DI.h"
 #include "bg/tstun/PacketDevice.h"
+
+TEST(Given_UwpBackgroundBindings, When_ResolvingTimeProvider_Then_ProductionGraphProvidesClock)
+{
+    auto injector = tailgate::uwp::bg::CreateRs2PluginInjector();
+
+    const auto clock = injector->create<std::shared_ptr<tailgate::base::TimeProvider>>();
+
+    EXPECT_NE(clock, nullptr);
+}
 
 TEST(Given_UwpBackgroundBindings, When_ResolvingServiceTwice_Then_ProductionGraphIsScoped)
 {
@@ -38,4 +51,16 @@ TEST(Given_UwpBackgroundBindings, When_ResolvingTcpFactory_Then_GenericSocketsUs
 
     EXPECT_EQ(abstractFactory,
               static_cast<tailgate::types::nettype::TcpSocketFactory*>(concreteFactory));
+}
+
+TEST(Given_UwpBackgroundBindings, When_ResolvingPortReservations_Then_CoreUsesThePlatformFactory)
+{
+    auto injector = tailgate::uwp::bg::CreateRs2PluginInjector();
+
+    auto* abstractFactory =
+        &injector->create<tailgate::types::nettype::TcpPortReservationFactory&>();
+    auto* concreteFactory = &injector->create<tailgate::uwp::TcpPortReservationFactory&>();
+
+    EXPECT_EQ(abstractFactory,
+              static_cast<tailgate::types::nettype::TcpPortReservationFactory*>(concreteFactory));
 }

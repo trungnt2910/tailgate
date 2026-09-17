@@ -12,6 +12,12 @@
 namespace tailgate::control::client
 {
 
+class InvalidMapResponse final : public std::runtime_error
+{
+public:
+    InvalidMapResponse();
+};
+
 class MapStreamRejected final : public std::runtime_error
 {
 public:
@@ -21,6 +27,9 @@ public:
 class MapStreamResponse final
 {
 public:
+    [[nodiscard]] static std::string DecodeMap(const std::vector<std::uint8_t>& body,
+                                               std::size_t maximumSize);
+
     void Start(std::uint32_t streamId) noexcept;
     [[nodiscard]] bool Handles(std::uint32_t streamId) const noexcept;
     void ReceiveHeaders(const tailgate::control::base::H2Headers& headers);

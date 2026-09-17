@@ -1,5 +1,6 @@
 #include "tailgate/serve/PeerApiIngress.h"
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <map>
@@ -294,8 +295,20 @@ public:
         {
             return std::nullopt;
         }
-        std::vector<std::uint8_t> buffer(maxBytes);
-        const int result = mbedtls_ssl_read(&m_tls, buffer.data(), buffer.size());
+        const int maximumRecordPayload = mbedtls_ssl_get_max_in_record_payload(&m_tls);
+        if (maximumRecordPayload < 0)
+        {
+            throw TlsError("TLS ingress record size query failed", maximumRecordPayload);
+        }
+        const std::size_t readSize =
+            std::min(maxBytes, static_cast<std::size_t>(maximumRecordPayload));
+        // Preserve initialized storage across short and would-block reads. Repeatedly
+        // constructing the whole budget has substantial per-byte cost in sanitizer builds.
+        if (m_readBuffer.size() < readSize)
+        {
+            m_readBuffer.resize(readSize);
+        }
+        const int result = mbedtls_ssl_read(&m_tls, m_readBuffer.data(), readSize);
         if (result == TlsIoWantRead || result == TlsIoWantWrite)
         {
             return std::nullopt;
@@ -309,8 +322,7 @@ public:
         {
             throw TlsError("TLS ingress read failed", result);
         }
-        buffer.resize(static_cast<std::size_t>(result));
-        return buffer;
+        return std::vector<std::uint8_t>(m_readBuffer.begin(), m_readBuffer.begin() + result);
     }
 
     bool HasBufferedInput() const override
@@ -331,6 +343,7 @@ public:
 private:
     TlsStreamContext m_context;
     mbedtls_ssl_context m_tls{};
+    std::vector<std::uint8_t> m_readBuffer;
     bool m_handshakeComplete = false;
     bool m_handshakeWantsRead = false;
     bool m_handshakeWantsWrite = false;

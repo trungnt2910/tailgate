@@ -37,6 +37,7 @@ public:
     [[nodiscard]] PacketQueueResult QueueInput(std::vector<std::uint8_t> packet);
     [[nodiscard]] std::vector<std::vector<std::uint8_t>> DrainOutput();
     [[nodiscard]] bool WriteInterest() const noexcept;
+    [[nodiscard]] bool HasOutput() const noexcept;
     void PrepareTransport(const winrt::Windows::Networking::Vpn::VpnChannel& channel);
     [[nodiscard]] bool HasTransportSocket() const;
     [[nodiscard]] winrt::Windows::Networking::Sockets::StreamSocket TransportSocket() const;

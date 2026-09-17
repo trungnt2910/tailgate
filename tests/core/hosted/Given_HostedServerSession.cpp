@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -9,6 +10,7 @@
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/di/Bindings.h>
 #include <tailgate/hosted/Protocol.h>
+#include <tailgate/hosted/Pump.h>
 #include <tailgate/hosted/ServerSession.h>
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/dns/Dns.h>
@@ -17,9 +19,20 @@
 #include <tailgate/types/netmap/NetworkMap.h>
 
 #include "fakes/di/FakeNetworkBindings.h"
+#include "fakes/hosted/ActiveServerSession.h"
 
+namespace tailgate::tests
+{
 namespace
 {
+
+class Given_HostedServerSession : public testing::Test
+{
+protected:
+    fakes::ActiveServerSession m_active;
+    fakes::FakeTimeProvider& m_clock =
+        dynamic_cast<fakes::FakeTimeProvider&>(m_active.Injector.create<base::TimeProvider&>());
+};
 
 constexpr std::uint64_t NodeId = 42;
 constexpr std::uint16_t DnsTransactionId = 0x1234;
@@ -27,63 +40,9 @@ constexpr std::uint16_t DnsSourcePort = 49152;
 constexpr std::uint32_t ClientAddress =
     tailgate::net::Ipv4Address::FromOctets(100, 64, 0, 1).HostOrder();
 
-struct ActiveServerSession
-{
-    tailgate::di::Injector Injector;
-    tailgate::crypto::Bytes32 ClientPrivateKey = tailgate::crypto::GeneratePrivateKey();
-    tailgate::crypto::Bytes32 ClientPublicKey =
-        tailgate::crypto::X25519PublicFromPrivate(ClientPrivateKey);
-    tailgate::crypto::Bytes32 RelayPrivateKey = tailgate::crypto::GeneratePrivateKey();
-    tailgate::crypto::Bytes32 RelayPublicKey =
-        tailgate::crypto::X25519PublicFromPrivate(RelayPrivateKey);
-    std::unique_ptr<tailgate::hosted::ServerSession> Session;
-    tailgate::types::netmap::NetworkConfig Network;
+using tailgate::tests::fakes::ActiveServerSession;
 
-    ActiveServerSession()
-    {
-        tailgate::tests::fakes::InstallFakeNetworkBindings(Injector);
-        auto& factory = Injector.create<tailgate::hosted::ServerSessionFactory&>();
-        Session = factory.CreateServerSession(tailgate::hosted::ServerSessionOptions{
-            .ExpectedTailnet = "example.ts.net",
-            .RelayHostName = "relay.example.ts.net",
-            .RelayHostAddress = "100.64.0.10",
-            .RelayPrivateKey = RelayPrivateKey,
-            .RelayPublicKey = RelayPublicKey,
-        });
-        const tailgate::hosted::Challenge challenge =
-            tailgate::hosted::ProtocolCodec::DecodeChallenge(
-                Session->StartAuthentication().Payload());
-        const tailgate::crypto::Bytes32 clientNonce = tailgate::crypto::GeneratePrivateKey();
-        const tailgate::hosted::Authentication authentication(
-            "example.ts.net",
-            NodeId,
-            "client.example.ts.net",
-            "TestOS",
-            "1",
-            ClientPublicKey,
-            clientNonce,
-            tailgate::hosted::CreateClientProof(ClientPrivateKey,
-                                                challenge.RelayPublicKey(),
-                                                challenge.ServerNonce(),
-                                                clientNonce));
-        (void)Session->EvaluateAuthentication(tailgate::hosted::Frame(
-            tailgate::hosted::MessageType::Authenticate,
-            tailgate::hosted::ProtocolCodec::EncodeAuthentication(authentication)));
-        (void)Session->CompleteAuthentication(true);
-        Network.Domain("example.ts.net");
-        Network.SelfNodeId(NodeId);
-        Network.SelfKey("nodekey:" + tailgate::crypto::BytesToHex(ClientPublicKey.data(),
-                                                                  ClientPublicKey.size()));
-        Network.SelfAddress("100.64.0.1");
-        Network.SelfName("client.example.ts.net");
-        Network.MagicDnsDomain("example.ts.net");
-        (void)Session->AcceptInitialNetworkMap(
-            tailgate::hosted::Frame(tailgate::hosted::MessageType::NetworkMap,
-                                    tailgate::hosted::ProtocolCodec::EncodeNetworkConfig(Network)));
-    }
-};
-
-TEST(Given_HostedServerSession, When_ClientProofIsValid_Then_SessionIsAuthenticated)
+TEST_F(Given_HostedServerSession, When_ClientProofIsValid_Then_SessionIsAuthenticated)
 {
     tailgate::di::Injector injector;
     tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
@@ -126,7 +85,7 @@ TEST(Given_HostedServerSession, When_ClientProofIsValid_Then_SessionIsAuthentica
     EXPECT_EQ(result.Type(), tailgate::hosted::MessageType::Authenticated);
 }
 
-TEST(Given_HostedServerSession, When_NetworkMapChangesIdentity_Then_TypedErrorIsReturned)
+TEST_F(Given_HostedServerSession, When_NetworkMapChangesIdentity_Then_TypedErrorIsReturned)
 {
     ActiveServerSession active;
     tailgate::types::netmap::NetworkConfig changed = active.Network;
@@ -148,7 +107,7 @@ TEST(Given_HostedServerSession, When_NetworkMapChangesIdentity_Then_TypedErrorIs
     EXPECT_EQ(error, tailgate::hosted::ServerSessionError::NetworkMapIdentityChanged);
 }
 
-TEST(Given_HostedServerSession, When_ClientPacketArrives_Then_PayloadIsClassifiedForForwarding)
+TEST_F(Given_HostedServerSession, When_ClientPacketArrives_Then_PayloadIsClassifiedForForwarding)
 {
     ActiveServerSession active;
     const std::vector<std::uint8_t> payload{1, 2, 3, 4};
@@ -160,7 +119,7 @@ TEST(Given_HostedServerSession, When_ClientPacketArrives_Then_PayloadIsClassifie
     EXPECT_EQ(*result.PeerPacketPayload, payload);
 }
 
-TEST(Given_HostedServerSession, When_VerifiedPeerEndpointArrives_Then_UpdateIsForwarded)
+TEST_F(Given_HostedServerSession, When_VerifiedPeerEndpointArrives_Then_UpdateIsForwarded)
 {
     ActiveServerSession active;
     tailgate::crypto::Bytes32 peer{};
@@ -178,7 +137,7 @@ TEST(Given_HostedServerSession, When_VerifiedPeerEndpointArrives_Then_UpdateIsFo
     EXPECT_EQ(result.VerifiedPeerEndpoint->Endpoint(), endpoint);
 }
 
-TEST(Given_HostedServerSession, When_TailnetDnsQueryArrives_Then_CoreBuildsResponse)
+TEST_F(Given_HostedServerSession, When_TailnetDnsQueryArrives_Then_CoreBuildsResponse)
 {
     ActiveServerSession active;
     tailgate::types::netmap::PeerConfig peer;
@@ -207,7 +166,7 @@ TEST(Given_HostedServerSession, When_TailnetDnsQueryArrives_Then_CoreBuildsRespo
               tailgate::hosted::MessageType::TailnetDnsResponse);
 }
 
-TEST(Given_HostedServerSession, When_DerpChallengesAreBuilt_Then_RequestIdsAreMonotonic)
+TEST_F(Given_HostedServerSession, When_DerpChallengesAreBuilt_Then_RequestIdsAreMonotonic)
 {
     ActiveServerSession active;
     const tailgate::crypto::Bytes32 firstKey = tailgate::crypto::GeneratePrivateKey();
@@ -223,4 +182,98 @@ TEST(Given_HostedServerSession, When_DerpChallengesAreBuilt_Then_RequestIdsAreMo
     EXPECT_EQ(second.Output.Type(), tailgate::hosted::MessageType::DerpChallenge);
 }
 
+TEST_F(Given_HostedServerSession, When_ImmediateScheduleArrives_Then_ExactlyOneReplyIsReady)
+{
+    const auto request = hosted::EncodePumpSchedule(
+        hosted::PumpSchedule{.RequestId = 1, .Delay = std::chrono::milliseconds::zero()});
+
+    const auto processed = m_active.Session->Process(request);
+    const auto reply = m_active.Session->TakeDuePump();
+    const auto repeated = m_active.Session->TakeDuePump();
+    const auto requestId = reply ? hosted::TryDecodePumpReply(reply->Payload()) : std::nullopt;
+
+    EXPECT_TRUE(processed.PumpScheduleChanged);
+    EXPECT_TRUE(processed.RemoteOutput.empty());
+    EXPECT_EQ(requestId, 1U);
+    EXPECT_FALSE(repeated.has_value());
+    EXPECT_FALSE(m_active.Session->NextPumpDeadline().has_value());
+}
+
+TEST_F(Given_HostedServerSession, When_DeadlineHasNotPassed_Then_ReplyRemainsPending)
+{
+    const auto delay = std::chrono::milliseconds(100);
+    (void)m_active.Session->Process(
+        hosted::EncodePumpSchedule(hosted::PumpSchedule{.RequestId = 1, .Delay = delay}));
+
+    m_clock.Advance(delay - std::chrono::milliseconds(1));
+    const auto early = m_active.Session->TakeDuePump();
+    m_clock.Advance(std::chrono::milliseconds(1));
+    const auto due = m_active.Session->TakeDuePump();
+    const auto requestId = due ? hosted::TryDecodePumpReply(due->Payload()) : std::nullopt;
+
+    EXPECT_FALSE(early.has_value());
+    EXPECT_EQ(requestId, 1U);
+}
+
+TEST_F(Given_HostedServerSession, When_NewerScheduleArrives_Then_ItReplacesTheDeadline)
+{
+    (void)m_active.Session->Process(hosted::EncodePumpSchedule(
+        hosted::PumpSchedule{.RequestId = 1, .Delay = std::chrono::milliseconds(1)}));
+
+    const auto processed = m_active.Session->Process(hosted::EncodePumpSchedule(
+        hosted::PumpSchedule{.RequestId = 2, .Delay = std::chrono::milliseconds(100)}));
+    m_clock.Advance(std::chrono::milliseconds(1));
+    const auto oldDeadline = m_active.Session->TakeDuePump();
+    m_clock.Advance(std::chrono::milliseconds(99));
+    const auto due = m_active.Session->TakeDuePump();
+    const auto requestId = due ? hosted::TryDecodePumpReply(due->Payload()) : std::nullopt;
+
+    EXPECT_TRUE(processed.PumpScheduleChanged);
+    EXPECT_FALSE(oldDeadline.has_value());
+    EXPECT_EQ(requestId, 2U);
+}
+
+TEST_F(Given_HostedServerSession, When_CancelIsFollowedByStaleRequest_Then_NoReplyIsSent)
+{
+    const auto request = hosted::EncodePumpSchedule(
+        hosted::PumpSchedule{.RequestId = 1, .Delay = std::chrono::milliseconds::zero()});
+    (void)m_active.Session->Process(request);
+
+    const auto cancelled = m_active.Session->Process(
+        hosted::EncodePumpSchedule(hosted::PumpSchedule{.RequestId = 2, .Delay = std::nullopt}));
+    const auto stale = m_active.Session->Process(request);
+    const auto reply = m_active.Session->TakeDuePump();
+
+    EXPECT_TRUE(cancelled.PumpScheduleChanged);
+    EXPECT_FALSE(stale.PumpScheduleChanged);
+    EXPECT_FALSE(reply.has_value());
+    EXPECT_FALSE(m_active.Session->NextPumpDeadline().has_value());
+}
+
+TEST_F(Given_HostedServerSession, When_ImmediateRequestsRepeat_Then_RepliesAreRateLimited)
+{
+    (void)m_active.Session->Process(hosted::EncodePumpSchedule(
+        hosted::PumpSchedule{.RequestId = 1, .Delay = std::chrono::milliseconds::zero()}));
+    ASSERT_TRUE(m_active.Session->TakeDuePump().has_value());
+
+    (void)m_active.Session->Process(hosted::EncodePumpSchedule(
+        hosted::PumpSchedule{.RequestId = 2, .Delay = std::chrono::milliseconds::zero()}));
+    const auto immediate = m_active.Session->TakeDuePump();
+    m_clock.Advance(hosted::MinimumPumpInterval);
+    const auto due = m_active.Session->TakeDuePump();
+    const auto requestId = due ? hosted::TryDecodePumpReply(due->Payload()) : std::nullopt;
+
+    EXPECT_FALSE(immediate.has_value());
+    EXPECT_EQ(requestId, 2U);
+}
+
+TEST_F(Given_HostedServerSession, When_ScheduleIsMalformed_Then_ItCannotCreateWork)
+{
+    const hosted::Frame request(hosted::MessageType::PumpSchedule, {1, 2, 3});
+
+    EXPECT_THROW((void)m_active.Session->Process(request), hosted::PumpException);
+    EXPECT_FALSE(m_active.Session->NextPumpDeadline().has_value());
+}
+
 } // namespace
+} // namespace tailgate::tests

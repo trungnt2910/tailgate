@@ -4,7 +4,9 @@ add_subdirectory(crypto)
 add_subdirectory(derp)
 add_subdirectory(di)
 add_subdirectory(disco)
+add_subdirectory(drive)
 add_subdirectory(hosted)
+add_subdirectory(ipn)
 add_subdirectory(net)
 add_subdirectory(qr)
 add_subdirectory(serve)
@@ -22,7 +24,10 @@ target_link_libraries(
         tailgate_core_derp
         tailgate_core_di
         tailgate_core_disco
+        tailgate_core_drive
+        tailgate_core_drive_driveimpl_compositedav
         tailgate_core_hosted
+        tailgate_core_ipn_ipnlocal
         tailgate_core_net
         tailgate_core_net_dns
         tailgate_core_net_http
@@ -36,6 +41,7 @@ target_link_libraries(
         tailgate_core_types_nettype
         tailgate_core_wgengine
         tailgate_core_wgengine_magicsock
+        tailgate_core_wgengine_netstack
         tailgate_core_wgengine_ping
         tailgate_core_wgengine_router
         tailgate_core_wgengine_tstun

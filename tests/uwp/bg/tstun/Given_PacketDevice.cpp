@@ -43,11 +43,14 @@ TEST(Given_PacketDevice, When_CoreWritesPacket_Then_PlatformCanDrainIt)
     const std::vector<std::uint8_t> packet{5, 6, 7, 8};
 
     const tailgate::wgengine::tstun::DeviceIoResult writeResult = subject.TryWrite(packet);
+    const bool pending = subject.HasOutput();
     const std::vector<std::vector<std::uint8_t>> packets = subject.DrainOutput();
 
     ASSERT_EQ(packets.size(), 1U);
     EXPECT_EQ(writeResult, tailgate::wgengine::tstun::DeviceIoResult::Complete);
     EXPECT_EQ(packets.front(), packet);
+    EXPECT_TRUE(pending);
+    EXPECT_FALSE(subject.HasOutput());
 }
 
 TEST(Given_PacketDevice, When_Closed_Then_PacketQueuesRejectInputAndOutput)

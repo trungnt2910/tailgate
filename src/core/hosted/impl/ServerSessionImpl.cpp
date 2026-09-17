@@ -10,6 +10,7 @@
 
 namespace tailgate::hosted::impl
 {
+
 namespace
 {
 
@@ -19,8 +20,9 @@ constexpr std::string_view NodeKeyPrefix = "nodekey:";
 
 } // namespace
 
-ServerSessionImpl::ServerSessionImpl(tailgate::hosted::ServerSessionOptions options)
-    : m_options(std::move(options))
+ServerSessionImpl::ServerSessionImpl(tailgate::hosted::ServerSessionOptions options,
+                                     tailgate::base::TimeProvider& timeProvider)
+    : m_timeProvider(timeProvider), m_options(std::move(options))
 {
 }
 
@@ -166,6 +168,15 @@ ServerSessionImpl::Process(const tailgate::hosted::Frame& frame)
     {
         result.ClientReady = true;
     }
+    else if (frame.Type() == tailgate::hosted::MessageType::PumpSchedule)
+    {
+        const auto schedule = tailgate::hosted::TryDecodePumpSchedule(frame.Payload());
+        if (!schedule)
+        {
+            throw tailgate::hosted::PumpException(tailgate::hosted::PumpError::InvalidMessage);
+        }
+        result.PumpScheduleChanged = AcceptPump(*schedule);
+    }
     else if (frame.Type() == tailgate::hosted::MessageType::Shutdown)
     {
         result.Shutdown = true;
@@ -230,10 +241,53 @@ bool ServerSessionImpl::ValidateNetworkMap(
            candidate.SelfKey() == expectedNodeKey;
 }
 
+ServerSessionFactoryImpl::ServerSessionFactoryImpl(
+    tailgate::base::TimeProvider& timeProvider) noexcept
+    : m_timeProvider(timeProvider)
+{
+}
+
 std::unique_ptr<tailgate::hosted::ServerSession>
 ServerSessionFactoryImpl::CreateServerSession(tailgate::hosted::ServerSessionOptions options)
 {
-    return std::make_unique<ServerSessionImpl>(std::move(options));
+    return std::make_unique<ServerSessionImpl>(std::move(options), m_timeProvider);
+}
+
+bool ServerSessionImpl::AcceptPump(const tailgate::hosted::PumpSchedule& schedule)
+{
+    // Process already holds the session lock. Old schedules must not undo a newer cancellation.
+    if (schedule.RequestId <= m_pumpRequestId)
+    {
+        return false;
+    }
+    m_pumpRequestId = schedule.RequestId;
+    m_pumpDeadline =
+        schedule.Delay ? std::optional(m_timeProvider.Now() + *schedule.Delay) : std::nullopt;
+    if (m_pumpDeadline && m_lastPump && *m_pumpDeadline < *m_lastPump + MinimumPumpInterval)
+    {
+        m_pumpDeadline = *m_lastPump + MinimumPumpInterval;
+    }
+    return true;
+}
+
+std::optional<tailgate::base::TimeProvider::TimePoint> ServerSessionImpl::NextPumpDeadline() const
+{
+    std::lock_guard lock(m_mutex);
+    RequireActive();
+    return m_pumpDeadline;
+}
+
+std::optional<tailgate::hosted::Frame> ServerSessionImpl::TakeDuePump()
+{
+    std::lock_guard lock(m_mutex);
+    RequireActive();
+    if (!m_pumpDeadline || m_timeProvider.Now() < *m_pumpDeadline)
+    {
+        return std::nullopt;
+    }
+    m_pumpDeadline.reset();
+    m_lastPump = m_timeProvider.Now();
+    return tailgate::hosted::EncodePumpReply(m_pumpRequestId);
 }
 
 } // namespace tailgate::hosted::impl

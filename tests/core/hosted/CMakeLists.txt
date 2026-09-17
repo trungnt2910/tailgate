@@ -1,11 +1,16 @@
 tailgate_add_test_library(
     tailgate_tests_core_hosted
+    Given_Frame.cpp
     Given_HostedClient.cpp
     Given_HostedClientSession.cpp
     Given_HostedConnection.cpp
     Given_HostedDiscoProbes.cpp
     Given_HostedDns.cpp
     Given_HostedServerSession.cpp
+    Given_HostedServerWriter.cpp
+    Given_PacketFraming.cpp
+    Given_PumpCodec.cpp
+    Given_PumpController.cpp
     Given_RelayProtocol.cpp
 )
 target_link_libraries(

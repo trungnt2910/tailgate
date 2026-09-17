@@ -9,14 +9,16 @@
 #include <tailgate/types/nettype/UdpSocket.h>
 #include <tailgate/wgengine/tstun/Device.h>
 
-#include "PacketDescriptorProvider.h"
 #include "event/EventRegistry.h"
 #include "impl/EventLoop.h"
 #include "impl/HostInfoProvider.h"
+#include "impl/TcpPortReservationFactory.h"
 #include "impl/TcpSocketFactory.h"
 #include "impl/TimeProvider.h"
 #include "impl/TunDevice.h"
 #include "impl/UdpSocketFactory.h"
+
+#include "PacketDescriptorProvider.h"
 
 namespace tailgate::linux_frontend
 {
@@ -34,6 +36,7 @@ void InstallBindings(tailgate::di::Injector& injector)
         boost_di::bind<tailgate::base::EventLoop>.to<linux_impl::EventLoop>(),
         boost_di::bind<tailgate::types::nettype::UdpSocketFactory>.to<linux_impl::UdpSocketFactory>(),
         boost_di::bind<tailgate::types::nettype::TcpSocketFactory>.to<linux_impl::TcpSocketFactory>(),
+        boost_di::bind<tailgate::types::nettype::TcpPortReservationFactory>.to<linux_impl::TcpPortReservationFactory>(),
         boost_di::bind<tailgate::wgengine::tstun::Device>.to<linux_impl::TunDevice>());
     tailgate::di::InstallCoreBindings(injector);
 }

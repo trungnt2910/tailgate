@@ -112,9 +112,11 @@ public:
     [[nodiscard]] virtual bool CanDisco(const tailgate::crypto::Bytes32& peer) const noexcept = 0;
     [[nodiscard]] virtual std::optional<SessionPeerStats>
     PeerStats(const tailgate::crypto::Bytes32& peer) const noexcept = 0;
-    [[nodiscard]] virtual SessionWaitResult Wait(std::size_t maximumEvents,
-                                                 std::size_t maximumPacketsPerSource,
-                                                 std::size_t maximumPacketSize) = 0;
+    [[nodiscard]] virtual SessionWaitResult
+    Wait(std::size_t maximumEvents,
+         std::size_t maximumPacketsPerSource,
+         std::size_t maximumPacketSize,
+         std::optional<base::TimeProvider::TimePoint> deadline = std::nullopt) = 0;
     virtual void Wake() noexcept = 0;
 
 protected:

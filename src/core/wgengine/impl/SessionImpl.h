@@ -51,7 +51,8 @@ public:
     [[nodiscard]] tailgate::wgengine::SessionWaitResult
     Wait(std::size_t maximumEvents,
          std::size_t maximumPacketsPerSource,
-         std::size_t maximumPacketSize) override;
+         std::size_t maximumPacketSize,
+         std::optional<base::TimeProvider::TimePoint> deadline = std::nullopt) override;
     void Wake() noexcept override;
 
 private:

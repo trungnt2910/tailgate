@@ -55,7 +55,7 @@ public:
     {
     }
 
-    void FlushLocal(std::vector<std::vector<std::uint8_t>>&) override
+    void FlushLocal(std::vector<std::vector<std::uint8_t>>&, std::vector<std::uint8_t>&) override
     {
     }
 

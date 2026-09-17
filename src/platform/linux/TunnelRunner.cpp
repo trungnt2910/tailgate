@@ -2,6 +2,8 @@
 // any standard-library header includes libc++'s configuration.
 #define _LIBCPP_ENABLE_EXPERIMENTAL
 
+#include "TunnelRunner.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -76,12 +78,16 @@
 #include <tailgate/wgengine/magicsock/PeerPathState.h>
 #include <tailgate/wgengine/router/Config.h>
 #include <tailgate/wgengine/wireguard/Router.h>
+#include <tailgate/wgengine/wireguard/Tunnel.h>
+
+#include "event/EventRegistry.h"
 
 #include "DI.h"
 #include "DataplaneEvents.h"
 #include "Files.h"
 #include "HostedConnectionRegistry.h"
 #include "HostedDerpRouteTable.h"
+#include "Lifecycle.h"
 #include "Network.h"
 #include "PeerApiServer.h"
 #include "PingIpc.h"
@@ -90,10 +96,6 @@
 #include "State.h"
 #include "StatusWriter.h"
 #include "UniqueFd.h"
-#include "event/EventRegistry.h"
-
-#include "Lifecycle.h"
-#include "TunnelRunner.h"
 
 namespace
 {
@@ -250,43 +252,46 @@ std::optional<std::string> TcpPortSummary(const std::vector<std::uint8_t>& packe
 namespace tailgate::linux_frontend
 {
 
-void RunTunnel(
-    const tailgate::crypto::Bytes32& nodePrivateKey,
-    const tailgate::crypto::Bytes32& nodePublicKey,
-    const tailgate::crypto::Bytes32& discoPrivateKey,
-    const std::string& selfIp,
-    const std::string& selfIpv6,
-    const std::string& selfDnsName,
-    const std::string& domain,
-    const std::string& initialDnsResolver,
-    const std::vector<std::string>& initialDnsDomains,
-    const std::vector<std::string>& initialDnsDefaultResolvers,
-    const std::vector<tailgate::types::netmap::NetworkConfig::DnsRoute>& initialDnsRoutes,
-    const std::vector<TailPeer>& peerConfigs,
-    int derpRegion,
-    const std::string& derpHost,
-    const std::string& exitNode,
-    bool acceptDns,
-    const tailgate::serve::FunnelConfig& funnel,
-    const std::string& funnelCertificatePem,
-    const std::string& funnelPrivateKeyPem,
-    std::unique_ptr<tailgate::control::client::Connection> controlConnection,
-    tailgate::linux_frontend::event::EventRegistry& eventRegistry,
-    tailgate::wgengine::Engine& engine,
-    tailgate::wgengine::Session& session,
-    tailgate::wgengine::magicsock::Connection& connection,
-    tailgate::derp::ConnectionFactory& derpConnectionFactory,
-    tailgate::linux_frontend::HostedConnectionRegistry& hostedConnections,
-    tailgate::linux_frontend::DaemonStatus& status,
-    int& readyFd,
-    bool configureHost,
-    bool persistStatus,
-    bool encryptedPacketTransport,
-    int relayControlFd,
-    std::function<void(const tailgate::types::netmap::NetworkConfig&)> networkMapUpdated,
-    std::function<void()> dataPathReady,
-    tailgate::derp::DerpClient::Authenticator derpAuthenticator)
+void RunTunnel(const tailgate::crypto::Bytes32& nodePrivateKey,
+               const tailgate::crypto::Bytes32& nodePublicKey,
+               const tailgate::crypto::Bytes32& discoPrivateKey,
+               const tailgate::types::netmap::NetworkConfig& initialNetworkConfig,
+               int derpRegion,
+               const std::string& derpHost,
+               const std::string& exitNode,
+               bool acceptDns,
+               const tailgate::serve::FunnelConfig& funnel,
+               const std::string& funnelCertificatePem,
+               const std::string& funnelPrivateKeyPem,
+               std::unique_ptr<tailgate::control::client::Connection> controlConnection,
+               tailgate::linux_frontend::event::EventRegistry& eventRegistry,
+               tailgate::wgengine::Engine& engine,
+               tailgate::wgengine::Session& session,
+               tailgate::ipn::ipnlocal::LocalServices* localServices,
+               tailgate::wgengine::magicsock::Connection& connection,
+               tailgate::derp::ConnectionFactory& derpConnectionFactory,
+               tailgate::linux_frontend::HostedConnectionRegistry& hostedConnections,
+               tailgate::linux_frontend::DaemonStatus& status,
+               int& readyFd,
+               bool configureHost,
+               bool persistStatus,
+               bool encryptedPacketTransport,
+               int relayControlFd,
+               std::function<void(const tailgate::types::netmap::NetworkConfig&)> networkMapUpdated,
+               std::function<void()> dataPathReady,
+               tailgate::derp::DerpClient::Authenticator derpAuthenticator)
 {
+    const auto& selfIp = initialNetworkConfig.SelfAddress();
+    const auto selfIpv6 = initialNetworkConfig.FirstIpv6Address();
+    const auto& selfDnsName = initialNetworkConfig.SelfName();
+    const auto& domain = initialNetworkConfig.MagicDnsDomain().empty()
+                             ? initialNetworkConfig.Domain()
+                             : initialNetworkConfig.MagicDnsDomain();
+    const auto& initialDnsResolver = initialNetworkConfig.DnsResolver();
+    const auto& initialDnsDomains = initialNetworkConfig.DnsDomains();
+    const auto& initialDnsDefaultResolvers = initialNetworkConfig.DnsDefaultResolvers();
+    const auto& initialDnsRoutes = initialNetworkConfig.DnsRoutes();
+    const auto& peerConfigs = initialNetworkConfig.Peers();
     if (controlConnection)
     {
         session.SetControlConnection(std::move(controlConnection));
@@ -598,16 +603,9 @@ void RunTunnel(
     };
     auto findIpv6Route = [&](const std::string& destination) -> PeerRuntime*
     {
-        auto found =
-            std::find_if(peers.begin(),
-                         peers.end(),
-                         [&](const PeerRuntime& peer)
-                         {
-                             return std::find(peer.Config.Addresses().begin(),
-                                              peer.Config.Addresses().end(),
-                                              destination) != peer.Config.Addresses().end();
-                         });
-        return found == peers.end() ? nullptr : &*found;
+        const auto address = tailgate::net::IpAddress::TryParse(destination);
+        const auto index = address ? routableNetworkMap.FindPeerAddress(*address) : std::nullopt;
+        return index ? &peers[*index] : nullptr;
     };
 
     auto peerForKey = [&](const tailgate::derp::DerpClient::Key& key) -> PeerRuntime*
@@ -763,13 +761,40 @@ void RunTunnel(
             throw std::runtime_error("packet device rejected an outbound packet");
         }
     };
-    const auto forwardEncryptedPacket = [&](const PeerRuntime& peer,
+    if (localServices != nullptr)
+    {
+        localServices->SetNetworkConfig(initialNetworkConfig);
+    }
+    const auto flushLocalServices = [&]()
+    {
+        if (localServices == nullptr)
+        {
+            return;
+        }
+        localServices->Poll();
+        for (auto& packet : localServices->TakeOutput(MaximumPacketsPerDescriptorCycle))
+        {
+            if (packet.ForwardFromHost)
+            {
+                session.SendPacket(packet.Bytes);
+            }
+            else if (packet.Peer)
+            {
+                session.SendPacketTo(*packet.Peer, packet.Bytes);
+            }
+            else
+            {
+                writePacket(std::move(packet.Bytes));
+            }
+        }
+    };
+    const auto forwardEncryptedPacket = [&](const tailgate::crypto::Bytes32& peer,
                                             const std::vector<std::uint8_t>& packet,
                                             bool isDisco,
                                             const std::optional<sockaddr_in>& source,
                                             std::optional<tailgate::hosted::DerpRoute> derpRoute)
     {
-        const tailgate::hosted::PeerPacket forwarded(peer.PublicKey,
+        const tailgate::hosted::PeerPacket forwarded(peer,
                                                      packet,
                                                      false,
                                                      isDisco,
@@ -906,6 +931,10 @@ void RunTunnel(
                          transportPacket.Control()
                              ? tailgate::derp::DerpSendQueue::Priority::Control
                              : tailgate::derp::DerpSendQueue::Priority::Data);
+                continue;
+            }
+            if (localServices != nullptr && localServices->HandleHostPacket(packet))
+            {
                 continue;
             }
             const std::optional<std::uint32_t> destination =
@@ -1090,6 +1119,10 @@ void RunTunnel(
         }
         for (std::vector<std::uint8_t>& plain : event.Plaintext)
         {
+            if (localServices != nullptr && localServices->HandlePeerPacket(event.Peer, plain))
+            {
+                continue;
+            }
             if (handleNodeControlPacket(*peer, plain) || handlePingResponse(plain) ||
                 handleDnsResponse(plain))
             {
@@ -1203,6 +1236,10 @@ void RunTunnel(
 
     auto applyNetworkMap = [&](const tailgate::types::netmap::NetworkConfig& config)
     {
+        if (localServices != nullptr)
+        {
+            localServices->SetNetworkConfig(config);
+        }
         TimedSection("control DERP apply",
                      [&]()
                      {
@@ -1453,12 +1490,20 @@ void RunTunnel(
         }
     };
 
+    // Control messages are usually small endpoint confirmations. Keep receive storage alive
+    // instead of initializing and shrinking the maximum frame buffer for every confirmation.
+    std::vector<std::uint8_t> relayControlBuffer(
+        relayControlFd >= 0 ? tailgate::hosted::Frame::MaximumEncodedSize : 0);
     while (!Lifecycle::Stopping() && !Lifecycle::Reloading())
     {
+        flushLocalServices();
         const std::size_t maximumEvents =
             std::max<std::size_t>(16, peers.size() + session.DerpConnectionCount() + 7);
         tailgate::wgengine::SessionWaitResult waitResult =
-            session.Wait(maximumEvents, MaximumPacketsPerDescriptorCycle, RelayPacketBufferSize);
+            session.Wait(maximumEvents,
+                         MaximumPacketsPerDescriptorCycle,
+                         RelayPacketBufferSize,
+                         localServices != nullptr ? localServices->NextDeadline() : std::nullopt);
         reportDataPathReadiness();
         if (waitResult.Status == tailgate::base::EventWaitStatus::Woken)
         {
@@ -1562,15 +1607,14 @@ void RunTunnel(
         }
         if (relayControlInput && relayControlFd >= 0)
         {
-            std::vector<std::uint8_t> payload(tailgate::hosted::Frame::MaximumEncodedSize);
-            const ssize_t received = recv(relayControlFd, payload.data(), payload.size(), 0);
+            const ssize_t received =
+                recv(relayControlFd, relayControlBuffer.data(), relayControlBuffer.size(), 0);
             if (received <= 0)
             {
                 throw std::runtime_error("relay control channel closed");
             }
-            payload.resize(static_cast<std::size_t>(received));
             tailgate::hosted::Decoder decoder;
-            decoder.Feed(payload);
+            decoder.Feed(relayControlBuffer.data(), static_cast<std::size_t>(received));
             const std::optional<tailgate::hosted::Frame> frame = decoder.Next();
             if (!frame || decoder.Next())
             {
@@ -1801,13 +1845,18 @@ void RunTunnel(
                             peer->RxBytes += data.size();
                             if (encryptedPacketTransport)
                             {
-                                forwardEncryptedPacket(*peer, data, true, source, std::nullopt);
+                                forwardEncryptedPacket(
+                                    peer->PublicKey, data, true, source, std::nullopt);
                             }
                         }
                         continue;
                     }
                     if (encryptedPacketTransport)
                     {
+                        if (!tailgate::wgengine::wireguard::WireGuardTunnel::IsPacket(data))
+                        {
+                            continue;
+                        }
                         const std::optional<tailgate::crypto::Bytes32> sourcePeer =
                             connection.AcceptDirectSource(receivedDatagram.Source);
                         auto found = std::find_if(peers.begin(),
@@ -1820,8 +1869,15 @@ void RunTunnel(
                         if (found != peers.end())
                         {
                             found->RxBytes += data.size();
-                            forwardEncryptedPacket(*found, data, false, source, std::nullopt);
                         }
+                        // A roaming/NAT endpoint need not have a prior disco proof.
+                        // The client owns the WireGuard keys and authenticates the
+                        // packet before reporting the verified peer and endpoint.
+                        forwardEncryptedPacket(sourcePeer.value_or(tailgate::crypto::Bytes32{}),
+                                               data,
+                                               false,
+                                               source,
+                                               std::nullopt);
                         continue;
                     }
                     continue;
@@ -1869,8 +1925,11 @@ void RunTunnel(
                                                         "unknown DERP connection");
                                     continue;
                                 }
-                                forwardEncryptedPacket(
-                                    *discoPeer, packet.Payload, true, std::nullopt, derp->Route);
+                                forwardEncryptedPacket(discoPeer->PublicKey,
+                                                       packet.Payload,
+                                                       true,
+                                                       std::nullopt,
+                                                       derp->Route);
                             }
                         }
                         else
@@ -1891,7 +1950,7 @@ void RunTunnel(
                     if (encryptedPacketTransport)
                     {
                         forwardEncryptedPacket(
-                            *peer, packet.Payload, false, std::nullopt, std::nullopt);
+                            peer->PublicKey, packet.Payload, false, std::nullopt, std::nullopt);
                         continue;
                     }
                     continue;

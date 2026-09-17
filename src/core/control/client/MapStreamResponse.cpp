@@ -2,6 +2,7 @@
 
 #include <format>
 #include <string_view>
+#include <utility>
 
 #include <tailgate/base/Strings.h>
 
@@ -28,6 +29,26 @@ std::string RejectionMessage(int status, std::string_view body)
 MapStreamRejected::MapStreamRejected(int status, std::string body)
     : std::runtime_error(RejectionMessage(status, body))
 {
+}
+
+InvalidMapResponse::InvalidMapResponse()
+    : std::runtime_error("Control map response has invalid or incomplete length framing.")
+{
+}
+
+std::string MapStreamResponse::DecodeMap(const std::vector<std::uint8_t>& body,
+                                         std::size_t maximumSize)
+{
+    // Read-only maps have the same length framing as streaming updates. A length byte can
+    // itself be '{', so searching for the start of JSON would interpret that prefix as data.
+    MapStreamResponse response;
+    response.ReceiveData(body);
+    auto map = response.TakeMap(maximumSize);
+    if (!map || !response.m_body.empty())
+    {
+        throw InvalidMapResponse();
+    }
+    return std::move(*map);
 }
 
 void MapStreamResponse::Start(std::uint32_t streamId) noexcept
@@ -74,9 +95,9 @@ std::optional<std::string> MapStreamResponse::TakeMap(std::size_t maximumSize)
     const std::size_t mapSize = m_body[0] | (static_cast<std::size_t>(m_body[1]) << 8U) |
                                 (static_cast<std::size_t>(m_body[2]) << 16U) |
                                 (static_cast<std::size_t>(m_body[3]) << 24U);
-    if (mapSize > maximumSize)
+    if (mapSize == 0 || mapSize > maximumSize)
     {
-        throw std::runtime_error("Streaming network map exceeds the protocol limit.");
+        throw InvalidMapResponse();
     }
     if (m_body.size() < MapLengthSize + mapSize)
     {

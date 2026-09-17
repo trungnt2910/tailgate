@@ -33,9 +33,11 @@ NetworkService::NetworkService(manager::DataPlaneManager& dataPlaneManager,
                                PingService& pingService,
                                tailgate::hosted::Client& client,
                                tailgate::hosted::ClientSession& hostedSession,
+                               tailgate::hosted::PumpController& pump,
                                PacketDevice& packetDevice)
     : m_client(client),
       m_hostedSession(hostedSession),
+      m_pump(pump),
       m_packetDevice(packetDevice),
       m_pingService(pingService),
       m_sessionManager(sessionManager)
@@ -96,6 +98,10 @@ void NetworkService::Decapsulate(DecapsulationContext& context)
 {
     tailgate::hosted::ClientSessionProcessResult result =
         m_hostedSession.ProcessFrame(context.Message);
+    if (result.PumpReply)
+    {
+        m_pump.Complete(*result.PumpReply);
+    }
     if (result.NetworkMapChanged)
     {
         m_sessionManager.WriteState(context.Client.Network());
@@ -128,6 +134,16 @@ void NetworkService::DrainDevice(std::vector<std::vector<std::uint8_t>>& localOu
     localOutput.insert(localOutput.end(),
                        std::make_move_iterator(packets.begin()),
                        std::make_move_iterator(packets.end()));
+}
+
+bool NetworkService::HasLocalOutput() const
+{
+    return m_packetDevice.HasOutput() || m_packetDevice.WriteInterest();
+}
+
+std::optional<tailgate::base::TimeProvider::TimePoint> NetworkService::NextDeadline() const
+{
+    return m_hostedSession.NextDeadline();
 }
 
 } // namespace tailgate::uwp::bg::service

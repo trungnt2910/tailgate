@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include <tailgate/base/TimeProvider.h>
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/types/netmap/NetworkMap.h>
@@ -65,6 +66,7 @@ struct ServerSessionProcessResult
     std::optional<std::string> DnsName;
     bool ClientReady = false;
     bool Shutdown = false;
+    bool PumpScheduleChanged = false;
 };
 
 class ServerSession
@@ -81,6 +83,9 @@ public:
     [[nodiscard]] virtual ServerDerpChallenge
     BuildDerpChallenge(const tailgate::crypto::Bytes32& serverKey) = 0;
     [[nodiscard]] virtual Frame BuildHeartbeat() const = 0;
+    [[nodiscard]] virtual std::optional<tailgate::base::TimeProvider::TimePoint>
+    NextPumpDeadline() const = 0;
+    [[nodiscard]] virtual std::optional<Frame> TakeDuePump() = 0;
     [[nodiscard]] virtual Frame
     BuildServerPacket(std::vector<std::uint8_t> peerPacketPayload) const = 0;
 

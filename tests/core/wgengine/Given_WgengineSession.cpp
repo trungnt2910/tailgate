@@ -48,13 +48,11 @@ TEST(Given_WgengineSession, When_PlatformEventIsUnhandled_Then_EventIsPreserved)
 
     const tailgate::wgengine::SessionWaitResult result =
         session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize);
+    ASSERT_FALSE(result.PlatformEvents.empty());
 
     EXPECT_EQ(eventLoop->TimedWaitCalls, 1U);
     EXPECT_EQ(result.PlatformEvents.size(), 1U);
-    if (!result.PlatformEvents.empty())
-    {
-        EXPECT_EQ(result.PlatformEvents.front().Token, PlatformToken);
-    }
+    EXPECT_EQ(result.PlatformEvents.front().Token, PlatformToken);
     EXPECT_FALSE(result.MaintenanceDue);
 }
 
@@ -81,6 +79,21 @@ TEST(Given_WgengineSession, When_MaintenanceDeadlineIsReached_Then_CoreMaintains
     EXPECT_TRUE(result.PlatformEvents.empty());
 }
 
+TEST(Given_WgengineSession,
+     When_LocalServiceDeadlineIsEarlier_Then_WaitReturnsWithoutProtocolMaintenance)
+{
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto& timeProvider = injector.create<tailgate::base::TimeProvider&>();
+    auto& session = injector.create<tailgate::wgengine::Session&>();
+
+    const auto result =
+        session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize, timeProvider.Now());
+
+    EXPECT_EQ(result.Status, tailgate::base::EventWaitStatus::DeadlineReached);
+    EXPECT_FALSE(result.MaintenanceDue);
+}
+
 TEST(Given_WgengineSession, When_DerpConnectionHandlesEvent_Then_PacketIsReturnedByConnection)
 {
     tailgate::derp::DerpClient::Key source{};
@@ -101,15 +114,13 @@ TEST(Given_WgengineSession, When_DerpConnectionHandlesEvent_Then_PacketIsReturne
 
     const tailgate::wgengine::SessionWaitResult result =
         session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize);
+    ASSERT_FALSE(result.DerpPackets.empty());
 
     EXPECT_TRUE(result.PlatformEvents.empty());
     EXPECT_EQ(result.DerpPackets.size(), 1U);
-    if (!result.DerpPackets.empty())
-    {
-        EXPECT_EQ(result.DerpPackets.front().Connection, connection);
-        EXPECT_EQ(result.DerpPackets.front().Packet.Source, source);
-        EXPECT_EQ(result.DerpPackets.front().Packet.Payload, payload);
-    }
+    EXPECT_EQ(result.DerpPackets.front().Connection, connection);
+    EXPECT_EQ(result.DerpPackets.front().Packet.Source, source);
+    EXPECT_EQ(result.DerpPackets.front().Packet.Payload, payload);
 }
 
 TEST(Given_WgengineSession, When_StunServerResponds_Then_PortableEndpointIsReturned)
@@ -158,14 +169,12 @@ TEST(Given_WgengineSession, When_StunServerResponds_Then_PortableEndpointIsRetur
 
     const std::optional<tailgate::net::Endpoint> result =
         session.DiscoverEndpoint(server, std::chrono::seconds(3));
+    ASSERT_FALSE(socketState->Sent.empty());
 
     EXPECT_EQ(result, mapped);
     EXPECT_EQ(eventLoop->TimedWaitCalls, 1U);
     EXPECT_EQ(socketState->Sent.size(), 1U);
-    if (!socketState->Sent.empty())
-    {
-        EXPECT_EQ(socketState->Sent.front().Destination, server);
-    }
+    EXPECT_EQ(socketState->Sent.front().Destination, server);
 }
 
 TEST(Given_WgengineSession, When_PlaintextIsSent_Then_OwnedWireGuardRouterBuildsHandshake)
@@ -205,15 +214,12 @@ TEST(Given_WgengineSession, When_PlaintextIsSent_Then_OwnedWireGuardRouterBuilds
     });
 
     session.SendPacket(plaintext);
+    ASSERT_FALSE(derpState->Sent.empty());
 
     EXPECT_EQ(derpState->Sent.size(), 1U);
-    if (!derpState->Sent.empty())
-    {
-        EXPECT_EQ(derpState->Sent.front().Destination, peerPublicKey);
-        EXPECT_EQ(derpState->Sent.front().Priority,
-                  tailgate::derp::DerpSendQueue::Priority::Control);
-        EXPECT_FALSE(derpState->Sent.front().Payload.empty());
-    }
+    EXPECT_EQ(derpState->Sent.front().Destination, peerPublicKey);
+    EXPECT_EQ(derpState->Sent.front().Priority, tailgate::derp::DerpSendQueue::Priority::Control);
+    EXPECT_FALSE(derpState->Sent.front().Payload.empty());
 }
 
 TEST(Given_WgengineSession, When_DirectDiscoPingArrives_Then_CoreRepliesAndSelectsPath)
@@ -280,21 +286,17 @@ TEST(Given_WgengineSession, When_DirectDiscoPingArrives_Then_CoreRepliesAndSelec
 
     const tailgate::wgengine::SessionWaitResult result =
         session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize);
+    ASSERT_FALSE(result.DiscoEvents.empty());
+    ASSERT_FALSE(socketFactory->States.front()->Sent.empty());
 
     EXPECT_EQ(result.DiscoEvents.size(), 1U);
     EXPECT_EQ(result.PathEvents.size(), 1U);
     EXPECT_EQ(magicsock.DirectEndpoint(peerPublicKey), source);
     EXPECT_EQ(socketFactory->States.front()->Sent.size(), 1U);
-    if (!result.DiscoEvents.empty())
-    {
-        EXPECT_EQ(result.DiscoEvents.front().Peer, peerPublicKey);
-        EXPECT_EQ(result.DiscoEvents.front().Type, tailgate::disco::Disco::MessageType::Ping);
-        EXPECT_EQ(result.DiscoEvents.front().Transaction, transaction);
-    }
-    if (!socketFactory->States.front()->Sent.empty())
-    {
-        EXPECT_EQ(socketFactory->States.front()->Sent.front().Destination, source);
-    }
+    EXPECT_EQ(result.DiscoEvents.front().Peer, peerPublicKey);
+    EXPECT_EQ(result.DiscoEvents.front().Type, tailgate::disco::Disco::MessageType::Ping);
+    EXPECT_EQ(result.DiscoEvents.front().Transaction, transaction);
+    EXPECT_EQ(socketFactory->States.front()->Sent.front().Destination, source);
 }
 
 TEST(Given_WgengineSession, When_DirectPathBecomesUnavailable_Then_DiscoPingRetriesVerifiedEndpoint)

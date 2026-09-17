@@ -2,10 +2,14 @@ tailgate_add_library(
     tailgate_core_hosted_impl
     STATIC
     ClientSessionImpl.cpp
+    PumpControllerImpl.cpp
     ServerSessionImpl.cpp
+    ServerWriterImpl.cpp
 )
 target_link_libraries(
     tailgate_core_hosted_impl
     PUBLIC
         tailgate_core_hosted
+    PRIVATE
+        tailgate_core_ipn_ipnlocal
 )

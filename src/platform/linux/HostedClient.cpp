@@ -2,6 +2,8 @@
 // any standard-library header includes libc++'s configuration.
 #define _LIBCPP_ENABLE_EXPERIMENTAL
 
+#include "HostedClient.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -61,6 +63,7 @@
 #include <tailgate/hosted/Dns.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/hosted/ServerSession.h>
+#include <tailgate/ipn/ipnlocal/LocalServices.h>
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/dns/Dns.h>
 #include <tailgate/net/dns/ResolverSelection.h>
@@ -78,10 +81,15 @@
 #include <tailgate/wgengine/router/Config.h>
 #include <tailgate/wgengine/wireguard/Router.h>
 
+#include "event/EventRegistry.h"
+#include "impl/TcpStream.h"
+
 #include "DI.h"
 #include "DataplaneEvents.h"
 #include "Files.h"
 #include "HostedConnectionRegistry.h"
+#include "HostedServer.h"
+#include "Lifecycle.h"
 #include "Network.h"
 #include "PeerApiServer.h"
 #include "PingIpc.h"
@@ -89,14 +97,8 @@
 #include "RelayServer.h"
 #include "State.h"
 #include "StatusWriter.h"
-#include "UniqueFd.h"
-#include "event/EventRegistry.h"
-#include "impl/TcpStream.h"
-
-#include "HostedClient.h"
-#include "HostedServer.h"
-#include "Lifecycle.h"
 #include "TunnelRunner.h"
+#include "UniqueFd.h"
 
 namespace
 {
@@ -380,6 +382,7 @@ void RunRelayConnectionImpl(const std::string& url,
     tailgate::disco::Disco& disco = hostedClient.Disco();
     tailgate::hosted::ClientSession& hostedSession =
         networkInjector.create<tailgate::hosted::ClientSession&>();
+    auto& localServices = networkInjector.create<tailgate::ipn::ipnlocal::LocalServices&>();
     tailgate::wgengine::Session& networkSession =
         networkInjector.create<tailgate::wgengine::Session&>();
     networkSession.SetControlConnection(std::move(ownedControl));
@@ -450,6 +453,7 @@ void RunRelayConnectionImpl(const std::string& url,
         routerConfig = nextRouterConfig;
         std::vector<std::uint8_t> relayUpdate =
             hostedClient.UpdateNetworkMap(config, effectiveExitNode);
+        hostedSession.RefreshNetworkConfig();
         updateRelayHostState(config);
         status.BackendState = "Running";
         status.Online = true;
@@ -672,9 +676,18 @@ void RunRelayConnectionImpl(const std::string& url,
     flushSocketOutput();
     while (!Lifecycle::Stopping() && !Lifecycle::Reloading())
     {
+        auto serviceOutput = hostedSession.PollLocalServices();
+        if (serviceOutput.DeviceStatus != tailgate::hosted::PacketDeviceStatus::Ready)
+        {
+            throw std::runtime_error("packet device rejected a hosted local-service packet");
+        }
+        queueEncoded(std::move(serviceOutput.RemoteOutput));
         constexpr std::size_t MaximumRelayEvents = 8;
-        tailgate::wgengine::SessionWaitResult waitResult = networkSession.Wait(
-            MaximumRelayEvents, MaximumPacketsPerDescriptorCycle, RelayPacketBufferSize);
+        tailgate::wgengine::SessionWaitResult waitResult =
+            networkSession.Wait(MaximumRelayEvents,
+                                MaximumPacketsPerDescriptorCycle,
+                                RelayPacketBufferSize,
+                                hostedSession.NextDeadline());
         if (waitResult.Status == tailgate::base::EventWaitStatus::Woken)
         {
             continue;
@@ -906,9 +919,12 @@ void RunRelayConnectionImpl(const std::string& url,
                         }
                     }
                     queueEncoded(std::move(processed.RemoteOutput));
-                    for (std::vector<std::uint8_t>& plaintext : processed.LocalPackets)
+                    for (auto& plaintext : processed.LocalPackets)
                     {
-                        handlePlaintext(std::move(plaintext));
+                        if (!localServices.HandlePeerPacket(plaintext.Peer, plaintext.Bytes))
+                        {
+                            handlePlaintext(std::move(plaintext.Bytes));
+                        }
                     }
                     if (frame.Type() == tailgate::hosted::MessageType::Heartbeat)
                     {

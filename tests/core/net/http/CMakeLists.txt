@@ -1,7 +1,9 @@
 tailgate_add_test_library(
     tailgate_tests_core_net_http
     Given_HttpClient.cpp
-    Given_HttpCodec.cpp
+    Given_MessageHead.cpp
+    Given_MessageParser.cpp
+    Given_Request.cpp
 )
 target_link_libraries(
     tailgate_tests_core_net_http

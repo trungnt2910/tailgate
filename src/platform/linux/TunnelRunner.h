@@ -9,15 +9,17 @@
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/derp/Client.h>
 #include <tailgate/derp/Connection.h>
+#include <tailgate/ipn/ipnlocal/LocalServices.h>
 #include <tailgate/serve/FunnelConfig.h>
 #include <tailgate/types/netmap/NetworkMap.h>
 #include <tailgate/wgengine/Engine.h>
 #include <tailgate/wgengine/Session.h>
 #include <tailgate/wgengine/magicsock/Connection.h>
 
+#include "event/EventRegistry.h"
+
 #include "HostedConnectionRegistry.h"
 #include "State.h"
-#include "event/EventRegistry.h"
 
 namespace tailgate::linux_frontend
 {
@@ -26,15 +28,7 @@ void RunTunnel(
     const tailgate::crypto::Bytes32& nodePrivateKey,
     const tailgate::crypto::Bytes32& nodePublicKey,
     const tailgate::crypto::Bytes32& discoPrivateKey,
-    const std::string& selfIp,
-    const std::string& selfIpv6,
-    const std::string& selfDnsName,
-    const std::string& domain,
-    const std::string& initialDnsResolver,
-    const std::vector<std::string>& initialDnsDomains,
-    const std::vector<std::string>& initialDnsDefaultResolvers,
-    const std::vector<tailgate::types::netmap::NetworkConfig::DnsRoute>& initialDnsRoutes,
-    const std::vector<tailgate::types::netmap::PeerConfig>& peerConfigs,
+    const tailgate::types::netmap::NetworkConfig& initialNetworkConfig,
     int derpRegion,
     const std::string& derpHost,
     const std::string& exitNode,
@@ -46,6 +40,7 @@ void RunTunnel(
     event::EventRegistry& eventRegistry,
     tailgate::wgengine::Engine& engine,
     tailgate::wgengine::Session& session,
+    tailgate::ipn::ipnlocal::LocalServices* localServices,
     tailgate::wgengine::magicsock::Connection& connection,
     tailgate::derp::ConnectionFactory& derpConnectionFactory,
     HostedConnectionRegistry& hostedConnections,

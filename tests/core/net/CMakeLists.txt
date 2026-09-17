@@ -1,6 +1,8 @@
 tailgate_add_test_library(
     tailgate_tests_core_net
     Given_Endpoint.cpp
+    Given_IpAddress.cpp
+    Given_IpRange.cpp
     Given_Ipv4Address.cpp
 )
 target_link_libraries(tailgate_tests_core_net PRIVATE tailgate_core)

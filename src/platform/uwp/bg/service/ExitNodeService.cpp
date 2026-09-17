@@ -129,6 +129,11 @@ void ExitNodeService::FlushLocal(std::vector<std::vector<std::uint8_t>>& localOu
     m_responses.clear();
 }
 
+bool ExitNodeService::HasLocalOutput() const
+{
+    return !m_responses.empty() || (m_pending && m_responseReady);
+}
+
 void ExitNodeService::LoadPending(const tailgate::types::netmap::NetworkConfig& config,
                                   std::string& exitNode)
 {

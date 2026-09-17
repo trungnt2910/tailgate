@@ -229,6 +229,48 @@ TEST(Given_DerpClient, When_WriteWouldBlock_Then_FlushResumesPendingFrame)
     EXPECT_EQ(stream.Written, expected);
 }
 
+TEST(Given_DerpClient, When_BlockedPacketsResumeWithShortWrites_Then_FrameBytesAndOrderArePreserved)
+{
+    tailgate::test::ScriptedByteStream stream;
+    stream.BlockedWrites = 2;
+    stream.MaximumWriteSize = 3;
+    tailgate::derp::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient::Key destination{};
+    destination[0] = 42;
+    std::vector<std::uint8_t> packet{1, 2, 3, 4};
+    const auto frame = Frame(SendPacketFrame, PacketPayload(destination, packet));
+    std::vector<std::uint8_t> expected = frame;
+    expected.insert(expected.end(), frame.begin(), frame.end());
+
+    client.Send(destination, packet);
+    client.Send(destination, packet);
+    const bool queued = client.HasPendingOutput();
+    packet.clear();
+    destination.fill(0);
+    client.Flush();
+
+    EXPECT_TRUE(queued);
+    EXPECT_EQ(stream.Written, expected);
+    EXPECT_FALSE(client.HasPendingOutput());
+}
+
+TEST(Given_DerpClient, When_DestinationAndPacketExceedLimit_Then_NoPartialFrameIsQueued)
+{
+    tailgate::test::ScriptedByteStream stream;
+    tailgate::derp::DerpClient client(stream, {}, {});
+    tailgate::derp::DerpClient::Key destination{};
+    const std::vector<std::uint8_t> packet(MaximumFrameSize - destination.size() + 1);
+
+    const auto send = [&]()
+    {
+        client.Send(destination, packet);
+    };
+
+    EXPECT_THROW(send(), std::runtime_error);
+    EXPECT_TRUE(stream.Written.empty());
+    EXPECT_FALSE(client.HasPendingOutput());
+}
+
 TEST(Given_DerpClient, When_FrameExceedsProtocolLimit_Then_ReceiveRejectsIt)
 {
     tailgate::test::ScriptedByteStream stream;

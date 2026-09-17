@@ -8,6 +8,8 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <tailgate/wgengine/tstun/Device.h>
@@ -36,10 +38,21 @@ bool TunDevice::Open(const tailgate::wgengine::tstun::DeviceOptions& options)
         return false;
     }
     m_descriptor = m_descriptorProvider->Open(options.Name);
-    const int flags = fcntl(m_descriptor.Fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(m_descriptor.Fd, F_SETFL, flags | O_NONBLOCK) != 0)
+    struct stat status{};
+    if (fstat(m_descriptor.Fd, &status) != 0)
     {
         throw std::system_error(errno, std::generic_category());
+    }
+    m_isSocket = S_ISSOCK(status.st_mode);
+    // A borrowed socket can share its file description with a blocking producer.
+    // Per-call flags keep this adapter nonblocking without changing that producer.
+    if (!m_isSocket)
+    {
+        const int flags = fcntl(m_descriptor.Fd, F_GETFL, 0);
+        if (flags < 0 || fcntl(m_descriptor.Fd, F_SETFL, flags | O_NONBLOCK) != 0)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
     }
     m_eventHandle =
         m_eventRegistry->Register(m_descriptor.Fd,
@@ -50,8 +63,18 @@ bool TunDevice::Open(const tailgate::wgengine::tstun::DeviceOptions& options)
 
 tailgate::wgengine::tstun::DeviceReadResult TunDevice::TryRead(std::size_t maximumPacketSize)
 {
-    std::vector<std::uint8_t> packet(maximumPacketSize);
-    const ssize_t size = read(m_descriptor.Fd, packet.data(), packet.size());
+    // The relay allows large frames, but most packets are small. Reuse the
+    // receive storage rather than constructing the full budget for every read,
+    // including reads that would block. Returned packets own only their bytes.
+    if (m_readBuffer.size() < maximumPacketSize)
+    {
+        m_readBuffer.resize(maximumPacketSize);
+    }
+    const ssize_t size =
+        m_isSocket
+            ? recv(
+                  m_descriptor.Fd, m_readBuffer.data(), maximumPacketSize, MSG_DONTWAIT | MSG_TRUNC)
+            : read(m_descriptor.Fd, m_readBuffer.data(), maximumPacketSize);
     if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
     {
         return {};
@@ -67,17 +90,23 @@ tailgate::wgengine::tstun::DeviceReadResult TunDevice::TryRead(std::size_t maxim
             .Packet = {},
         };
     }
-    packet.resize(static_cast<std::size_t>(size));
+    if (static_cast<std::size_t>(size) > maximumPacketSize)
+    {
+        throw std::system_error(std::make_error_code(std::errc::message_size));
+    }
     return tailgate::wgengine::tstun::DeviceReadResult{
         .Result = tailgate::wgengine::tstun::DeviceIoResult::Complete,
-        .Packet = std::move(packet),
+        .Packet = std::vector<std::uint8_t>(m_readBuffer.begin(), m_readBuffer.begin() + size),
     };
 }
 
 tailgate::wgengine::tstun::DeviceIoResult
 TunDevice::TryWrite(const std::vector<std::uint8_t>& packet)
 {
-    const ssize_t size = write(m_descriptor.Fd, packet.data(), packet.size());
+    const ssize_t size =
+        m_isSocket
+            ? send(m_descriptor.Fd, packet.data(), packet.size(), MSG_DONTWAIT | MSG_NOSIGNAL)
+            : write(m_descriptor.Fd, packet.data(), packet.size());
     if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
     {
         return tailgate::wgengine::tstun::DeviceIoResult::WouldBlock;
@@ -116,6 +145,7 @@ void TunDevice::Close() noexcept
     m_eventHandle.Reset();
     m_descriptor.Reset();
     m_writeInterest = false;
+    m_isSocket = false;
 }
 
 std::unique_ptr<tailgate::types::nettype::TcpSocket>

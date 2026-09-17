@@ -3,6 +3,93 @@
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/types/netmap/NetworkMap.h>
 
+TEST(Given_NetworkConfig, When_PeerAddressIsRepeatedWithinOnePeer_Then_OwnerIsUnambiguous)
+{
+    tailgate::types::netmap::PeerConfig peer;
+    peer.Address("2001:db8::2");
+    peer.Addresses({"2001:0DB8::2", "2001:db8::2"});
+    tailgate::types::netmap::NetworkConfig network;
+    network.Peers({peer});
+
+    const auto owner = network.FindPeerAddress(tailgate::net::IpAddress::Parse("2001:db8::2"));
+
+    EXPECT_EQ(owner, 0U);
+}
+
+TEST(Given_NetworkConfig, When_PeersAreReplaced_Then_AddressOwnershipIsRebuilt)
+{
+    tailgate::types::netmap::PeerConfig previous;
+    previous.Addresses({"2001:db8::2"});
+    tailgate::types::netmap::PeerConfig replacement;
+    replacement.Addresses({"2001:db8::3"});
+    tailgate::types::netmap::NetworkConfig network;
+    network.Peers({previous, previous});
+    const auto oldAddress = tailgate::net::IpAddress::Parse("2001:db8::2");
+    const auto newAddress = tailgate::net::IpAddress::Parse("2001:db8::3");
+    ASSERT_FALSE(network.FindPeerAddress(oldAddress).has_value());
+
+    network.Peers({replacement, previous});
+    const auto oldOwner = network.FindPeerAddress(oldAddress);
+    const auto newOwner = network.FindPeerAddress(newAddress);
+
+    EXPECT_EQ(oldOwner, 1U);
+    EXPECT_EQ(newOwner, 0U);
+}
+
+TEST(Given_NetworkConfig, When_ConfigCopyChangesPeers_Then_OriginalRetainsItsOwnership)
+{
+    tailgate::types::netmap::PeerConfig peer;
+    peer.Addresses({"2001:db8::2"});
+    tailgate::types::netmap::NetworkConfig original;
+    original.Peers({peer});
+    auto copy = original;
+    const auto address = tailgate::net::IpAddress::Parse("2001:db8::2");
+
+    copy.Peers({});
+    const auto originalOwner = original.FindPeerAddress(address);
+    const auto copyOwner = copy.FindPeerAddress(address);
+
+    EXPECT_EQ(originalOwner, 0U);
+    EXPECT_FALSE(copyOwner.has_value());
+}
+
+TEST(Given_NetworkConfig, When_Ipv6NodeAddressUsesDifferentSpelling_Then_TypedLookupFindsIt)
+{
+    tailgate::types::netmap::PeerConfig peer;
+    peer.Addresses({"2001:0DB8:0:0:0:0:0:2"});
+    tailgate::types::netmap::NetworkConfig network;
+    network.Peers({peer});
+
+    const auto found = network.FindPeerAddress(tailgate::net::IpAddress::Parse("2001:db8::2"));
+
+    EXPECT_EQ(found, 0U);
+}
+
+TEST(Given_NetworkConfig, When_NodeAddressIsAmbiguous_Then_TypedLookupRejectsIt)
+{
+    tailgate::types::netmap::PeerConfig peer;
+    peer.Addresses({"2001:db8::2"});
+    tailgate::types::netmap::NetworkConfig network;
+    network.Peers({peer, peer});
+
+    const auto found = network.FindPeerAddress(tailgate::net::IpAddress::Parse("2001:db8::2"));
+
+    EXPECT_FALSE(found.has_value());
+}
+
+TEST(Given_NetworkConfig, When_AddressIsNotANode_Then_TypedLookupDoesNotUseExitNode)
+{
+    tailgate::types::netmap::PeerConfig peer;
+    peer.ExitNodeOption(true);
+    peer.Addresses({"invalid", "2001:db8::2"});
+    tailgate::types::netmap::NetworkConfig network;
+    network.Peers({peer});
+
+    const auto found = network.FindPeerAddress(tailgate::net::IpAddress::Parse("2001:db8::3"));
+
+    EXPECT_FALSE(found.has_value());
+}
+
 TEST(Given_NetworkConfig, When_MultipleExitNodesAndRoutingInternetTraffic_Then_SelectedNodeWins)
 {
     tailgate::types::netmap::PeerConfig first;

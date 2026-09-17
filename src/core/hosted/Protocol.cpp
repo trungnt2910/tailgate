@@ -87,7 +87,7 @@ nlohmann::json ParseJson(const std::vector<std::uint8_t>& payload)
 bool IsKnownType(std::uint16_t value)
 {
     return value >= static_cast<std::uint16_t>(MessageType::Authenticate) &&
-           value <= static_cast<std::uint16_t>(MessageType::ServerEndpointCandidates);
+           value <= static_cast<std::uint16_t>(MessageType::Fragment);
 }
 
 tailgate::crypto::Bytes32
@@ -167,7 +167,7 @@ std::vector<std::uint8_t> Bytes(const std::string& value)
 
 } // namespace
 
-std::vector<std::uint8_t> Frame::Encode() const
+std::size_t Frame::EncodedSize() const
 {
     if (m_payload.size() > Frame::MaximumPayloadSize ||
         m_payload.size() > std::numeric_limits<std::uint32_t>::max())
@@ -180,23 +180,45 @@ std::vector<std::uint8_t> Frame::Encode() const
         throw std::runtime_error("Relay frame has an unknown message type.");
     }
 
-    std::vector<std::uint8_t> output;
-    output.reserve(Frame::HeaderSize + m_payload.size());
+    return Frame::HeaderSize + m_payload.size();
+}
+
+void Frame::AppendTo(std::vector<std::uint8_t>& output) const
+{
     output.insert(output.end(), Magic.begin(), Magic.end());
-    Append16(output, type);
+    Append16(output, static_cast<std::uint16_t>(m_type));
     Append16(output, 0);
     Append32(output, static_cast<std::uint32_t>(m_payload.size()));
     output.insert(output.end(), m_payload.begin(), m_payload.end());
+}
+
+std::vector<std::uint8_t> Frame::Encode() const
+{
+    std::vector<std::uint8_t> output;
+    output.reserve(EncodedSize());
+    AppendTo(output);
     return output;
 }
 
 std::vector<std::uint8_t> Frame::EncodeAll(const std::vector<Frame>& frames)
 {
     std::vector<std::uint8_t> output;
+    std::size_t size = 0;
     for (const Frame& frame : frames)
     {
-        std::vector<std::uint8_t> encoded = frame.Encode();
-        output.insert(output.end(), encoded.begin(), encoded.end());
+        const std::size_t frameSize = frame.EncodedSize();
+        if (frameSize > output.max_size() - size)
+        {
+            throw std::length_error("Relay frame batch is too large.");
+        }
+        size += frameSize;
+    }
+    // Validate the entire batch before allocating, then encode into its final
+    // owned storage without constructing and copying temporary frame buffers.
+    output.reserve(size);
+    for (const Frame& frame : frames)
+    {
+        frame.AppendTo(output);
     }
     return output;
 }
@@ -588,6 +610,9 @@ ProtocolCodec::EncodeNetworkConfig(const tailgate::types::netmap::NetworkConfig&
             {"DerpHost", peer.DerpHost()},
             {"OS", peer.OperatingSystem()},
             {"ClientVersion", peer.ClientVersion()},
+            {"PeerApi4Port", peer.PeerApi4Port()},
+            {"PeerApi6Port", peer.PeerApi6Port()},
+            {"Capabilities", peer.Capabilities()},
             {"Owner", peer.Owner()},
             {"Online", peer.Online()},
             {"ExitNodeOption", peer.ExitNodeOption()},
@@ -615,6 +640,7 @@ ProtocolCodec::EncodeNetworkConfig(const tailgate::types::netmap::NetworkConfig&
         {"Domain", config.Domain()},
         {"MagicDnsDomain", config.MagicDnsDomain()},
         {"TailnetDisplayName", config.TailnetDisplayName()},
+        {"Capabilities", config.Capabilities()},
         {"DnsResolver", config.DnsResolver()},
         {"DnsDomains", config.DnsDomains()},
         {"DnsDefaultResolvers", config.DnsDefaultResolvers()},
@@ -640,6 +666,7 @@ ProtocolCodec::DecodeNetworkConfig(const std::vector<std::uint8_t>& payload)
     config.Domain(value.at("Domain").get<std::string>());
     config.MagicDnsDomain(value.value("MagicDnsDomain", ""));
     config.TailnetDisplayName(value.value("TailnetDisplayName", ""));
+    config.Capabilities(value.value("Capabilities", std::vector<std::string>{}));
     config.DnsResolver(value.value("DnsResolver", ""));
     config.DnsDomains(value.value("DnsDomains", std::vector<std::string>{}));
     config.DnsDefaultResolvers(value.value("DnsDefaultResolvers", std::vector<std::string>{}));
@@ -680,6 +707,9 @@ ProtocolCodec::DecodeNetworkConfig(const std::vector<std::uint8_t>& payload)
         peer.DerpHost(source.value("DerpHost", ""));
         peer.OperatingSystem(source.value("OS", ""));
         peer.ClientVersion(source.value("ClientVersion", ""));
+        peer.PeerApi4Port(source.value("PeerApi4Port", 0));
+        peer.PeerApi6Port(source.value("PeerApi6Port", 0));
+        peer.Capabilities(source.value("Capabilities", std::vector<std::string>{}));
         peer.Owner(source.value("Owner", ""));
         peer.Online(source.value("Online", false));
         peer.ExitNodeOption(source.value("ExitNodeOption", false));
@@ -762,14 +792,17 @@ void Decoder::Feed(const std::vector<std::uint8_t>& data)
     Feed(data.data(), data.size());
 }
 
-std::optional<Frame> Decoder::Next()
+namespace
 {
-    const std::size_t available = m_buffer.size() - m_offset;
+
+std::optional<Frame> NextFrame(const std::vector<std::uint8_t>& buffer, std::size_t& offset)
+{
+    const std::size_t available = buffer.size() - offset;
     if (available < Frame::HeaderSize)
     {
         return std::nullopt;
     }
-    const std::uint8_t* header = m_buffer.data() + m_offset;
+    const std::uint8_t* header = buffer.data() + offset;
     if (!std::equal(Magic.begin(), Magic.end(), header))
     {
         throw std::runtime_error("Relay frame has invalid magic.");
@@ -796,13 +829,55 @@ std::optional<Frame> Decoder::Next()
     const std::uint8_t* payload = header + Frame::HeaderSize;
     Frame result(static_cast<MessageType>(type),
                  std::vector<std::uint8_t>(payload, payload + payloadSize));
-    m_offset += Frame::HeaderSize + payloadSize;
+    offset += Frame::HeaderSize + payloadSize;
     return result;
+}
+
+} // namespace
+
+std::optional<Frame> Decoder::Next()
+{
+    while (true)
+    {
+        if (auto frame = NextFrame(m_streamBuffer, m_streamOffset))
+        {
+            if (frame->Type() == MessageType::Fragment)
+            {
+                throw PacketFramingError(PacketFramingErrorCode::NestedFragment);
+            }
+            return frame;
+        }
+        if (auto bytes = m_fragments.Take(); !bytes.empty())
+        {
+            m_streamBuffer.erase(m_streamBuffer.begin(),
+                                 m_streamBuffer.begin() +
+                                     static_cast<std::ptrdiff_t>(m_streamOffset));
+            m_streamOffset = 0;
+            m_streamBuffer.insert(m_streamBuffer.end(), bytes.begin(), bytes.end());
+            continue;
+        }
+        auto frame = NextFrame(m_buffer, m_offset);
+        if (!frame)
+        {
+            return std::nullopt;
+        }
+        if (frame->Type() != MessageType::Fragment)
+        {
+            if (m_fragmented)
+            {
+                throw PacketFramingError(PacketFramingErrorCode::MixedFraming);
+            }
+            return frame;
+        }
+        m_fragmented = true;
+        m_fragments.Accept(frame->Payload());
+    }
 }
 
 std::size_t Decoder::BufferedBytes() const
 {
-    return m_buffer.size() - m_offset;
+    return m_buffer.size() - m_offset + m_streamBuffer.size() - m_streamOffset +
+           m_fragments.BufferedBytes();
 }
 
 void Frame::Write(ByteStream& stream) const

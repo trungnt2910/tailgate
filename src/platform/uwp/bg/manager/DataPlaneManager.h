@@ -42,7 +42,8 @@ public:
     virtual void Reset() = 0;
     virtual void Encapsulate(service::EncapsulationContext& context) = 0;
     virtual void Decapsulate(service::DecapsulationContext& context) = 0;
-    virtual void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) = 0;
+    virtual void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput,
+                            std::vector<std::uint8_t>& remoteOutput) = 0;
 
     [[nodiscard]] virtual std::size_t ServiceCount() const = 0;
 };

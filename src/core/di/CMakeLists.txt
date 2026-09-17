@@ -17,10 +17,14 @@ target_link_libraries(
         tailgate_core_control_client_impl
         tailgate_core_crypto_impl
         tailgate_core_derp_impl
+        tailgate_core_drive_driveimpl_compositedav
+        tailgate_core_drive_driveimpl
         tailgate_core_hosted_impl
+        tailgate_core_ipn_ipnlocal_impl
         tailgate_core_net_http_impl
         tailgate_core_wgengine_impl
         tailgate_core_wgengine_magicsock_impl
+        tailgate_core_wgengine_netstack_impl
         tailgate_core_wgengine_ping_impl
 )
 target_include_directories(tailgate_core_di PRIVATE ${PROJECT_SOURCE_DIR}/src/core)

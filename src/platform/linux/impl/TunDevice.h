@@ -5,10 +5,10 @@
 #include <tailgate/types/nettype/TcpSocket.h>
 #include <tailgate/wgengine/tstun/Device.h>
 
+#include "event/EventRegistry.h"
+
 #include "PacketDescriptorProvider.h"
 #include "UniqueFd.h"
-
-#include "event/EventRegistry.h"
 
 namespace tailgate::linux_frontend::impl
 {
@@ -37,7 +37,9 @@ private:
     tailgate::types::nettype::TcpSocketFactory& m_socketFactory;
     UniqueFd m_descriptor;
     tailgate::linux_frontend::event::EventHandle m_eventHandle;
+    std::vector<std::uint8_t> m_readBuffer;
     bool m_writeInterest = false;
+    bool m_isSocket = false;
 };
 
 } // namespace tailgate::linux_frontend::impl

@@ -120,6 +120,11 @@ void PingService::FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput
     m_responses.clear();
 }
 
+bool PingService::HasLocalOutput() const
+{
+    return !m_responses.empty();
+}
+
 void PingService::Handle(const tailgate::net::packet::Ipv4UdpDatagram& datagram,
                          const app_service::PingRequest& request,
                          const tailgate::types::netmap::NetworkConfig& config,

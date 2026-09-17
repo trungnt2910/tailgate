@@ -39,6 +39,17 @@ public:
     void FlushLocal(std::vector<std::vector<std::uint8_t>>&) override
     {
         ++FlushLocalCount;
+        LocalPending = false;
+    }
+
+    bool HasLocalOutput() const override
+    {
+        return LocalPending;
+    }
+
+    std::optional<tailgate::base::TimeProvider::TimePoint> NextDeadline() const override
+    {
+        return Deadline;
     }
 
     std::optional<bg::manager::SessionGeneration> StartGeneration;
@@ -47,6 +58,8 @@ public:
     std::size_t EncapsulateCount = 0;
     std::size_t DecapsulateCount = 0;
     std::size_t FlushLocalCount = 0;
+    bool LocalPending = false;
+    std::optional<tailgate::base::TimeProvider::TimePoint> Deadline;
 };
 
 } // namespace tailgate::uwp::tests

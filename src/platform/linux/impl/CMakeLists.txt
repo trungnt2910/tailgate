@@ -3,6 +3,7 @@ tailgate_add_library(
     STATIC
     EventLoop.cpp
     HostInfoProvider.cpp
+    TcpPortReservationFactory.cpp
     TcpSocketFactory.cpp
     TcpStream.cpp
     TimeProvider.cpp

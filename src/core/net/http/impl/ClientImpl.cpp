@@ -16,11 +16,15 @@ namespace
 {
 
 constexpr std::size_t ReadBufferSize = 16U * 1024U;
+// This finite-body API serves control/ACME documents. Taildrive uses the incremental parser
+// directly and is not subject to this in-memory document limit.
+constexpr std::size_t MaximumResponseSize = 64U * 1024U * 1024U;
 
 } // namespace
 
-ClientImpl::ClientImpl(tailgate::types::nettype::TcpSocketFactory& socketFactory) noexcept
-    : m_socketFactory(socketFactory)
+ClientImpl::ClientImpl(tailgate::types::nettype::TcpSocketFactory& socketFactory,
+                       MessageParserFactory& parserFactory) noexcept
+    : m_socketFactory(socketFactory), m_parserFactory(parserFactory)
 {
 }
 
@@ -51,10 +55,16 @@ Response ClientImpl::Send(const Request& request)
         {
             break;
         }
+        if (part.size() > MaximumResponseSize - response.size())
+        {
+            throw MessageError(MessageErrorKind::BodyLimit);
+        }
         response.append(reinterpret_cast<const char*>(part.data()), part.size());
     }
     tailgate::base::Logger("http").LogTrace("received HTTPS response bytes={}", response.size());
-    return Response::Decode(response);
+    auto parser = m_parserFactory.Create(
+        ParserOptions{.Kind = MessageKind::Response, .SkipBody = request.Method() == "HEAD"});
+    return parser->DecodeResponse(response);
 }
 
 } // namespace tailgate::net::http::impl

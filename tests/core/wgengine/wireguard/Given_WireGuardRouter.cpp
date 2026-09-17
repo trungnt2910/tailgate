@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -23,6 +25,78 @@ tailgate::types::netmap::PeerConfig Peer(const tailgate::crypto::Bytes32& privat
     result.AllowedPrefixes({tailgate::net::packet::Ipv4Prefix(
         tailgate::net::Ipv4Address::Parse(address).HostOrder(), 32)});
     return result;
+}
+
+TEST(Given_WireGuardRouter, When_PeersHaveNoRequestedTraffic_Then_MaintenanceDoesNotInitiate)
+{
+    tailgate::crypto::Bytes32 privateKey{};
+    privateKey[1] = 1;
+    tailgate::crypto::Bytes32 peerPrivate{};
+    peerPrivate[1] = 2;
+    tailgate::wgengine::wireguard::WireGuardRouter router(privateKey,
+                                                          {Peer(peerPrivate, "192.0.2.2")});
+
+    const auto outbound = router.UpdateTimers();
+
+    EXPECT_TRUE(outbound.empty());
+}
+
+TEST(Given_WireGuardRouter, When_OnePeerIsStarted_Then_OtherPeersRemainIdle)
+{
+    tailgate::crypto::Bytes32 privateKey{};
+    privateKey[1] = 1;
+    tailgate::crypto::Bytes32 requestedPrivate{};
+    requestedPrivate[1] = 2;
+    tailgate::crypto::Bytes32 unusedPrivate{};
+    unusedPrivate[1] = 3;
+    const auto requestedPublic = tailgate::crypto::X25519PublicFromPrivate(requestedPrivate);
+    tailgate::wgengine::wireguard::WireGuardRouter router(
+        privateKey, {Peer(requestedPrivate, "192.0.2.2"), Peer(unusedPrivate, "192.0.2.3")});
+
+    const auto started = router.Start(requestedPublic);
+    const auto duplicate = router.Start(requestedPublic);
+    const auto maintenance = router.UpdateTimers();
+    const bool requestedHandshake =
+        started.size() == 1 && started.front().Peer == requestedPublic && started.front().Handshake;
+
+    EXPECT_TRUE(requestedHandshake);
+    EXPECT_TRUE(duplicate.empty());
+    EXPECT_TRUE(maintenance.empty());
+}
+
+TEST(Given_WireGuardRouter, When_PeerIsAddedToLiveMap_Then_ItWaitsForRequestedTraffic)
+{
+    tailgate::crypto::Bytes32 privateKey{};
+    privateKey[1] = 1;
+    tailgate::crypto::Bytes32 peerPrivate{};
+    peerPrivate[1] = 2;
+    tailgate::wgengine::wireguard::WireGuardRouter router(privateKey, {});
+
+    router.UpdatePeers({Peer(peerPrivate, "192.0.2.2")});
+    const auto outbound = router.UpdateTimers();
+
+    EXPECT_TRUE(outbound.empty());
+}
+
+TEST(Given_WireGuardRouter, When_RequestedHandshakeIsUnanswered_Then_MaintenanceRetries)
+{
+    tailgate::crypto::Bytes32 privateKey{};
+    privateKey[1] = 1;
+    tailgate::crypto::Bytes32 peerPrivate{};
+    peerPrivate[1] = 2;
+    const auto peerPublic = tailgate::crypto::X25519PublicFromPrivate(peerPrivate);
+    tailgate::wgengine::wireguard::WireGuardRouter router(privateKey,
+                                                          {Peer(peerPrivate, "192.0.2.2")});
+    ASSERT_EQ(router.Start(peerPublic).size(), 1U);
+    // The WireGuard backend uses a monotonic platform clock and a five-second retry timeout.
+    constexpr auto RetryObservationDelay = std::chrono::seconds(6);
+
+    std::this_thread::sleep_for(RetryObservationDelay);
+    const auto retried = router.UpdateTimers();
+    const bool retryForRequestedPeer = retried.size() == 1 && retried.front().Peer == peerPublic &&
+                                       !retried.front().Payload.empty();
+
+    EXPECT_TRUE(retryForRequestedPeer);
 }
 
 TEST(Given_WireGuardRouter, When_TransportSourceIsNotProvided_Then_PeerIsIdentifiedFromHandshake)

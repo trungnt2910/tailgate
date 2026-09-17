@@ -35,6 +35,7 @@ public:
     void Encapsulate(EncapsulationContext& context) override;
     void Decapsulate(DecapsulationContext& context) override;
     void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
+    [[nodiscard]] bool HasLocalOutput() const override;
     void LoadPending(const tailgate::types::netmap::NetworkConfig& config, std::string& exitNode);
     void CommitPending(const std::string& exitNode);
 

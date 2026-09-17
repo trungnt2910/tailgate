@@ -1,5 +1,6 @@
 #include "FdStream.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -67,10 +68,15 @@ std::optional<std::vector<std::uint8_t>> FdStream::TryReadSome(std::size_t maxBy
                                      std::string(std::strerror(errno)));
         }
     }
-    std::vector<std::uint8_t> data(maxBytes);
+    const std::size_t readSize = std::min(maxBytes, MaximumReadSize);
+    // Keep initialized storage across short and would-block reads in the forwarding loop.
+    if (m_readBuffer.size() < readSize)
+    {
+        m_readBuffer.resize(readSize);
+    }
     while (true)
     {
-        const ssize_t result = read(m_fd, data.data(), data.size());
+        const ssize_t result = read(m_fd, m_readBuffer.data(), readSize);
         if (result < 0 && errno == EINTR)
         {
             continue;
@@ -84,8 +90,7 @@ std::optional<std::vector<std::uint8_t>> FdStream::TryReadSome(std::size_t maxBy
             throw std::runtime_error("descriptor read failed: " +
                                      std::string(std::strerror(errno)));
         }
-        data.resize(static_cast<std::size_t>(result));
-        return data;
+        return std::vector<std::uint8_t>(m_readBuffer.begin(), m_readBuffer.begin() + result);
     }
 }
 

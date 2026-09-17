@@ -21,6 +21,7 @@
 
 #include "fakes/bg/manager/FakeDataPlaneManager.h"
 #include "fakes/bg/manager/FakeSessionManager.h"
+#include "fakes/di/FakeNetworkBindings.h"
 
 namespace tailgate::uwp::tests
 {
@@ -37,45 +38,50 @@ protected:
         m_dataPlane = std::make_shared<FakeDataPlaneManager>();
         m_session = std::make_shared<FakeSessionManager>();
         m_coreInjector = std::make_unique<tailgate::di::Injector>();
+        tailgate::tests::fakes::InstallFakeNetworkBindings(*m_coreInjector);
         m_coreInjector->InstallSingleton<bg::PacketDevice, tailgate::wgengine::tstun::Device>();
-        tailgate::di::InstallCoreBindings(*m_coreInjector);
         m_client = &m_coreInjector->create<tailgate::hosted::Client&>();
         m_hostedSession = &m_coreInjector->create<tailgate::hosted::ClientSession&>();
         m_ping = std::make_shared<bg::service::PingService>(
             *m_dataPlane, m_coreInjector->create<tailgate::wgengine::ping::Tracker&>());
         m_packetDevice = &m_coreInjector->create<bg::PacketDevice&>();
         ASSERT_EQ(&m_coreInjector->create<tailgate::wgengine::tstun::Device&>(), m_packetDevice);
-        auto injector =
-            di::make_injector(di::bind<bg::manager::DataPlaneManager>.to(
-                                  [this](const auto&) -> bg::manager::DataPlaneManager&
-                                  {
-                                      return *m_dataPlane;
-                                  }),
-                              di::bind<bg::manager::SessionManager>.to(
-                                  [this](const auto&) -> bg::manager::SessionManager&
-                                  {
-                                      return *m_session;
-                                  }),
-                              di::bind<bg::service::PingService>.to(
-                                  [this](const auto&) -> bg::service::PingService&
-                                  {
-                                      return *m_ping;
-                                  }),
-                              di::bind<tailgate::hosted::Client>.to(
-                                  [this](const auto&) -> tailgate::hosted::Client&
-                                  {
-                                      return *m_client;
-                                  }),
-                              di::bind<tailgate::hosted::ClientSession>.to(
-                                  [this](const auto&) -> tailgate::hosted::ClientSession&
-                                  {
-                                      return *m_hostedSession;
-                                  }),
-                              di::bind<bg::PacketDevice>.to(
-                                  [this](const auto&) -> bg::PacketDevice&
-                                  {
-                                      return *m_packetDevice;
-                                  }));
+        auto injector = di::make_injector(
+            di::bind<bg::manager::DataPlaneManager>.to(
+                [this](const auto&) -> bg::manager::DataPlaneManager&
+                {
+                    return *m_dataPlane;
+                }),
+            di::bind<bg::manager::SessionManager>.to(
+                [this](const auto&) -> bg::manager::SessionManager&
+                {
+                    return *m_session;
+                }),
+            di::bind<bg::service::PingService>.to(
+                [this](const auto&) -> bg::service::PingService&
+                {
+                    return *m_ping;
+                }),
+            di::bind<tailgate::hosted::Client>.to(
+                [this](const auto&) -> tailgate::hosted::Client&
+                {
+                    return *m_client;
+                }),
+            di::bind<tailgate::hosted::ClientSession>.to(
+                [this](const auto&) -> tailgate::hosted::ClientSession&
+                {
+                    return *m_hostedSession;
+                }),
+            di::bind<bg::PacketDevice>.to(
+                [this](const auto&) -> bg::PacketDevice&
+                {
+                    return *m_packetDevice;
+                }),
+            di::bind<tailgate::hosted::PumpController>.to(
+                [this](const auto&) -> tailgate::hosted::PumpController&
+                {
+                    return m_coreInjector->create<tailgate::hosted::PumpController&>();
+                }));
         m_subject = injector.create<std::unique_ptr<bg::service::NetworkService>>();
         m_subject->Start(1);
     }
@@ -178,6 +184,29 @@ TEST_F(Given_NetworkService, When_DerpChallengeArrives_Then_AuthenticatedRespons
     EXPECT_EQ(frame->Type(), tailgate::hosted::MessageType::DerpResponse);
     EXPECT_EQ(response.RequestId(), RequestId);
     EXPECT_FALSE(response.ClientInfo().empty());
+}
+
+TEST_F(Given_NetworkService, When_PumpReplyArrives_Then_CoreSchedulerCompletesItsRequest)
+{
+    auto& pump = m_coreInjector->create<tailgate::hosted::PumpController&>();
+    const auto deadline = m_coreInjector->create<tailgate::base::TimeProvider&>().Now() +
+                          std::chrono::milliseconds(250);
+    const auto first = pump.Update(false, deadline);
+    ASSERT_TRUE(first.has_value());
+    const auto frame = tailgate::hosted::EncodePumpReply(first->RequestId);
+    std::vector<std::vector<std::uint8_t>> localOutput;
+    std::vector<std::uint8_t> remoteOutput;
+    bg::service::DecapsulationContext context{.Message = frame,
+                                              .Client = *m_client,
+                                              .LocalOutput = localOutput,
+                                              .RemoteOutput = remoteOutput};
+
+    m_subject->Decapsulate(context);
+    const auto next = pump.Update(false, deadline);
+
+    EXPECT_TRUE(next.has_value());
+    EXPECT_GT(next.value_or(tailgate::hosted::PumpSchedule{}).RequestId, first->RequestId);
+    EXPECT_TRUE(remoteOutput.empty());
 }
 
 } // namespace

@@ -2,6 +2,8 @@
 // any standard-library header includes libc++'s configuration.
 #define _LIBCPP_ENABLE_EXPERIMENTAL
 
+#include "HostedServer.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -59,6 +61,7 @@
 #include <tailgate/hosted/DiscoProbes.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/hosted/ServerSession.h>
+#include <tailgate/hosted/ServerWriter.h>
 #include <tailgate/net/dns/Dns.h>
 #include <tailgate/net/dns/TailnetDns.h>
 #include <tailgate/net/packet/Ipv4.h>
@@ -74,10 +77,15 @@
 #include <tailgate/wgengine/router/Config.h>
 #include <tailgate/wgengine/wireguard/Router.h>
 
+#include "event/EventRegistry.h"
+#include "impl/EventLoop.h"
+#include "impl/TimeProvider.h"
+
 #include "DI.h"
 #include "DataplaneEvents.h"
 #include "Files.h"
 #include "HostedConnectionRegistry.h"
+#include "Lifecycle.h"
 #include "Network.h"
 #include "PacketDescriptorProvider.h"
 #include "PeerApiServer.h"
@@ -86,14 +94,8 @@
 #include "RelayServer.h"
 #include "State.h"
 #include "StatusWriter.h"
-#include "UniqueFd.h"
-#include "event/EventRegistry.h"
-#include "impl/EventLoop.h"
-#include "impl/TimeProvider.h"
-
-#include "HostedServer.h"
-#include "Lifecycle.h"
 #include "TunnelRunner.h"
+#include "UniqueFd.h"
 
 namespace
 {
@@ -123,10 +125,7 @@ using TailPeer = tailgate::types::netmap::PeerConfig;
 using tailgate::base::EventReadiness;
 using tailgate::base::HasReadiness;
 
-constexpr auto RelayHeartbeatInterval = std::chrono::seconds(20);
 constexpr auto StunResponseTimeout = std::chrono::seconds(3);
-constexpr std::size_t MaximumRelayPacketBatch = 64;
-constexpr std::size_t RelayPacketBufferSize = 4096;
 
 std::vector<tailgate::net::Endpoint>
 DiscoverHostedEndpointCandidates(const std::string& underlayInterface,
@@ -255,11 +254,6 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
         std::lock_guard lock(writeMutex);
         frame.Write(stream);
     };
-    const auto writeFrames = [&](const std::vector<tailgate::hosted::Frame>& frames)
-    {
-        std::lock_guard lock(writeMutex);
-        stream.WriteAll(tailgate::hosted::Frame::EncodeAll(frames));
-    };
     writeFrame(authenticationResult);
 
     const tailgate::hosted::Frame mapFrame = decoder.Read(stream);
@@ -330,6 +324,10 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
         return response;
     };
 
+    tailgate::di::Injector writerInjector;
+    InstallBindings(writerInjector);
+    writerInjector.create<PacketDescriptorProvider&>().Borrow(relayPackets.Fd);
+    auto& hostedWriter = writerInjector.create<tailgate::hosted::ServerWriter&>();
     std::thread clientReader(
         [&]()
         {
@@ -340,6 +338,10 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
                     const tailgate::hosted::Frame frame = decoder.Read(stream);
                     tailgate::hosted::ServerSessionProcessResult processed =
                         serverSession->Process(frame);
+                    if (processed.PumpScheduleChanged)
+                    {
+                        hostedWriter.Wake();
+                    }
                     if (processed.PeerPacketPayload)
                     {
                         if (send(relayPackets.Fd,
@@ -429,6 +431,7 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
                                     "hosted client reader stopped: " + std::string(error.what()));
             }
             stopping = true;
+            hostedWriter.Wake();
             derpChanged.notify_all();
             clientReadyChanged.notify_all();
             shutdown(relayPackets.Fd, SHUT_RDWR);
@@ -439,60 +442,7 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
         {
             try
             {
-                std::vector<std::uint8_t> packet(RelayPacketBufferSize);
-                const std::shared_ptr<EventRegistry> writerRegistry =
-                    std::make_shared<EventRegistry>();
-                const tailgate::linux_frontend::event::EventHandle packetEvent =
-                    writerRegistry->Register(
-                        relayPackets.Fd,
-                        EventInterest::Readable,
-                        DataplaneEvent(DataplaneEvent::Kind::RelayControl).Token());
-                tailgate::linux_frontend::impl::EventLoop writerLoop(writerRegistry);
-                tailgate::linux_frontend::impl::TimeProvider writerTime;
-                while (!stopping)
-                {
-                    std::unique_ptr<tailgate::base::WaitToken> heartbeat =
-                        writerTime.After(RelayHeartbeatInterval);
-                    const tailgate::base::EventWaitResult ready = writerLoop.Wait(*heartbeat, 1);
-                    if (ready.Status == tailgate::base::EventWaitStatus::Woken)
-                    {
-                        continue;
-                    }
-                    if (ready.Status == tailgate::base::EventWaitStatus::DeadlineReached)
-                    {
-                        // The server drives the heartbeat so clients without their own
-                        // timers (UWP) get a periodic opportunity to run WireGuard timers
-                        // and send DERP-bound packets.
-                        writeFrame(serverSession->BuildHeartbeat());
-                        continue;
-                    }
-                    if (ready.Events.empty() ||
-                        !HasReadiness(ready.Events.front().Readiness, EventReadiness::Readable))
-                    {
-                        break;
-                    }
-                    std::vector<tailgate::hosted::Frame> frames;
-                    for (std::size_t index = 0; index < MaximumRelayPacketBatch; ++index)
-                    {
-                        const ssize_t received =
-                            recv(relayPackets.Fd, packet.data(), packet.size(), MSG_DONTWAIT);
-                        if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-                        {
-                            break;
-                        }
-                        if (received <= 0)
-                        {
-                            stopping = true;
-                            break;
-                        }
-                        frames.push_back(serverSession->BuildServerPacket(
-                            std::vector<std::uint8_t>(packet.begin(), packet.begin() + received)));
-                    }
-                    if (!frames.empty())
-                    {
-                        writeFrames(frames);
-                    }
-                }
+                hostedWriter.Run(*serverSession, stream, writeMutex, stopping);
             }
             catch (const std::exception& error)
             {
@@ -573,48 +523,41 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
                     tailgate::hosted::ServerEndpointCandidates(serverEndpointCandidates))));
             writeFrame(tailgate::hosted::Frame(tailgate::hosted::MessageType::DataPathReady, {}));
         };
-        tailgate::linux_frontend::RunTunnel(
-            {},
-            authentication.Identity.NodePublicKey(),
-            {},
-            config.SelfAddress(),
-            config.FirstIpv6Address(),
-            config.SelfName(),
-            config.MagicDnsDomain().empty() ? config.Domain() : config.MagicDnsDomain(),
-            config.DnsResolver(),
-            config.DnsDomains(),
-            config.DnsDefaultResolvers(),
-            config.DnsRoutes(),
-            config.Peers(),
-            config.DerpRegion(),
-            config.DerpHost(),
-            "",
-            false,
-            {},
-            {},
-            {},
-            {},
-            eventRegistry,
-            engine,
-            networkSession,
-            connection,
-            derpConnectionFactory,
-            hostedConnections,
-            hostedStatus,
-            readyFd,
-            false,
-            false,
-            true,
-            brokerControls.Fd,
-            {},
-            dataPathReady,
-            derpAuthenticator);
+        tailgate::linux_frontend::RunTunnel({},
+                                            authentication.Identity.NodePublicKey(),
+                                            {},
+                                            config,
+                                            config.DerpRegion(),
+                                            config.DerpHost(),
+                                            "",
+                                            false,
+                                            {},
+                                            {},
+                                            {},
+                                            {},
+                                            eventRegistry,
+                                            engine,
+                                            networkSession,
+                                            nullptr,
+                                            connection,
+                                            derpConnectionFactory,
+                                            hostedConnections,
+                                            hostedStatus,
+                                            readyFd,
+                                            false,
+                                            false,
+                                            true,
+                                            brokerControls.Fd,
+                                            {},
+                                            dataPathReady,
+                                            derpAuthenticator);
     }
     catch (...)
     {
         connectionError = std::current_exception();
     }
     stopping = true;
+    hostedWriter.Wake();
     derpChanged.notify_all();
     shutdown(relayPackets.Fd, SHUT_RDWR);
     shutdown(relayControls.Fd, SHUT_RDWR);

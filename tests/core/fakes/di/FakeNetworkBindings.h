@@ -13,6 +13,7 @@
 #include "fakes/base/FakeEventLoop.h"
 #include "fakes/base/FakeTimeProvider.h"
 #include "fakes/control/client/FakeHostInfoProvider.h"
+#include "fakes/types/nettype/FakeTcpPortReservation.h"
 #include "fakes/types/nettype/FakeTcpSocket.h"
 #include "fakes/types/nettype/FakeUdpSocket.h"
 #include "fakes/wgengine/tstun/FakeDevice.h"
@@ -30,6 +31,8 @@ inline void InstallFakeNetworkBindings(tailgate::di::Injector& injector)
         boost_di::bind<tailgate::types::nettype::UdpSocketFactory>.to<FakeUdpSocketFactory>(),
         boost_di::bind<tailgate::types::nettype::TcpSocketFactory>.to<FakeTcpSocketFactory>());
     injector.InstallSingleton<FakeDevice, tailgate::wgengine::tstun::Device>();
+    injector.InstallSingleton<FakeTcpPortReservationFactory,
+                              tailgate::types::nettype::TcpPortReservationFactory>();
     tailgate::di::InstallCoreBindings(injector);
 }
 

@@ -1,4 +1,5 @@
 add_subdirectory(magicsock)
+add_subdirectory(netstack)
 add_subdirectory(ping)
 add_subdirectory(router)
 add_subdirectory(tstun)

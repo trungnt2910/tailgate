@@ -87,7 +87,10 @@ void SessionControllerImpl::Connect(winrt::hstring tailgateServer,
                                     bool restartConnectedProfile,
                                     std::optional<ConnectionSettingsSnapshot> rollbackSettings)
 {
-    if (m_state.ConnectionOperationActive())
+    m_disconnectAfterRefresh = false;
+    const auto& profile = m_vpnProfileController.GetState();
+    const bool refreshing = profile.Busy() && profile.Activity() == VpnProfileActivity::Refreshing;
+    if (m_state.ConnectionOperationActive() || refreshing)
     {
         bool cachedAuthorizationShown = false;
         if (m_activeConnect && m_activeConnect->TailgateServer)
@@ -328,6 +331,7 @@ void SessionControllerImpl::OnVpnProfileChanged()
                 state.Busy(false);
                 state.Activity(SessionActivity::Idle);
             });
+        StartPendingConnect();
         return;
     case VpnProfileActivity::LoggingOut:
         if (vpn.Error())
@@ -364,6 +368,15 @@ void SessionControllerImpl::OnVpnProfileChanged()
                 state.Busy(false);
                 state.Activity(SessionActivity::Idle);
             });
+        if (m_disconnectAfterRefresh)
+        {
+            m_disconnectAfterRefresh = false;
+            Disconnect();
+        }
+        else
+        {
+            StartPendingConnect();
+        }
         return;
     case VpnProfileActivity::Idle:
         return;
@@ -510,6 +523,14 @@ void SessionControllerImpl::ConnectStoredOrRequestSignIn()
 
 void SessionControllerImpl::Disconnect()
 {
+    const auto& profile = m_vpnProfileController.GetState();
+    if (!m_state.ConnectionOperationActive() && profile.Busy() &&
+        profile.Activity() == VpnProfileActivity::Refreshing)
+    {
+        m_disconnectAfterRefresh = true;
+        m_state.PendingConnect(std::nullopt);
+        return;
+    }
     if (OperationInProgress("disconnect"))
     {
         return;

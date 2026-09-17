@@ -47,11 +47,18 @@ struct DiscoPong
     PeerPacket Packet;
 };
 
+struct AuthenticatedPacket
+{
+    tailgate::crypto::Bytes32 Peer{};
+    std::vector<std::uint8_t> Bytes;
+};
+
 struct ClientProcessResult
 {
-    std::vector<std::vector<std::uint8_t>> LocalPackets;
+    std::vector<AuthenticatedPacket> LocalPackets;
     std::vector<std::uint8_t> RemoteOutput;
     std::optional<DiscoPong> Pong;
+    std::optional<std::uint64_t> PumpReply;
     bool NetworkMapChanged = false;
     bool DataPathReady = false;
 };
@@ -76,6 +83,8 @@ public:
     [[nodiscard]] const std::string& ExitNode() const noexcept;
 
     [[nodiscard]] std::vector<std::uint8_t> Encapsulate(const std::vector<std::uint8_t>& packet);
+    [[nodiscard]] std::vector<std::uint8_t> EncapsulateTo(const tailgate::crypto::Bytes32& peer,
+                                                          const std::vector<std::uint8_t>& packet);
     [[nodiscard]] ClientProcessResult Process(const Frame& frame);
     [[nodiscard]] std::vector<std::uint8_t> UpdateTimers();
     [[nodiscard]] std::vector<std::uint8_t> BuildKeepAlive();

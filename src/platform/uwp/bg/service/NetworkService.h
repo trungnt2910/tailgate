@@ -4,6 +4,7 @@
 
 #include <tailgate/hosted/Client.h>
 #include <tailgate/hosted/ClientSession.h>
+#include <tailgate/hosted/PumpController.h>
 
 #include "manager/DataPlaneManager.h"
 #include "manager/SessionManager.h"
@@ -49,6 +50,7 @@ public:
                    PingService& pingService,
                    tailgate::hosted::Client& client,
                    tailgate::hosted::ClientSession& hostedSession,
+                   tailgate::hosted::PumpController& pump,
                    PacketDevice& packetDevice);
 
     void Start(SessionGeneration generation) override;
@@ -57,12 +59,16 @@ public:
     void Encapsulate(EncapsulationContext& context) override;
     void Decapsulate(DecapsulationContext& context) override;
     void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
+    [[nodiscard]] bool HasLocalOutput() const override;
+    [[nodiscard]] std::optional<tailgate::base::TimeProvider::TimePoint>
+    NextDeadline() const override;
 
 private:
     void DrainDevice(std::vector<std::vector<std::uint8_t>>& localOutput);
 
     tailgate::hosted::Client& m_client;
     tailgate::hosted::ClientSession& m_hostedSession;
+    tailgate::hosted::PumpController& m_pump;
     PacketDevice& m_packetDevice;
     PingService& m_pingService;
     manager::SessionManager& m_sessionManager;

@@ -6,6 +6,53 @@ set(TAILGATE_ORIGINAL_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 string(APPEND CMAKE_C_FLAGS " ${TAILGATE_THIRD_PARTY_COMPILE_FLAGS}")
 string(APPEND CMAKE_CXX_FLAGS " ${TAILGATE_THIRD_PARTY_COMPILE_FLAGS}")
 
+# Warning-specific exceptions survive upstream's later -Werror; -U cancels its private debug ABI.
+# The quoted port headers must take precedence over the example's -I paths.
+string(
+    CONCAT
+    TAILGATE_LWIP_C_FLAGS
+    "${CMAKE_C_FLAGS} -ULWIP_DEBUG"
+    " -Wno-error=unreachable-code"
+    " -Wno-error=unused"
+    " -Wno-error=unused-parameter"
+    " -iquote \"${PROJECT_SOURCE_DIR}/src/core/wgengine/netstack/port\""
+)
+CPMAddPackage(
+    NAME Lwip
+    URL https://codeload.github.com/lwip-tcpip/lwip/tar.gz/refs/tags/STABLE-2_2_1_RELEASE
+    URL_HASH SHA256=ce0b7461c0ad9602c376f0bf07c5eb7253b48c7bf66f011c6bf3e2a96731c539
+    EXCLUDE_FROM_ALL YES
+    OPTIONS "CMAKE_C_FLAGS ${TAILGATE_LWIP_C_FLAGS}"
+)
+unset(TAILGATE_LWIP_C_FLAGS)
+
+CPMAddPackage(
+    NAME Expat
+    VERSION 2.8.4
+    URL https://github.com/libexpat/libexpat/releases/download/R_2_8_4/expat-2.8.4.tar.bz2
+    URL_HASH SHA256=963250a823c16a498582b4ad82ad0f88926be0769675d3b6956be4d769a1cd8f
+    OPTIONS
+        "EXPAT_SHARED_LIBS OFF"
+        "EXPAT_BUILD_TOOLS OFF"
+        "EXPAT_BUILD_EXAMPLES OFF"
+        "EXPAT_BUILD_TESTS OFF"
+        "EXPAT_BUILD_DOCS OFF"
+        "EXPAT_BUILD_PKGCONFIG OFF"
+        "EXPAT_ENABLE_INSTALL OFF"
+        "EXPAT_DTD OFF"
+        "EXPAT_GE OFF"
+)
+
+# Consume generated C sources so builds do not require Node.js or npm code generation.
+CPMAddPackage(
+    NAME Llhttp
+    VERSION 9.4.3
+    URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.4.3.tar.gz
+    URL_HASH SHA256=1eb813c7437b31a87496a1cd3ed79f00746720f5e7e29c79b42c02cb69f36c39
+    SYSTEM YES
+    OPTIONS "LLHTTP_BUILD_SHARED_LIBS OFF" "LLHTTP_BUILD_STATIC_LIBS ON"
+)
+
 CPMAddPackage(
     NAME Sodium
     GIT_REPOSITORY https://github.com/robinlinden/libsodium-cmake.git
@@ -65,11 +112,13 @@ string(
 CPMAddPackage(
     NAME Boost
     VERSION 1.91.0
+    SYSTEM YES
     URL "${TAILGATE_BOOST_URL}"
     URL_HASH SHA256=cc5dc5006ecbdf0051f90979be31b4eee5987d9ae14ae9fb9c03cfa43fa3cdad
     DOWNLOAD_EXTRACT_TIMESTAMP ON
     EXCLUDE_FROM_ALL
-    OPTIONS "BOOST_INCLUDE_LIBRARIES algorithm"
+    OPTIONS
+        "BOOST_INCLUDE_LIBRARIES algorithm\\\;url"
 )
 unset(TAILGATE_BOOST_URL)
 
@@ -133,9 +182,12 @@ target_include_directories(
     tailgate_wireguard_crypto
     PUBLIC
     ${WireGuardLwip_SOURCE_DIR}/src
-    ${PROJECT_SOURCE_DIR}/src/core/wireguard_compat
 )
-target_link_libraries(tailgate_wireguard_crypto PRIVATE sodium)
+target_link_libraries(
+    tailgate_wireguard_crypto
+    PUBLIC tailgate_core_wgengine_netstack_lwip
+    PRIVATE sodium
+)
 
 set(CMAKE_C_FLAGS "${TAILGATE_ORIGINAL_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${TAILGATE_ORIGINAL_CXX_FLAGS}")

@@ -125,11 +125,14 @@ SessionImpl::DiscoverEndpoint(const tailgate::net::Endpoint& server,
     }
 }
 
-tailgate::wgengine::SessionWaitResult SessionImpl::Wait(std::size_t maximumEvents,
-                                                        std::size_t maximumPacketsPerSource,
-                                                        std::size_t maximumPacketSize)
+tailgate::wgengine::SessionWaitResult
+SessionImpl::Wait(std::size_t maximumEvents,
+                  std::size_t maximumPacketsPerSource,
+                  std::size_t maximumPacketSize,
+                  std::optional<base::TimeProvider::TimePoint> deadline)
 {
-    std::unique_ptr<tailgate::base::WaitToken> maintenance = m_timeProvider.At(m_nextMaintenance);
+    std::unique_ptr<tailgate::base::WaitToken> maintenance =
+        m_timeProvider.At(deadline ? std::min(*deadline, m_nextMaintenance) : m_nextMaintenance);
     tailgate::wgengine::EngineWaitResult engineResult =
         m_engine.Wait(*maintenance, maximumEvents, maximumPacketsPerSource, maximumPacketSize);
     tailgate::wgengine::SessionWaitResult result{

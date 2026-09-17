@@ -1,0 +1,18 @@
+add_subdirectory(compositedav)
+add_subdirectory(dirfs)
+tailgate_add_library(
+    tailgate_core_drive_driveimpl
+    STATIC
+    Exchange.cpp
+    FileSystemForLocalImpl.cpp
+    PeerTransport.cpp
+)
+target_link_libraries(
+    tailgate_core_drive_driveimpl
+    PUBLIC
+        tailgate_core_drive
+        tailgate_core_drive_driveimpl_compositedav
+        tailgate_core_drive_driveimpl_dirfs
+        tailgate_core_net_http
+        tailgate_core_wgengine_netstack
+)

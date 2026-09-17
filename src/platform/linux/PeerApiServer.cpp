@@ -1,5 +1,6 @@
 #include "PeerApiServer.h"
 
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <cstring>
@@ -55,16 +56,23 @@ void SetNonBlocking(int fd)
     }
 }
 
-void ModifyEvents(int epollFd, int fd, std::uint32_t events, std::uint64_t tag)
+void ModifyEvents(int epollFd, int fd, std::uint32_t events, std::uint64_t tag, bool& registered)
 {
+    if (events == 0 && !registered)
+    {
+        return;
+    }
     epoll_event event{};
     event.events = events;
     event.data.u64 = tag;
-    if (epoll_ctl(epollFd, EPOLL_CTL_MOD, fd, &event) != 0)
+    const int operation =
+        events == 0 ? EPOLL_CTL_DEL : (registered ? EPOLL_CTL_MOD : EPOLL_CTL_ADD);
+    if (epoll_ctl(epollFd, operation, fd, &event) != 0)
     {
         throw std::runtime_error("peerapi epoll update failed: " +
                                  std::string(std::strerror(errno)));
     }
+    registered = events != 0;
 }
 
 void PumpTls(int peerFd,
@@ -89,11 +97,15 @@ void PumpTls(int peerFd,
         throw std::runtime_error("peerapi epoll registration failed");
     }
     tailgate::serve::PeerApiConnection connection(tls, local);
+    bool peerClosed = false;
+    bool localClosed = false;
+    bool peerRegistered = true;
+    bool localRegistered = true;
     while (true)
     {
         std::array<epoll_event, 2> events{};
-        const int count =
-            epoll_wait(epoll.Fd, events.data(), events.size(), PeerApiWaitTimeout(tls));
+        const int count = epoll_wait(
+            epoll.Fd, events.data(), events.size(), peerClosed ? -1 : PeerApiWaitTimeout(tls));
         if (count < 0 && errno == EINTR)
         {
             continue;
@@ -102,33 +114,34 @@ void PumpTls(int peerFd,
         {
             throw std::runtime_error("peerapi epoll wait failed");
         }
-        bool peerReady = tls.HasBufferedInput() && !tls.ReadNeedsWrite();
+        bool peerReady = !peerClosed && tls.HasBufferedInput() && !tls.ReadNeedsWrite();
         bool localReady = false;
         for (int index = 0; index < count; ++index)
         {
-            if ((events[index].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0)
+            if ((events[index].events & EPOLLERR) != 0)
             {
                 return;
             }
             peerReady =
-                peerReady || (events[index].data.u64 == PeerTag &&
-                              (((events[index].events & EPOLLIN) != 0) ||
+                peerReady || (!peerClosed && events[index].data.u64 == PeerTag &&
+                              (((events[index].events & (EPOLLIN | EPOLLHUP | EPOLLRDHUP)) != 0) ||
                                (((events[index].events & EPOLLOUT) != 0) && tls.ReadNeedsWrite())));
-            localReady = localReady || (events[index].data.u64 == LocalTag &&
-                                        (events[index].events & (EPOLLIN | EPOLLOUT)) != 0);
+            localReady =
+                localReady || (!localClosed && events[index].data.u64 == LocalTag &&
+                               (events[index].events & (EPOLLIN | EPOLLHUP | EPOLLRDHUP)) != 0);
         }
         if (peerReady)
         {
             if (connection.ProcessPeerInput() == tailgate::serve::PeerApiConnectionStatus::Closed)
             {
-                return;
+                peerClosed = true;
             }
         }
         if (localReady)
         {
             if (connection.ProcessLocalInput() == tailgate::serve::PeerApiConnectionStatus::Closed)
             {
-                return;
+                localClosed = true;
             }
         }
         if (!tls.ReadNeedsWrite())
@@ -136,15 +149,29 @@ void PumpTls(int peerFd,
             (void)connection.FlushPeerOutput();
         }
         (void)connection.FlushLocalOutput();
-        ModifyEvents(epoll.Fd,
-                     peerFd,
-                     EPOLLIN | EPOLLRDHUP |
-                         (!connection.PeerOutputPending() && !tls.ReadNeedsWrite() ? 0U : EPOLLOUT),
-                     PeerTag);
+        if ((peerClosed || localClosed) && !connection.PeerOutputPending() &&
+            !connection.LocalOutputPending())
+        {
+            return;
+        }
+        // EOF can accompany final data. Drain queued output before closing, and remove
+        // exhausted inputs so their persistent hang-up readiness cannot spin the loop.
+        std::uint32_t peerEvents = peerClosed ? 0U : EPOLLIN | EPOLLRDHUP;
+        if (connection.PeerOutputPending())
+        {
+            peerEvents |= tls.WriteNeedsRead() ? EPOLLIN : EPOLLOUT;
+        }
+        if (!peerClosed && tls.ReadNeedsWrite())
+        {
+            peerEvents |= EPOLLOUT;
+        }
+        ModifyEvents(epoll.Fd, peerFd, peerEvents, PeerTag, peerRegistered);
         ModifyEvents(epoll.Fd,
                      localFd,
-                     EPOLLIN | EPOLLRDHUP | (!connection.LocalOutputPending() ? 0U : EPOLLOUT),
-                     LocalTag);
+                     (localClosed ? 0U : EPOLLIN | EPOLLRDHUP) |
+                         (connection.LocalOutputPending() ? EPOLLOUT : 0U),
+                     LocalTag,
+                     localRegistered);
     }
 }
 

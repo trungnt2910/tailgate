@@ -200,5 +200,138 @@ TEST_F(Given_SessionController, When_ConnectionAttemptIsCancelled_Then_BothListe
     EXPECT_EQ(m_vpn->CancelConnectCount, 1U);
 }
 
+TEST_F(Given_SessionController, When_ConnectArrivesDuringProfileRefresh_Then_RequestWaits)
+{
+    const winrt::hstring server = L"https://example.com";
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(true);
+                });
+        });
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Connect(server, L"", false, false, std::nullopt);
+        });
+
+    EXPECT_TRUE(m_subject->GetState().PendingConnect().has_value());
+    EXPECT_FALSE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_FALSE(m_relay->LastPreflight.has_value());
+    EXPECT_FALSE(m_vpn->ConnectServer.has_value());
+}
+
+TEST_F(Given_SessionController, When_ProfileRefreshCompletes_Then_QueuedConnectStarts)
+{
+    const winrt::hstring server = L"https://example.com";
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(true);
+                });
+            m_subject->Connect(server, L"", false, false, std::nullopt);
+        });
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Busy(false);
+        });
+
+    EXPECT_FALSE(m_subject->GetState().PendingConnect().has_value());
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_TRUE(m_relay->LastPreflight.has_value());
+}
+
+TEST_F(Given_SessionController,
+       When_DisconnectArrivesDuringProfileRefresh_Then_ItWaitsForCompletion)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(true);
+                });
+        });
+    std::size_t prematureDisconnects = 0;
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Disconnect();
+            prematureDisconnects = m_vpn->DisconnectCount;
+            m_vpn->GetState().Busy(false);
+        });
+
+    EXPECT_EQ(prematureDisconnects, 0U);
+    EXPECT_EQ(m_vpn->DisconnectCount, 1U);
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+}
+
+TEST_F(Given_SessionController,
+       When_DisconnectSupersedesConnectDuringRefresh_Then_OnlyDisconnectRuns)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(true);
+                });
+            m_subject->Connect(L"https://example.com", L"", false, false, std::nullopt);
+        });
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Disconnect();
+            m_vpn->GetState().Busy(false);
+        });
+
+    EXPECT_EQ(m_vpn->DisconnectCount, 1U);
+    EXPECT_FALSE(m_relay->LastPreflight.has_value());
+    EXPECT_FALSE(m_subject->GetState().PendingConnect().has_value());
+}
+
+TEST_F(Given_SessionController, When_ConnectSupersedesDisconnectDuringRefresh_Then_OnlyConnectRuns)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(true);
+                });
+            m_subject->Disconnect();
+        });
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Connect(L"https://example.com", L"", false, false, std::nullopt);
+            m_vpn->GetState().Busy(false);
+        });
+
+    EXPECT_EQ(m_vpn->DisconnectCount, 0U);
+    EXPECT_TRUE(m_relay->LastPreflight.has_value());
+    EXPECT_FALSE(m_subject->GetState().PendingConnect().has_value());
+}
+
 } // namespace
 } // namespace tailgate::uwp::tests

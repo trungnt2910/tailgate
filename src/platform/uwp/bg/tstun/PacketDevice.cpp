@@ -131,6 +131,12 @@ bool PacketDevice::WriteInterest() const noexcept
     return m_writeInterest;
 }
 
+bool PacketDevice::HasOutput() const noexcept
+{
+    std::lock_guard lock(m_mutex);
+    return !m_output.empty();
+}
+
 void PacketDevice::PrepareTransport(const winrt::Windows::Networking::Vpn::VpnChannel& channel)
 {
     std::lock_guard lock(m_mutex);

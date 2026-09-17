@@ -10,6 +10,7 @@ tailgate_add_test_executable(
     Given_LinuxFileChangeWaiter.cpp
     Given_LinuxPacketDevice.cpp
     Given_LinuxProcessWait.cpp
+    Given_LinuxTcpPortReservation.cpp
     Given_LinuxTcpSocketFactory.cpp
     Given_LinuxUdpSocketFactory.cpp
     Given_Network.cpp

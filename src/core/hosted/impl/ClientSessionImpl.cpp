@@ -5,9 +5,11 @@
 namespace tailgate::hosted::impl
 {
 
-ClientSessionImpl::ClientSessionImpl(tailgate::hosted::Client& client,
-                                     tailgate::wgengine::tstun::Device& device) noexcept
-    : m_client(client), m_device(device)
+ClientSessionImpl::ClientSessionImpl(
+    tailgate::hosted::Client& client,
+    tailgate::wgengine::tstun::Device& device,
+    std::shared_ptr<tailgate::ipn::ipnlocal::LocalServices> localServices) noexcept
+    : m_client(client), m_device(device), m_localServices(std::move(localServices))
 {
 }
 
@@ -18,6 +20,7 @@ bool ClientSessionImpl::OpenPacketDevice(const tailgate::wgengine::tstun::Device
         return false;
     }
     m_open = true;
+    RefreshNetworkConfig();
     return true;
 }
 
@@ -42,9 +45,14 @@ ClientSessionImpl::ProcessPacketDevice(std::size_t maximumPackets, std::size_t m
             result.DeviceStatus = tailgate::hosted::PacketDeviceStatus::Closed;
             break;
         }
+        if (m_localServices->HandleHostPacket(packet.Packet))
+        {
+            continue;
+        }
         std::vector<std::uint8_t> remote = m_client.Encapsulate(packet.Packet);
         result.RemoteOutput.insert(result.RemoteOutput.end(), remote.begin(), remote.end());
     }
+    PollLocalServices(result);
     return result;
 }
 
@@ -56,18 +64,29 @@ ClientSessionImpl::ProcessFrame(const tailgate::hosted::Frame& frame)
         .DeviceStatus = tailgate::hosted::PacketDeviceStatus::Ready,
         .RemoteOutput = std::move(processed.RemoteOutput),
         .Pong = std::move(processed.Pong),
+        .PumpReply = processed.PumpReply,
         .NetworkMapChanged = processed.NetworkMapChanged,
         .DataPathReady = processed.DataPathReady,
     };
-    for (std::vector<std::uint8_t>& packet : processed.LocalPackets)
+    if (processed.NetworkMapChanged)
     {
-        const tailgate::hosted::PacketDeviceStatus written = WritePacketDevice(std::move(packet));
+        RefreshNetworkConfig();
+    }
+    for (auto& packet : processed.LocalPackets)
+    {
+        if (m_localServices->HandlePeerPacket(packet.Peer, packet.Bytes))
+        {
+            continue;
+        }
+        const tailgate::hosted::PacketDeviceStatus written =
+            WritePacketDevice(std::move(packet.Bytes));
         if (written != tailgate::hosted::PacketDeviceStatus::Ready)
         {
             result.DeviceStatus = written;
             break;
         }
     }
+    PollLocalServices(result);
     return result;
 }
 
@@ -95,6 +114,7 @@ tailgate::hosted::PacketDeviceStatus ClientSessionImpl::FlushPacketDevice()
 
 void ClientSessionImpl::ClosePacketDevice() noexcept
 {
+    m_localServices->Stop();
     m_pendingPackets.clear();
     m_pendingBytes = 0;
     m_open = false;
@@ -152,6 +172,64 @@ void ClientSessionImpl::UpdateWriteInterest()
     {
         m_device.SetWriteInterest(!m_pendingPackets.empty());
     }
+}
+
+void ClientSessionImpl::RefreshNetworkConfig()
+{
+    if (m_open && m_client.Active())
+    {
+        m_localServices->SetNetworkConfig(m_client.Network());
+    }
+    else
+    {
+        m_localServices->Stop();
+    }
+}
+
+ClientSessionProcessResult ClientSessionImpl::PollLocalServices()
+{
+    ClientSessionProcessResult result;
+    if (!m_open)
+    {
+        result.DeviceStatus = PacketDeviceStatus::Closed;
+        return result;
+    }
+    PollLocalServices(result);
+    return result;
+}
+
+void ClientSessionImpl::PollLocalServices(ClientSessionProcessResult& result)
+{
+    if (!m_open || result.DeviceStatus != PacketDeviceStatus::Ready)
+    {
+        return;
+    }
+    constexpr std::size_t MaximumPacketsPerCycle = 64;
+    m_localServices->Poll();
+    for (auto& packet : m_localServices->TakeOutput(MaximumPacketsPerCycle))
+    {
+        if (packet.ForwardFromHost || packet.Peer)
+        {
+            const auto encoded = packet.ForwardFromHost
+                                     ? m_client.Encapsulate(packet.Bytes)
+                                     : m_client.EncapsulateTo(*packet.Peer, packet.Bytes);
+            result.RemoteOutput.insert(result.RemoteOutput.end(), encoded.begin(), encoded.end());
+        }
+        else
+        {
+            const auto written = WritePacketDevice(std::move(packet.Bytes));
+            if (written != PacketDeviceStatus::Ready)
+            {
+                result.DeviceStatus = written;
+                break;
+            }
+        }
+    }
+}
+
+std::optional<base::TimeProvider::TimePoint> ClientSessionImpl::NextDeadline() const
+{
+    return m_open ? m_localServices->NextDeadline() : std::nullopt;
 }
 
 } // namespace tailgate::hosted::impl

@@ -5,6 +5,28 @@
 namespace tailgate::tests::fakes
 {
 
+// Public test-only identity for exercising both sides of an in-memory TLS connection.
+inline constexpr std::string_view IngressPrivateKey = R"PEM(-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg14O/f3H7nkT38yoY
+qTO6DQzNnBOSv3Ybt26LCfOo+HOhRANCAARmIuvJmTi5qsKYy8zzhqyjWb+YxiC+
+rwvOEYhF3TFKMKfXrn7aZR824o1NLu5cl/sal+xfMx+s+UDh9uUtXVdH
+-----END PRIVATE KEY-----
+)PEM";
+
+inline constexpr std::string_view IngressCertificate = R"PEM(-----BEGIN CERTIFICATE-----
+MIIBsjCCAVmgAwIBAgIUegDKNS3JJgo3B3Vd6oVbCEBM5y0wCgYIKoZIzj0EAwIw
+HjEcMBoGA1UEAwwTbm9kZS5leGFtcGxlLnRzLm5ldDAgFw0yNjA5MDUxMTI1MjFa
+GA8yMTI2MDgxMjExMjUyMVowHjEcMBoGA1UEAwwTbm9kZS5leGFtcGxlLnRzLm5l
+dDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGYi68mZOLmqwpjLzPOGrKNZv5jG
+IL6vC84RiEXdMUowp9euftplHzbijU0u7lyX+xqX7F8zH6z5QOH25S1dV0ejczBx
+MB0GA1UdDgQWBBTrZGkjxCDRZaICnoLgQm4HVBplszAfBgNVHSMEGDAWgBTrZGkj
+xCDRZaICnoLgQm4HVBplszAPBgNVHRMBAf8EBTADAQH/MB4GA1UdEQQXMBWCE25v
+ZGUuZXhhbXBsZS50cy5uZXQwCgYIKoZIzj0EAwIDRwAwRAIgNQ3/bYH8qLPGlXNu
+Ju4GrgFpusMtvcdNyOOm8RgzOYICIB1Q0jYgf99KJvrHBAsVH4nDRzNNym3pR8C4
+scWov86a
+-----END CERTIFICATE-----
+)PEM";
+
 inline constexpr std::string_view ExampleCertificate = R"PEM(-----BEGIN CERTIFICATE-----
 MIIBsjCCAVmgAwIBAgIUKO0vwx0W1jahJt0MIKkE46NQ9jMwCgYIKoZIzj0EAwIw
 HjEcMBoGA1UEAwwTbm9kZS5leGFtcGxlLnRzLm5ldDAgFw0yNjA3MjQwODU3Mjla

@@ -12,6 +12,9 @@
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/net/Ipv4Address.h>
 
+namespace tailgate::tests
+{
+
 namespace
 {
 
@@ -107,6 +110,34 @@ TEST(Given_RelayProtocol, When_CoalescedRelayFramesAndDecoding_Then_EachFrameIsR
     EXPECT_TRUE(secondFrame.has_value());
     EXPECT_EQ(tailgate::hosted::MessageType::ServerPacket, secondFrame->Type());
     EXPECT_EQ((std::vector<std::uint8_t>{9, 8}), secondFrame->Payload());
+}
+
+TEST(Given_RelayProtocol,
+     When_ReceiveStorageIsReusedForShorterFrame_Then_OnlyReceivedBytesAreDecoded)
+{
+    const tailgate::hosted::Frame large(tailgate::hosted::MessageType::ServerPacket, {1, 2, 3, 4});
+    const tailgate::hosted::Frame small(tailgate::hosted::MessageType::Heartbeat, {});
+    std::vector<std::uint8_t> storage = large.Encode();
+    const std::vector<std::uint8_t> shorter = small.Encode();
+    ASSERT_GT(storage.size(), shorter.size());
+    tailgate::hosted::Decoder first;
+    tailgate::hosted::Decoder second;
+
+    first.Feed(storage.data(), storage.size());
+    std::copy(shorter.begin(), shorter.end(), storage.begin());
+    second.Feed(storage.data(), shorter.size());
+    const auto firstFrame = first.Next();
+    const auto secondFrame = second.Next();
+    const bool firstPreserved = firstFrame && firstFrame->Type() == large.Type() &&
+                                firstFrame->Payload() == large.Payload();
+    const bool secondPreserved = secondFrame && secondFrame->Type() == small.Type() &&
+                                 secondFrame->Payload() == small.Payload();
+    const auto trailing = second.Next();
+
+    EXPECT_TRUE(firstPreserved);
+    EXPECT_TRUE(secondPreserved);
+    EXPECT_FALSE(trailing.has_value());
+    EXPECT_EQ(second.BufferedBytes(), 0U);
 }
 
 TEST(Given_RelayProtocol, When_DataPathReadyFrameAndRoundTripping_Then_FrameIsPreserved)
@@ -596,4 +627,33 @@ TEST(Given_RelayProtocol, When_MultipleAvailableFramesAreRead_Then_AllFramesAreD
     EXPECT_EQ(decoder.BufferedBytes(), 0U);
 }
 
+TEST(Given_RelayProtocol, When_NetworkMapIsRelayed_Then_DiscoveryMetadataIsPreserved)
+{
+    types::netmap::NetworkConfig source;
+    source.SelfNodeId(1);
+    source.SelfKey("nodekey:" + std::string(64, 'b'));
+    source.SelfAddress("100.64.0.1");
+    source.Domain("example.ts.net");
+    source.Capabilities({"drive:access"});
+    types::netmap::PeerConfig peer;
+    peer.NodeId(42);
+    peer.Addresses({"100.64.0.2", "2001:db8::2"});
+    peer.PeerApi4Port(12345);
+    peer.PeerApi6Port(23456);
+    peer.Capabilities({"tailscale.com/cap/drive-sharer"});
+    source.Peers({peer});
+
+    const auto decoded = hosted::ProtocolCodec::DecodeNetworkConfig(
+        hosted::ProtocolCodec::EncodeNetworkConfig(source));
+    ASSERT_FALSE(decoded.Peers().empty());
+
+    EXPECT_EQ(decoded.Capabilities(), source.Capabilities());
+    EXPECT_EQ(decoded.Peers().size(), 1U);
+    EXPECT_EQ(decoded.Peers().front().Addresses(), peer.Addresses());
+    EXPECT_EQ(decoded.Peers().front().PeerApi4Port(), peer.PeerApi4Port());
+    EXPECT_EQ(decoded.Peers().front().PeerApi6Port(), peer.PeerApi6Port());
+    EXPECT_EQ(decoded.Peers().front().Capabilities(), peer.Capabilities());
+}
+
 } // namespace
+} // namespace tailgate::tests

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -45,7 +46,9 @@ private:
         std::vector<std::uint8_t> Payload;
     };
 
-    void WriteFrame(std::uint8_t type, const std::vector<std::uint8_t>& payload);
+    void WriteFrame(std::uint8_t type,
+                    std::span<const std::uint8_t> payload,
+                    std::span<const std::uint8_t> prefix = {});
     [[nodiscard]] Frame ReadFrame();
 
     tailgate::base::ByteStream& Stream;

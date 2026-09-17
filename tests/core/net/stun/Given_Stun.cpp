@@ -1,7 +1,7 @@
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <array>
+
+#include <gtest/gtest.h>
 
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/net/stun/Stun.h>
@@ -30,12 +30,9 @@ TEST(Given_Stun, When_StunIpv4ResponseAndParsing_Then_MappedEndpointIsReturned)
 
     const std::optional<tailgate::net::Endpoint> endpoint =
         transaction.ParseMappedIpv4Endpoint(response);
+    ASSERT_TRUE(endpoint);
 
-    EXPECT_TRUE(endpoint.has_value());
-    if (endpoint)
-    {
-        EXPECT_EQ(endpoint->Address(), tailgate::net::Ipv4Address::FromOctets(127, 0, 0, 1));
-        EXPECT_EQ(endpoint->Port(), 61300);
-        EXPECT_EQ(endpoint->ToString(), "127.0.0.1:61300");
-    }
+    EXPECT_EQ(endpoint->Address(), tailgate::net::Ipv4Address::FromOctets(127, 0, 0, 1));
+    EXPECT_EQ(endpoint->Port(), 61300);
+    EXPECT_EQ(endpoint->ToString(), "127.0.0.1:61300");
 }

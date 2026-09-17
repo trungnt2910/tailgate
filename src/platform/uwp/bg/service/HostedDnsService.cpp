@@ -55,4 +55,10 @@ void HostedDnsService::FlushLocal(std::vector<std::vector<std::uint8_t>>&)
 {
 }
 
+bool HostedDnsService::HasLocalOutput() const
+{
+    // DNS responses are appended directly during the incoming callback.
+    return false;
+}
+
 } // namespace tailgate::uwp::bg::service

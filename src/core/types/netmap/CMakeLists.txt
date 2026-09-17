@@ -1,11 +1,13 @@
 tailgate_add_library(
     tailgate_core_types_netmap
     STATIC
+    Capabilities.cpp
     NetworkMap.cpp
 )
 target_link_libraries(
     tailgate_core_types_netmap
     PUBLIC
+        tailgate_core_net
         tailgate_core_net_packet
     PRIVATE
         Boost::algorithm

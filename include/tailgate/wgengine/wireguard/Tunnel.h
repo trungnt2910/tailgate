@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace tailgate::wgengine::wireguard
@@ -42,7 +43,10 @@ public:
                    const Key& presharedKey = {},
                    std::uint16_t keepalive = 10,
                    bool initiateAutomatically = false);
+    void ActivatePeer(PeerId peer);
     [[nodiscard]] std::vector<std::uint8_t> CreateHandshake(PeerId peer);
+    // Checks framing only. ProcessPacket must still authenticate the message.
+    [[nodiscard]] static bool IsPacket(std::span<const std::uint8_t> packet) noexcept;
     [[nodiscard]] std::optional<ReceivedPacket>
     ProcessPacket(PeerId peer, const std::vector<std::uint8_t>& packet);
     [[nodiscard]] std::optional<ReceivedPacket>

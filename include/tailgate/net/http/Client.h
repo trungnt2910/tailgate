@@ -5,6 +5,8 @@
 #include <string>
 #include <utility>
 
+#include <tailgate/net/http/Message.h>
+
 namespace tailgate::net::http
 {
 
@@ -58,8 +60,6 @@ public:
         : m_status(status), m_headers(std::move(headers)), m_body(std::move(body))
     {
     }
-
-    [[nodiscard]] static Response Decode(const std::string& encoded);
 
     [[nodiscard]] int Status() const noexcept
     {
@@ -116,12 +116,6 @@ private:
 enum class CodecErrorKind
 {
     InvalidUrl,
-    MissingHeaders,
-    InvalidStatusLine,
-    InvalidStatusCode,
-    InvalidChunkSize,
-    TruncatedChunk,
-    InvalidChunkDelimiter,
 };
 
 class CodecError final : public std::runtime_error

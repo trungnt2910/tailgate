@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -35,6 +36,71 @@ struct DatagramObservation
 };
 
 } // namespace
+
+TEST(Given_LinuxUdpSocketFactory, When_ReceiveBudgetIsUnboundedAndIdle_Then_ReadWouldBlock)
+{
+    auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
+    tailgate::linux_frontend::impl::UdpSocketFactory factory(registry);
+    tailgate::types::nettype::UdpSocketOptions options;
+    options.BindEndpoint = tailgate::net::Endpoint(Loopback, 0);
+    auto receiver = factory.OpenUdpSocket(options);
+    ASSERT_NE(receiver, nullptr);
+
+    const auto result = receiver->TryReceive(std::numeric_limits<std::size_t>::max());
+
+    EXPECT_EQ(result.Result, tailgate::types::nettype::SocketIoResult::WouldBlock);
+}
+
+TEST(Given_LinuxUdpSocketFactory, When_ShortDatagramArrives_Then_ReturnedStorageMatchesPayload)
+{
+    auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
+    tailgate::linux_frontend::impl::UdpSocketFactory factory(registry);
+    tailgate::types::nettype::UdpSocketOptions options;
+    options.BindEndpoint = tailgate::net::Endpoint(Loopback, 0);
+    auto receiver = factory.OpenUdpSocket(options);
+    auto sender = factory.OpenUdpSocket(options);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(sender, nullptr);
+    const std::vector<std::uint8_t> payload{1, 2, 3};
+    ASSERT_EQ(sender->TrySendTo(receiver->LocalEndpoint(), payload),
+              tailgate::types::nettype::SocketIoResult::Complete);
+
+    const auto result = receiver->TryReceive(MaximumDatagramSize);
+
+    EXPECT_EQ(result.Result, tailgate::types::nettype::SocketIoResult::Complete);
+    EXPECT_EQ(result.Datagram.Payload, payload);
+    EXPECT_EQ(result.Datagram.Payload.capacity(), payload.size());
+    EXPECT_EQ(result.Datagram.Source, sender->LocalEndpoint());
+}
+
+TEST(Given_LinuxUdpSocketFactory, When_ReceiveBudgetShrinks_Then_TruncationAndOwnershipArePreserved)
+{
+    auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
+    tailgate::linux_frontend::impl::UdpSocketFactory factory(registry);
+    tailgate::types::nettype::UdpSocketOptions options;
+    options.BindEndpoint = tailgate::net::Endpoint(Loopback, 0);
+    auto receiver = factory.OpenUdpSocket(options);
+    auto sender = factory.OpenUdpSocket(options);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(sender, nullptr);
+    const std::vector<std::uint8_t> payload{1, 2, 3};
+    ASSERT_EQ(receiver->TryReceive(MaximumDatagramSize).Result,
+              tailgate::types::nettype::SocketIoResult::WouldBlock);
+    ASSERT_EQ(sender->TrySendTo(receiver->LocalEndpoint(), payload),
+              tailgate::types::nettype::SocketIoResult::Complete);
+    ASSERT_EQ(sender->TrySendTo(receiver->LocalEndpoint(), payload),
+              tailgate::types::nettype::SocketIoResult::Complete);
+
+    const auto first = receiver->TryReceive(1);
+    const auto second = receiver->TryReceive(MaximumDatagramSize);
+    const auto idle = receiver->TryReceive(1);
+
+    EXPECT_EQ(first.Result, tailgate::types::nettype::SocketIoResult::Complete);
+    EXPECT_EQ(first.Datagram.Payload, (std::vector<std::uint8_t>{1}));
+    EXPECT_EQ(second.Result, tailgate::types::nettype::SocketIoResult::Complete);
+    EXPECT_EQ(second.Datagram.Payload, payload);
+    EXPECT_EQ(idle.Result, tailgate::types::nettype::SocketIoResult::WouldBlock);
+}
 
 TEST(Given_LinuxUdpSocketFactory,
      When_UdpSocketIsOpened_Then_RequestedAddressAndEphemeralPortAreBound)

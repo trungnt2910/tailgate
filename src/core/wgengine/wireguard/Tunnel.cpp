@@ -1,4 +1,4 @@
-#include <tailgate/wgengine/wireguard/Tunnel.h>
+#include "tailgate/wgengine/wireguard/Tunnel.h"
 
 #include <algorithm>
 #include <cstring>
@@ -13,7 +13,7 @@ extern "C"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
-#include "wireguard.h"
+#include <wireguard.h>
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
@@ -294,6 +294,11 @@ WireGuardTunnel::PeerId WireGuardTunnel::AddPeer(const Key& publicKey,
     return Implementation->Peers.size() - 1;
 }
 
+void WireGuardTunnel::ActivatePeer(PeerId peerId)
+{
+    Implementation->GetPeer(peerId).Peer()->active = true;
+}
+
 std::vector<std::uint8_t> WireGuardTunnel::CreateHandshake(PeerId peerId)
 {
     Impl::PeerReference& reference = Implementation->GetPeer(peerId);
@@ -307,6 +312,11 @@ std::vector<std::uint8_t> WireGuardTunnel::CreateHandshake(PeerId peerId)
     peer.last_initiation_tx = wireguard_sys_now();
     return {reinterpret_cast<const std::uint8_t*>(&message),
             reinterpret_cast<const std::uint8_t*>(&message) + sizeof(message)};
+}
+
+bool WireGuardTunnel::IsPacket(std::span<const std::uint8_t> packet) noexcept
+{
+    return wireguard_get_message_type(packet.data(), packet.size()) != MESSAGE_INVALID;
 }
 
 std::optional<WireGuardTunnel::ReceivedPacket>

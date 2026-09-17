@@ -89,6 +89,7 @@ private:
     std::optional<ActiveConnectContext> m_activeConnect;
     std::uint64_t m_nextTailgateRelayOperationId = 0;
     bool m_logoutWaitingForControlPlane = false;
+    bool m_disconnectAfterRefresh = false;
     SessionState m_state;
     StateEventRegistration m_controlPlaneRegistration;
     StateEventRegistration m_interactiveAuthorizationRegistration;

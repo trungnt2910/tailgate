@@ -19,7 +19,7 @@ public:
     {
     }
 
-    [[nodiscard]] std::optional<std::size_t> TryWriteSome(const std::uint8_t*,
+    [[nodiscard]] std::optional<std::size_t> TryWriteSome(const std::uint8_t* data,
                                                           std::size_t size) override
     {
         ++WriteCalls;
@@ -27,6 +27,7 @@ public:
         {
             return std::nullopt;
         }
+        Written.insert(Written.end(), data, data + size);
         return size;
     }
 
@@ -41,6 +42,7 @@ public:
     }
 
     std::string Name;
+    std::vector<std::uint8_t> Written;
     std::size_t ReadCalls{};
     std::size_t WriteCalls{};
     bool ReadWouldBlock{};

@@ -3,6 +3,8 @@
 #include <mutex>
 #include <vector>
 
+#include <tailgate/hosted/PumpController.h>
+
 #include "manager/DataPlaneManager.h"
 
 namespace tailgate::uwp::bg::manager
@@ -11,7 +13,7 @@ namespace tailgate::uwp::bg::manager
 class DataPlaneManagerImpl final : public DataPlaneManager
 {
 public:
-    explicit DataPlaneManagerImpl(SessionManager& sessionManager);
+    DataPlaneManagerImpl(SessionManager& sessionManager, tailgate::hosted::PumpController& pump);
 
     void Register(service::IService& service) override;
     void Start(SessionGeneration generation) override;
@@ -24,14 +26,17 @@ public:
     void Reset() override;
     void Encapsulate(service::EncapsulationContext& context) override;
     void Decapsulate(service::DecapsulationContext& context) override;
-    void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) override;
+    void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput,
+                    std::vector<std::uint8_t>& remoteOutput) override;
 
     [[nodiscard]] std::size_t ServiceCount() const override;
 
 private:
     void Report(SessionEventKind kind);
+    void SchedulePump(std::vector<std::uint8_t>& remoteOutput);
 
     SessionManager& m_sessionManager;
+    tailgate::hosted::PumpController& m_pump;
     mutable std::mutex m_mutex;
     std::vector<service::IService*> m_services;
     SessionGeneration m_generation = 0;

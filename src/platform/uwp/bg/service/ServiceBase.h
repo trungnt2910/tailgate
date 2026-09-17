@@ -12,6 +12,10 @@ namespace tailgate::uwp::bg::service
 
 class ServiceBase : public IService
 {
+public:
+    [[nodiscard]] std::optional<tailgate::base::TimeProvider::TimePoint>
+    NextDeadline() const override;
+
 protected:
     static void AppendRelayFrame(std::vector<std::uint8_t>& output,
                                  const tailgate::hosted::Frame& frame);

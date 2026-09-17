@@ -288,6 +288,7 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
                     tailgate::types::netmap::NetworkConfig update =
                         m_controlSession->WaitForNetworkMap();
                     networkMapHandler(std::move(update));
+                    continue;
                 }
                 catch (const ControlIdentityChangedError& error)
                 {

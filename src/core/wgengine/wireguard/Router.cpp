@@ -10,6 +10,7 @@
 
 #include <tailgate/base/Logging.h>
 #include <tailgate/net/Ipv4Address.h>
+#include <tailgate/net/packet/Ip.h>
 #include <tailgate/net/packet/Ipv4.h>
 #include <tailgate/wgengine/wireguard/Tunnel.h>
 
@@ -99,7 +100,7 @@ public:
                 Peer peer;
                 peer.Config = config;
                 peer.PublicKey = publicKey;
-                peer.TunnelPeer = Tunnel.AddPeer(publicKey, {}, 10, true);
+                peer.TunnelPeer = Tunnel.AddPeer(publicKey);
                 Peers.push_back(std::move(peer));
                 found = std::prev(Peers.end());
             }
@@ -116,10 +117,6 @@ public:
     {
         const std::optional<std::uint32_t> destination =
             tailgate::net::packet::Ipv4Packet::Destination(packet);
-        if (!destination)
-        {
-            return nullptr;
-        }
         std::vector<tailgate::types::netmap::PeerConfig> configs;
         configs.reserve(Routes.size());
         for (const Peer* peer : Routes)
@@ -128,6 +125,18 @@ public:
         }
         tailgate::types::netmap::NetworkConfig network;
         network.Peers(std::move(configs));
+        if (!destination)
+        {
+            const auto envelope = tailgate::net::packet::ParseIpEnvelope(packet);
+            if (!envelope || envelope->Destination.Family() != tailgate::net::AddressFamily::Ipv6)
+            {
+                return nullptr;
+            }
+            // IPv6 node routing is shared by hosted and normal Core consumers.
+            // IPv6 subnet/default routes are not represented in this netmap yet.
+            const auto node = network.FindPeerAddress(envelope->Destination);
+            return node ? Routes[*node] : nullptr;
+        }
         const std::optional<std::size_t> exit =
             ExitNode.empty() ? std::nullopt : network.FindExitNode(ExitNode, true);
         const std::optional<std::size_t> route = network.FindRoute(*destination, exit);
@@ -215,6 +224,9 @@ public:
 
     std::vector<TransportPacket> Start(Peer& peer)
     {
+        // Netmap membership is not traffic demand. Enable retries only once this peer is
+        // explicitly started or has queued traffic, without resetting the retry deadline.
+        Tunnel.ActivatePeer(peer.TunnelPeer);
         if (Tunnel.HasSession(peer.TunnelPeer) ||
             Tunnel.UpdateTimers(peer.TunnelPeer) != WireGuardTunnel::TimerAction::SendHandshake)
         {

@@ -27,6 +27,7 @@ struct SessionState
     std::optional<tailgate::crypto::Bytes32> GeneratedDiscoPrivateKey;
     std::size_t PollCalls{};
     std::function<void()> BeforeRegister;
+    std::function<tailgate::types::netmap::NetworkConfig()> WaitForMap;
     std::function<void(bool)> NonBlockingChanged;
     bool NonBlocking{};
     bool ReadNeedsWrite{};
@@ -111,7 +112,8 @@ public:
 
     tailgate::types::netmap::NetworkConfig WaitForNetworkMap() override
     {
-        return {};
+        return m_state->WaitForMap ? m_state->WaitForMap()
+                                   : tailgate::types::netmap::NetworkConfig{};
     }
 
     void SetReadTimeout(std::optional<std::chrono::seconds>) override

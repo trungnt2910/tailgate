@@ -1,6 +1,7 @@
 tailgate_add_library(
     tailgate_core_control_client
     STATIC
+    CapabilityFilters.cpp
     Connection.cpp
     ControlClient.cpp
     ControlRequests.cpp
@@ -8,6 +9,7 @@ tailgate_add_library(
     MapStreamResponse.cpp
     NetworkMapParser.cpp
     RetryBackoff.cpp
+    SelfAddresses.cpp
     Session.cpp
 )
 add_subdirectory(impl)
