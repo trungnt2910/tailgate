@@ -4,6 +4,8 @@ tailgate_add_library(
     Base64.cpp
     Crypto.cpp
     Keys.cpp
+    MbedTlsThreading.cpp
+    MbedTlsThreading.h
     PsaCryptoContext.cpp
     PsaCryptoContext.h
     Random.cpp

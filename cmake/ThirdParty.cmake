@@ -60,6 +60,21 @@ CPMAddPackage(
     OPTIONS "SODIUM_DISABLE_TESTS ON"
 )
 
+# Upstream requires this include even though the opaque handle types come from definitions.
+# Keep the dependency independent of Tailgate source headers.
+file(
+    CONFIGURE
+    OUTPUT "${PROJECT_BINARY_DIR}/generated/mbedtls-threading/threading_alt.h"
+    CONTENT ""
+)
+# The optional ECC self-tests increment unsynchronized global operation counters even during
+# ordinary TLS handshakes. Tailgate does not call the self-test entry points.
+file(
+    CONFIGURE
+    OUTPUT "${PROJECT_BINARY_DIR}/generated/mbedtls-threading/crypto_config.h"
+    CONTENT "#undef MBEDTLS_SELF_TEST\n"
+)
+
 # Avoid git for MbedTLS
 # The source repository has large submodules and requires other third-party tools for codegen.
 CPMAddPackage(
@@ -67,7 +82,29 @@ CPMAddPackage(
     VERSION 4.1.0
     URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.0/mbedtls-4.1.0.tar.bz2
     URL_HASH SHA256=377a09cf8eb81b5fb2707045e5522d5489d3309fed5006c9874e60558fc81d10
-    OPTIONS "ENABLE_PROGRAMS OFF" "ENABLE_TESTING OFF"
+    OPTIONS
+        "ENABLE_PROGRAMS OFF"
+        "ENABLE_TESTING OFF"
+        "TF_PSA_CRYPTO_USER_CONFIG_FILE crypto_config.h"
+        "CMAKE_C_FLAGS ${CMAKE_C_FLAGS} \
+        -DMBEDTLS_THREADING_C \
+        -DMBEDTLS_THREADING_ALT \
+        -D\"mbedtls_platform_mutex_t=void*\" \
+        -D\"mbedtls_platform_condition_variable_t=void*\" \
+        -I\"${PROJECT_BINARY_DIR}/generated/mbedtls-threading\""
+)
+# Consumers must compile the public crypto structures with the same opaque handle layout.
+target_compile_definitions(
+    tfpsacrypto
+    INTERFACE
+        MBEDTLS_THREADING_C
+        MBEDTLS_THREADING_ALT
+        "mbedtls_platform_mutex_t=void*"
+        "mbedtls_platform_condition_variable_t=void*"
+)
+target_include_directories(
+    tfpsacrypto
+    INTERFACE "$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/generated/mbedtls-threading>"
 )
 
 CPMAddPackage(

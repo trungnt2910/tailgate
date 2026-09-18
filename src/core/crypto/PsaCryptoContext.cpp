@@ -10,6 +10,8 @@
 #include <psa/crypto.h>
 #include <psa/crypto_extra.h>
 
+#include "MbedTlsThreading.h"
+
 namespace tailgate::crypto::detail
 {
 namespace
@@ -22,6 +24,7 @@ std::size_t ContextReferences = 0;
 
 PsaCryptoContext::PsaCryptoContext()
 {
+    InitializeMbedTlsThreading();
     const std::lock_guard lock(ContextMutex);
     if (ContextReferences == 0)
     {
