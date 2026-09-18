@@ -39,10 +39,13 @@ void DrainWake() noexcept
 
 } // namespace
 
-volatile std::sig_atomic_t Lifecycle::m_stopRequested = 0;
-volatile std::sig_atomic_t Lifecycle::m_reloadRequested = 0;
-volatile std::sig_atomic_t Lifecycle::m_startupInterrupted = 0;
-volatile std::sig_atomic_t Lifecycle::m_startupDaemonPid = 0;
+// These flags are shared with worker threads as well as asynchronous signal handlers.
+static_assert(std::atomic<std::sig_atomic_t>::is_always_lock_free);
+
+std::atomic<std::sig_atomic_t> Lifecycle::m_stopRequested = 0;
+std::atomic<std::sig_atomic_t> Lifecycle::m_reloadRequested = 0;
+std::atomic<std::sig_atomic_t> Lifecycle::m_startupInterrupted = 0;
+std::atomic<std::sig_atomic_t> Lifecycle::m_startupDaemonPid = 0;
 
 void Lifecycle::Initialize()
 {
@@ -142,9 +145,10 @@ void Lifecycle::EndStartup() noexcept
 void Lifecycle::InterruptStartup() noexcept
 {
     m_startupInterrupted = 1;
-    if (m_startupDaemonPid > 0)
+    const auto daemonPid = m_startupDaemonPid.load();
+    if (daemonPid > 0)
     {
-        kill(static_cast<pid_t>(m_startupDaemonPid), SIGTERM);
+        kill(static_cast<pid_t>(daemonPid), SIGTERM);
     }
 }
 

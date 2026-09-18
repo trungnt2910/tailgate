@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <csignal>
 
@@ -27,10 +28,10 @@ public:
     [[nodiscard]] static bool StartupInterrupted() noexcept;
 
 private:
-    static volatile std::sig_atomic_t m_stopRequested;
-    static volatile std::sig_atomic_t m_reloadRequested;
-    static volatile std::sig_atomic_t m_startupInterrupted;
-    static volatile std::sig_atomic_t m_startupDaemonPid;
+    static std::atomic<std::sig_atomic_t> m_stopRequested;
+    static std::atomic<std::sig_atomic_t> m_reloadRequested;
+    static std::atomic<std::sig_atomic_t> m_startupInterrupted;
+    static std::atomic<std::sig_atomic_t> m_startupDaemonPid;
 };
 
 } // namespace tailgate::linux_frontend
