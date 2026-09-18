@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <tailgate/base/Logger.h>
 #include <tailgate/drive/FileSystemForLocal.h>
 
@@ -11,7 +13,8 @@ namespace tailgate::drive::driveimpl
 class FileSystemForLocalImpl final : public FileSystemForLocal
 {
 public:
-    FileSystemForLocalImpl(ExchangeFactory& exchanges, PeerTransport& transport) noexcept;
+    FileSystemForLocalImpl(ExchangeFactory& exchanges,
+                           std::shared_ptr<PeerTransport> transport) noexcept;
     void SetNetworkConfig(const types::netmap::NetworkConfig& config) override;
     void HandleConn(std::unique_ptr<wgengine::netstack::Stream> stream) override;
     [[nodiscard]] bool Poll() override;
@@ -20,7 +23,7 @@ public:
 
 private:
     ExchangeFactory& m_factory;
-    PeerTransport& m_transport;
+    std::shared_ptr<PeerTransport> m_transport;
     std::shared_ptr<const Catalog> m_catalog;
     std::vector<std::unique_ptr<Exchange>> m_exchanges;
     base::Logger m_logger{"drive"};

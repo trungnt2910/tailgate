@@ -1,13 +1,14 @@
 #include "FileSystemForLocalImpl.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace tailgate::drive::driveimpl
 {
 
 FileSystemForLocalImpl::FileSystemForLocalImpl(ExchangeFactory& exchanges,
-                                               PeerTransport& transport) noexcept
-    : m_factory(exchanges), m_transport(transport)
+                                               std::shared_ptr<PeerTransport> transport) noexcept
+    : m_factory(exchanges), m_transport(std::move(transport))
 {
 }
 
@@ -21,7 +22,7 @@ void FileSystemForLocalImpl::SetNetworkConfig(const types::netmap::NetworkConfig
     m_logger.LogDebug("Remote namespace refreshed: access={}, remote_count={}",
                       catalog->Access,
                       catalog->Remotes.size());
-    m_transport.SetCatalog(catalog);
+    m_transport->SetCatalog(catalog);
     std::erase_if(m_exchanges,
                   [&](const auto& exchange)
                   {
@@ -50,7 +51,7 @@ void FileSystemForLocalImpl::HandleConn(std::unique_ptr<wgengine::netstack::Stre
 
 bool FileSystemForLocalImpl::Poll()
 {
-    bool progress = m_transport.Poll();
+    bool progress = m_transport->Poll();
     for (const auto& exchange : m_exchanges)
     {
         progress |= exchange->Poll();
@@ -65,7 +66,7 @@ bool FileSystemForLocalImpl::Poll()
 
 std::optional<base::TimeProvider::TimePoint> FileSystemForLocalImpl::NextDeadline() const
 {
-    auto result = m_transport.NextDeadline();
+    auto result = m_transport->NextDeadline();
     for (const auto& exchange : m_exchanges)
     {
         if (!result || exchange->Deadline() < *result)
@@ -79,7 +80,7 @@ std::optional<base::TimeProvider::TimePoint> FileSystemForLocalImpl::NextDeadlin
 void FileSystemForLocalImpl::Stop() noexcept
 {
     m_exchanges.clear();
-    m_transport.Stop();
+    m_transport->Stop();
     m_catalog.reset();
 }
 

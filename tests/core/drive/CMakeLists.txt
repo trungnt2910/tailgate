@@ -7,6 +7,7 @@ tailgate_add_test_library(
     Given_DirectoryFileSystem.cpp
     Given_DriveFileSystem.cpp
     Given_DriveRemotes.cpp
+    Given_FileSystemForLocalImpl.cpp
     Given_XmlRewriterFactory.cpp
 )
 target_link_libraries(tailgate_tests_core_drive PRIVATE tailgate_core tailgate_tests_core_fakes)
