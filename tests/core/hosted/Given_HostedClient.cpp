@@ -9,6 +9,7 @@
 
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/hosted/Client.h>
+#include <tailgate/hosted/PacketFraming.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/net/IpAddress.h>
 #include <tailgate/net/Ipv4Address.h>
@@ -143,6 +144,51 @@ TEST_F(Given_HostedClient, When_KeepAliveIsBuilt_Then_HeartbeatFrameIsReturned)
     EXPECT_EQ(frame->Type(), tailgate::hosted::MessageType::Heartbeat);
     EXPECT_TRUE(frame->Payload().empty());
     EXPECT_FALSE(decoder.Next().has_value());
+}
+
+TEST_F(Given_HostedClient, When_KeepAliveIsRequestedBeforeStart_Then_NoTransportBytesAreProduced)
+{
+    hosted::Client subject;
+
+    const auto output = subject.BuildKeepAlive();
+
+    EXPECT_TRUE(output.empty());
+}
+
+TEST_F(Given_HostedClient, When_KeepAliveIsRequestedAfterStop_Then_NoTransportBytesAreProduced)
+{
+    hosted::Client subject;
+    (void)subject.Start(MakeConfig());
+    subject.Stop();
+
+    const auto output = subject.BuildKeepAlive();
+
+    EXPECT_TRUE(output.empty());
+}
+
+TEST_F(Given_HostedClient,
+       When_KeepAliveArrivesDuringReconnect_Then_NewRelayStreamHasNoMissingPrefix)
+{
+    constexpr std::size_t PacketCapacity = 1500;
+    hosted::Client subject;
+    (void)subject.Start(MakeConfig());
+    subject.Stop();
+    hosted::PacketEncoder encoder;
+    hosted::Decoder relay;
+
+    encoder.Queue(subject.BuildKeepAlive());
+    const auto obsoleteTransportPacket = encoder.Next(PacketCapacity);
+    (void)subject.Start(MakeConfig());
+    encoder.Queue(subject.BuildKeepAlive());
+    relay.Feed(encoder.Next(PacketCapacity));
+    const auto firstFrame = relay.Next();
+    const bool heartbeatReceived =
+        firstFrame && firstFrame->Type() == hosted::MessageType::Heartbeat;
+
+    EXPECT_TRUE(obsoleteTransportPacket.empty());
+    EXPECT_TRUE(heartbeatReceived);
+    EXPECT_FALSE(encoder.HasPending());
+    EXPECT_FALSE(relay.Next().has_value());
 }
 
 TEST_F(Given_HostedClient, When_DataPathReadyArrives_Then_ReadinessIsReported)

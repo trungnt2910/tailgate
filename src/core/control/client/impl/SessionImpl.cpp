@@ -6,7 +6,6 @@
 #include <string>
 #include <utility>
 
-#include <tailgate/base/Logger.h>
 #include <tailgate/control/base/ControlHandshake.h>
 
 #include "ControlDialer.h"
@@ -74,14 +73,10 @@ private:
 
 } // namespace
 
-SessionImpl::SessionImpl(tailgate::control::client::SessionOptions options,
-                         tailgate::types::nettype::TcpSocketFactory& socketFactory)
+SessionImpl::SessionImpl(std::unique_ptr<tailgate::types::nettype::TcpSocket> socket,
+                         std::unique_ptr<tailgate::control::client::ControlClient> client)
+    : m_socket(std::move(socket)), m_client(std::move(client))
 {
-    SessionControlDialer dialer(options, socketFactory);
-    ControlDialOutcome outcome = dialer.Dial();
-    m_socket = std::move(outcome.Stream);
-    m_client = std::move(outcome.Client);
-    tailgate::base::Logger("control").LogInfo("connected tls={}", outcome.UsedTls ? 1 : 0);
 }
 
 SessionImpl::~SessionImpl()
@@ -143,7 +138,7 @@ tailgate::types::netmap::NetworkConfig SessionImpl::WaitForNetworkMap()
 
 void SessionImpl::SetReadTimeout(std::optional<std::chrono::seconds> timeout)
 {
-    if (m_socket)
+    if (!m_closed && m_socket)
     {
         m_socket->SetReadTimeout(timeout);
     }
@@ -151,7 +146,7 @@ void SessionImpl::SetReadTimeout(std::optional<std::chrono::seconds> timeout)
 
 void SessionImpl::SetWriteInterest(bool enabled)
 {
-    if (m_socket)
+    if (!m_closed && m_socket)
     {
         m_socket->SetWriteInterest(enabled);
     }
@@ -159,7 +154,7 @@ void SessionImpl::SetWriteInterest(bool enabled)
 
 void SessionImpl::SetNonBlocking(bool enabled)
 {
-    if (m_socket)
+    if (!m_closed && m_socket)
     {
         m_socket->SetNonBlocking(enabled);
     }
@@ -167,21 +162,25 @@ void SessionImpl::SetNonBlocking(bool enabled)
 
 bool SessionImpl::ReadNeedsWrite() const
 {
-    return m_socket && m_socket->ReadNeedsWrite();
+    return !m_closed && m_socket && m_socket->ReadNeedsWrite();
 }
 
 bool SessionImpl::HasPendingOutput() const
 {
-    return m_client && m_client->HasPendingOutput();
+    return !m_closed && m_client && m_client->HasPendingOutput();
 }
 
 void SessionImpl::Close() noexcept
 {
-    m_client.reset();
+    if (m_closed.exchange(true))
+    {
+        return;
+    }
+    // WaitForNetworkMap may still be using the client and its stream on the maintenance
+    // thread. Closing cancels its I/O; destruction belongs after the owner joins that thread.
     if (m_socket)
     {
         m_socket->Close();
-        m_socket.reset();
     }
 }
 
@@ -202,7 +201,7 @@ const tailgate::crypto::Bytes32& SessionImpl::DiscoPrivateKey() const
 
 tailgate::control::client::ControlClient& SessionImpl::Client()
 {
-    if (!m_client)
+    if (m_closed || !m_client)
     {
         throw std::logic_error("The control session is unavailable.");
     }
@@ -211,7 +210,7 @@ tailgate::control::client::ControlClient& SessionImpl::Client()
 
 const tailgate::control::client::ControlClient& SessionImpl::Client() const
 {
-    if (!m_client)
+    if (m_closed || !m_client)
     {
         throw std::logic_error("The control session is unavailable.");
     }
@@ -225,7 +224,10 @@ SessionFactoryImpl::CreateSession(tailgate::control::client::SessionOptions opti
     tailgate::control::client::HostInfo host = m_hostInfoProvider.GetHostInfo();
     host.ApplySessionConfig(std::move(options.Host));
     options.Host = std::move(host);
-    return std::make_unique<SessionImpl>(std::move(options), socketFactory);
+    SessionControlDialer dialer(options, socketFactory);
+    ControlDialOutcome outcome = dialer.Dial();
+    m_logger.LogInfo("connected tls={}", outcome.UsedTls ? 1 : 0);
+    return std::make_unique<SessionImpl>(std::move(outcome.Stream), std::move(outcome.Client));
 }
 
 } // namespace tailgate::control::client::impl

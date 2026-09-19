@@ -1,6 +1,7 @@
 #include "VpnBackgroundTask.h"
 
 #include <exception>
+#include <mutex>
 #include <string_view>
 
 #include <winrt/Windows.ApplicationModel.Background.h>
@@ -20,6 +21,7 @@ namespace
 {
 
 constexpr std::wstring_view PluginKey = L"TailgateVpnPlugin";
+std::mutex PluginCreationMutex;
 
 namespace background = winrt::Windows::ApplicationModel::Background;
 namespace core = winrt::Windows::ApplicationModel::Core;
@@ -31,26 +33,33 @@ class VpnBackgroundTask : public winrt::implements<VpnBackgroundTask, background
 public:
     void Run(const background::IBackgroundTaskInstance& taskInstance)
     {
-        m_logger.LogDebug("VpnBackgroundTask.Run entered instance={}", taskInstance.InstanceId());
         auto deferral = taskInstance.GetDeferral();
         try
         {
             const foundation::IInspectable triggerDetails = taskInstance.TriggerDetails();
-            auto properties = core::CoreApplication::Properties();
             vpn::IVpnPlugIn plugin{nullptr};
-            if (properties.HasKey(PluginKey))
             {
-                plugin = properties.Lookup(PluginKey).as<vpn::IVpnPlugIn>();
+                // Windows can dispatch multiple task instances in a fresh background host.
+                // Lookup and insertion must be atomic so every callback uses the same plugin.
+                std::lock_guard lock(PluginCreationMutex);
+                auto properties = core::CoreApplication::Properties();
+                if (properties.HasKey(PluginKey))
+                {
+                    plugin = properties.Lookup(PluginKey).as<vpn::IVpnPlugIn>();
+                }
+                else
+                {
+                    plugin = CreateTailgateVpnPlugin();
+                    properties.Insert(PluginKey, plugin);
+                    m_logger.LogDebug("created VPN plugin");
+                }
             }
-            else
-            {
-                plugin = CreateTailgateVpnPlugin();
-                properties.Insert(PluginKey, plugin);
-            }
-            m_logger.LogDebug("VpnChannel::ProcessEventAsync begin trigger={}",
+            m_logger.LogTrace("VpnChannel::ProcessEventAsync begin instance={} trigger={}",
+                              taskInstance.InstanceId(),
                               winrt::get_class_name(triggerDetails));
             vpn::VpnChannel::ProcessEventAsync(plugin, triggerDetails);
-            m_logger.LogDebug("VpnChannel::ProcessEventAsync end");
+            m_logger.LogTrace("VpnChannel::ProcessEventAsync end instance={}",
+                              taskInstance.InstanceId());
         }
         catch (const winrt::hresult_error& error)
         {

@@ -198,11 +198,13 @@ public:
                 return;
             }
             const bool requestedReconnect = m_transportReconnectRequested.exchange(false);
-            m_logger.LogDebug("{}",
+            m_logger.LogDebug("{} channel={} generation={}",
                               requestedReconnect
                                   ? "VpnPlugin.Connect entered after requested transport "
                                     "reconnect"
-                                  : "VpnPlugin.Connect entered");
+                                  : "VpnPlugin.Connect entered",
+                              channel.Id(),
+                              callbackGeneration);
             // A transport loss may produce another Connect call without a preceding Disconnect.
             // Reap the previous control worker and discard only per-session state. Persistent
             // machine, node, and disco keys are loaded again below.
@@ -486,7 +488,6 @@ public:
 
     void Disconnect(const vpn::VpnChannel& channel)
     {
-        const std::uint32_t channelId = channel.Id();
         {
             std::lock_guard lock(m_callbackMutex);
             ++m_callbackGeneration;
@@ -498,7 +499,7 @@ public:
         m_controlPlaneManager.StopMaintenance();
         {
             std::lock_guard lock(m_dataPathMutex);
-            m_logger.LogDebug("VpnPlugin.Disconnect entered channel={}", channelId);
+            m_logger.LogDebug("VpnPlugin.Disconnect entered channel={}", channel.Id());
             m_dataPathReady = false;
             m_hostedClient.Stop();
             m_pendingRelayFrames.clear();
@@ -509,26 +510,16 @@ public:
         // Keep the associated outer transport alive until Stop disassociates and closes it. If the
         // plug-in releases the transport first, RS2 may treat that as an unexpected transport loss
         // and dispatch a concurrent reconnect while this disconnect is still in progress.
-        const auto stopStarted = std::chrono::steady_clock::now();
-        m_logger.LogDebug("calling VpnChannel.Stop channel={}", channelId);
+        m_logger.LogDebug("calling VpnChannel.Stop channel={}", channel.Id());
         try
         {
             channel.Stop();
-            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - stopStarted);
-            m_logger.LogDebug(
-                "VpnChannel.Stop returned channel={} elapsed-ms={}", channelId, elapsed.count());
+            m_logger.LogDebug("VpnChannel.Stop returned");
         }
         catch (const winrt::hresult_error& error)
         {
-            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - stopStarted);
             m_logger.LogWarning(
-                "VpnChannel.Stop failed channel={} elapsed-ms={} hresult={} message={}",
-                channelId,
-                elapsed.count(),
-                error.code(),
-                error.message());
+                "VpnChannel.Stop failed hresult={} message={}", error.code(), error.message());
         }
         {
             std::lock_guard lock(m_dataPathMutex);
@@ -544,15 +535,20 @@ public:
 
     void GetKeepAlivePayload(const vpn::VpnChannel& channel, vpn::VpnPacketBuffer& keepAlivePacket)
     {
+        keepAlivePacket = nullptr;
         try
         {
             std::lock_guard lock(m_dataPathMutex);
-            m_logger.LogTrace("keepalive stats encapsulate-calls={} encapsulate-packets={} "
-                              "decapsulate-calls={} decapsulate-frames={}",
-                              m_encapsulateCalls,
-                              m_encapsulatePackets,
-                              m_decapsulateCalls,
-                              m_decapsulateFrames);
+            // Windows can ask the previous transport for a keepalive while Connect is still
+            // establishing its replacement. Never consume that replacement's stream offsets.
+            if (!m_channelStarted || m_stopConnection)
+            {
+                m_logger.LogDebug("keepalive skipped channel={} started={} stopping={}",
+                                  channel.Id(),
+                                  m_channelStarted,
+                                  m_stopConnection.load());
+                return;
+            }
             m_relayOutput.Queue(m_hostedClient.BuildKeepAlive());
             channel.RequestVpnPacketBuffer(vpn::VpnDataPathType::Send, keepAlivePacket);
             FillPacket(keepAlivePacket, m_relayOutput.Next(keepAlivePacket.Buffer().Capacity()));
@@ -581,7 +577,16 @@ public:
             bool reconnectAfterEncapsulate = false;
             {
                 std::lock_guard lock(m_dataPathMutex);
-                ++m_encapsulateCalls;
+                if (!m_dataPathEnabled || m_stopConnection)
+                {
+                    // Leave platform-owned buffers in their input list when no transport can
+                    // accept them. In particular, do not encode heartbeats to return buffers.
+                    m_logger.LogTrace("encapsulate skipped channel={} enabled={} stopping={}",
+                                      channel.Id(),
+                                      m_dataPathEnabled,
+                                      m_stopConnection.load());
+                    return;
+                }
                 // Relay frames queued outside the data path (streamed network-map updates) ride
                 // out with this batch.
                 std::vector<std::uint8_t> payload = std::move(m_pendingRelayFrames);
@@ -615,7 +620,6 @@ public:
                         m_dataPlaneManager.Encapsulate(context);
                         reconnectAfterEncapsulate =
                             reconnectAfterEncapsulate || context.ReconnectRequested;
-                        ++m_encapsulatePackets;
                     }
                     spentBuffers.push_back(std::move(packet));
                 }
@@ -664,7 +668,14 @@ public:
         try
         {
             std::lock_guard lock(m_dataPathMutex);
-            ++m_decapsulateCalls;
+            if (!m_dataPathEnabled || m_stopConnection)
+            {
+                m_logger.LogTrace("decapsulate skipped channel={} enabled={} stopping={}",
+                                  channel.Id(),
+                                  m_dataPathEnabled,
+                                  m_stopConnection.load());
+                return;
+            }
             streams::Buffer buffer = encapsulatedPacket.Buffer();
             // Relay frames queued outside the data path (streamed network-map updates) ride out
             // with this batch.
@@ -681,7 +692,6 @@ public:
                     .RemoteOutput = relayPlaintext,
                 };
                 m_dataPlaneManager.Decapsulate(context);
-                ++m_decapsulateFrames;
             }
             m_dataPlaneManager.FlushLocal(localPackets, relayPlaintext);
             for (const std::vector<std::uint8_t>& packet : localPackets)
@@ -735,6 +745,11 @@ private:
 
     void ResetConnectionAttempt()
     {
+        {
+            std::lock_guard lock(m_dataPathMutex);
+            m_dataPathEnabled = false;
+            m_channelStarted = false;
+        }
         m_controlPlaneManager.Reset();
         std::lock_guard lock(m_dataPathMutex);
         m_hostedClient.Stop();
@@ -907,15 +922,29 @@ private:
             assignedIpv6.Append(networking::HostName(winrt::to_hstring(address)));
         }
         const auto ipv6 = assignedIpv6.Size() == 0 ? nullptr : assignedIpv6.GetView();
+        const auto routes = BuildRouteAssignment(policy);
+        const auto domains = BuildDomainAssignment(policy);
+        const auto transport = m_packetDevice.TransportSocket();
+        {
+            std::lock_guard lock(m_dataPathMutex);
+            // Encapsulate may be dispatched before StartWithMainTransport returns. At this
+            // point all relay state is installed; keepalives stay disabled until Start returns.
+            m_dataPathEnabled = true;
+            m_logger.LogDebug("relay data path enabled channel={}", channel.Id());
+        }
         channel.StartWithMainTransport(assignedIpv4.GetView(),
                                        ipv6,
                                        nullptr,
-                                       BuildRouteAssignment(policy),
-                                       BuildDomainAssignment(policy),
+                                       routes,
+                                       domains,
                                        VpnConstants::Channel::Mtu,
                                        VpnConstants::Channel::MaximumFrameSize,
                                        false,
-                                       m_packetDevice.TransportSocket());
+                                       transport);
+        {
+            std::lock_guard lock(m_dataPathMutex);
+            m_channelStarted = true;
+        }
         m_channelPolicy = policy;
     }
 
@@ -954,10 +983,8 @@ private:
     std::vector<std::uint8_t> m_pendingRelayFrames;
     std::string m_relayName;
     bool m_dataPathReady = false;
-    std::uint64_t m_encapsulateCalls = 0;
-    std::uint64_t m_encapsulatePackets = 0;
-    std::uint64_t m_decapsulateCalls = 0;
-    std::uint64_t m_decapsulateFrames = 0;
+    bool m_dataPathEnabled = false;
+    bool m_channelStarted = false;
     tailgate::base::Logger m_logger{"uwp-vpn"};
 };
 

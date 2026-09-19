@@ -29,6 +29,8 @@ struct SessionState
     std::function<void()> BeforeRegister;
     std::function<tailgate::types::netmap::NetworkConfig()> WaitForMap;
     std::function<void(bool)> NonBlockingChanged;
+    std::function<void()> OnClose;
+    std::function<void()> OnDestroy;
     bool NonBlocking{};
     bool ReadNeedsWrite{};
     bool PendingOutput{};
@@ -41,6 +43,14 @@ class FakeSession final : public tailgate::control::client::Session
 public:
     explicit FakeSession(std::shared_ptr<SessionState> state) : m_state(std::move(state))
     {
+    }
+
+    ~FakeSession() override
+    {
+        if (m_state->OnDestroy)
+        {
+            m_state->OnDestroy();
+        }
     }
 
     tailgate::control::client::RegistrationResult
@@ -147,7 +157,15 @@ public:
 
     void Close() noexcept override
     {
+        if (m_state->Closed)
+        {
+            return;
+        }
         m_state->Closed = true;
+        if (m_state->OnClose)
+        {
+            m_state->OnClose();
+        }
     }
 
     void Logout() override

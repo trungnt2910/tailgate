@@ -30,6 +30,8 @@ struct FakeTcpSocketState
     bool WriteInterest = false;
     bool NonBlocking = false;
     bool Closed = false;
+    bool Destroyed = false;
+    std::size_t CloseCalls = 0;
     std::optional<std::chrono::seconds> ReadTimeout;
 };
 
@@ -38,6 +40,11 @@ class FakeTcpSocket final : public tailgate::types::nettype::TcpSocket
 public:
     explicit FakeTcpSocket(std::shared_ptr<FakeTcpSocketState> state) : m_state(std::move(state))
     {
+    }
+
+    ~FakeTcpSocket() override
+    {
+        m_state->Destroyed = true;
     }
 
     [[nodiscard]] const std::string& Name() const noexcept
@@ -113,6 +120,7 @@ public:
 
     void Close() noexcept override
     {
+        ++m_state->CloseCalls;
         m_state->Closed = true;
     }
 

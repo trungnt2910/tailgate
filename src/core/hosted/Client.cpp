@@ -163,6 +163,10 @@ public:
 
     [[nodiscard]] std::vector<std::uint8_t> BuildKeepAlive()
     {
+        if (!Router)
+        {
+            return {};
+        }
         std::vector<std::uint8_t> output = UpdateTimers();
         AppendFrame(output, Frame(MessageType::Heartbeat, {}));
         return output;

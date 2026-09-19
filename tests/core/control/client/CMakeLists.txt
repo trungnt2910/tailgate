@@ -9,6 +9,7 @@ tailgate_add_test_library(
     Given_NetworkMapParser.cpp
     Given_PlatformHostInfo.cpp
     Given_RetryBackoff.cpp
+    Given_Session.cpp
 )
 target_link_libraries(
     tailgate_tests_core_control_client

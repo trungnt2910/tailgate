@@ -275,6 +275,10 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
                     if (!connected)
                     {
                         tailgate::control::client::RegistrationResult registration = Connect("");
+                        if (m_stopping)
+                        {
+                            break;
+                        }
                         if (!registration.Network)
                         {
                             throw std::runtime_error(
@@ -287,6 +291,10 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
                     }
                     tailgate::types::netmap::NetworkConfig update =
                         m_controlSession->WaitForNetworkMap();
+                    if (m_stopping)
+                    {
+                        break;
+                    }
                     networkMapHandler(std::move(update));
                     continue;
                 }
@@ -330,7 +338,9 @@ void ControlPlaneManagerImpl::StopMaintenance()
     RequestStop();
     if (m_maintenanceThread.joinable())
     {
+        m_logger.LogDebug("control maintenance join begin");
         m_maintenanceThread.join();
+        m_logger.LogDebug("control maintenance join end");
     }
 }
 

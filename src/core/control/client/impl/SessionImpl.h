@@ -1,7 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 
+#include <tailgate/base/Logger.h>
 #include <tailgate/control/client/HostInfoProvider.h>
 #include <tailgate/control/client/Session.h>
 
@@ -11,8 +13,8 @@ namespace tailgate::control::client::impl
 class SessionImpl final : public tailgate::control::client::Session
 {
 public:
-    SessionImpl(tailgate::control::client::SessionOptions options,
-                tailgate::types::nettype::TcpSocketFactory& socketFactory);
+    SessionImpl(std::unique_ptr<tailgate::types::nettype::TcpSocket> socket,
+                std::unique_ptr<tailgate::control::client::ControlClient> client);
     ~SessionImpl() override;
 
     [[nodiscard]] tailgate::control::client::RegistrationResult
@@ -44,6 +46,7 @@ private:
 
     std::unique_ptr<tailgate::types::nettype::TcpSocket> m_socket;
     std::unique_ptr<tailgate::control::client::ControlClient> m_client;
+    std::atomic_bool m_closed = false;
 };
 
 class SessionFactoryImpl final : public tailgate::control::client::SessionFactory
@@ -60,6 +63,7 @@ public:
 
 private:
     tailgate::control::client::HostInfoProvider& m_hostInfoProvider;
+    tailgate::base::Logger m_logger{"control"};
 };
 
 } // namespace tailgate::control::client::impl

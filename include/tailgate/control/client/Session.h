@@ -50,6 +50,9 @@ public:
     virtual void SetNonBlocking(bool enabled) = 0;
     [[nodiscard]] virtual bool ReadNeedsWrite() const = 0;
     [[nodiscard]] virtual bool HasPendingOutput() const = 0;
+    // Cancel transport I/O without destroying state used by an in-flight operation. The owner
+    // must wait for that operation to finish before destroying the session. Concurrent Close
+    // requires a socket implementation that supports cancellation from another thread.
     virtual void Close() noexcept = 0;
     virtual void Logout() = 0;
     [[nodiscard]] virtual const tailgate::crypto::Bytes32& NodePublicKey() const = 0;

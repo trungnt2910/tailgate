@@ -87,6 +87,7 @@ public:
                                                           const std::vector<std::uint8_t>& packet);
     [[nodiscard]] ClientProcessResult Process(const Frame& frame);
     [[nodiscard]] std::vector<std::uint8_t> UpdateTimers();
+    // Inactive clients produce no transport bytes, including during reconnect setup.
     [[nodiscard]] std::vector<std::uint8_t> BuildKeepAlive();
     [[nodiscard]] std::vector<std::uint8_t> ProbePeers();
     [[nodiscard]] std::vector<std::uint8_t>
