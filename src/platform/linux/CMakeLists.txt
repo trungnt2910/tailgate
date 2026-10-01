@@ -4,7 +4,9 @@ add_subdirectory(impl)
 tailgate_add_library(
     tailgate_linux
     STATIC
+    BootstrapPlatform.cpp
     DataplaneEvents.cpp
+    DerpTransports.cpp
     DI.cpp
     DirectConnection.cpp
     FdStream.cpp
@@ -13,10 +15,12 @@ tailgate_add_library(
     Frontend.cpp
     HostedClient.cpp
     HostedConnectionRegistry.cpp
-    HostedDerpRouteTable.cpp
     HostedServer.cpp
     Lifecycle.cpp
+    ModeControl.cpp
     Network.cpp
+    NetworkMonitor.cpp
+    NodeHost.cpp
     PacketDescriptorProvider.cpp
     PeerApiServer.cpp
     PingIpc.cpp
@@ -26,7 +30,7 @@ tailgate_add_library(
     RelayServer.cpp
     State.cpp
     StatusWriter.cpp
-    TunnelRunner.cpp
+    UnderlayResolver.cpp
 )
 target_link_libraries(
     tailgate_linux

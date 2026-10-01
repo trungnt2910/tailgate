@@ -2,8 +2,10 @@
 
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 
+#include "ThreadApartment.h"
 #include "UwpTcpStream.h"
 
 namespace tailgate::uwp
@@ -18,27 +20,24 @@ namespace sockets = winrt::Windows::Networking::Sockets;
 std::unique_ptr<tailgate::types::nettype::TcpSocket>
 TcpSocketFactory::OpenTcpSocket(const tailgate::types::nettype::TcpSocketOptions& options)
 {
-    return ConnectTcpSocket(sockets::StreamSocket(), options);
-}
-
-std::unique_ptr<tailgate::types::nettype::TcpSocket>
-TcpSocketFactory::ConnectTcpSocket(sockets::StreamSocket socket,
-                                   const tailgate::types::nettype::TcpSocketOptions& options)
-{
-    if (options.NetworkInterface && !options.NetworkInterface->empty())
+    if (options.Cancellation.stop_requested())
     {
-        throw std::invalid_argument("UWP does not support binding a TCP socket by interface.");
+        throw std::system_error(std::make_error_code(std::errc::operation_canceled));
     }
-    const sockets::SocketProtectionLevel protection =
-        options.TlsServerName ? sockets::SocketProtectionLevel::Tls12
-                              : sockets::SocketProtectionLevel::PlainSocket;
-    return std::make_unique<UwpTcpStream>(std::move(socket),
-                                          options.ConnectAddress,
-                                          options.Service,
-                                          protection,
-                                          options.IoTimeout,
-                                          options.TlsServerName.value_or(std::string{}),
-                                          options.ConnectTimeout);
+    try
+    {
+        ThreadApartment::Ensure();
+        auto transport = std::make_unique<UwpTcpStream>(sockets::StreamSocket(), options);
+        if (options.NonBlockingAfterConnect)
+        {
+            transport->SetNonBlocking(true);
+        }
+        return transport;
+    }
+    catch (const winrt::hresult_error& error)
+    {
+        throw std::system_error(error.code().value, std::system_category());
+    }
 }
 
 } // namespace tailgate::uwp

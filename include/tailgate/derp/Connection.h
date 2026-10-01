@@ -18,9 +18,10 @@ struct ConnectionOptions
     std::string NetworkInterface;
     tailgate::crypto::Bytes32 PrivateKey{};
     tailgate::crypto::Bytes32 PublicKey{};
-    tailgate::derp::DerpClient::Authenticator Authenticator;
+    std::shared_ptr<tailgate::derp::Authenticator> Authenticator;
     tailgate::base::EventToken ReadinessToken;
     bool Preferred = false;
+    bool Enabled = true;
 };
 
 enum class ConnectionEventStatus
@@ -48,6 +49,9 @@ public:
     [[nodiscard]] virtual ConnectionEventResult
     ProcessEvent(const tailgate::base::Event& event) = 0;
     virtual void Maintain() = 0;
+    // Suppresses reconnect and discards queued sends before ownership is released.
+    virtual void SetEnabled(bool enabled) = 0;
+    virtual void ChangeNetwork(std::string networkInterface) = 0;
     [[nodiscard]] virtual bool Connected() const noexcept = 0;
 
 protected:

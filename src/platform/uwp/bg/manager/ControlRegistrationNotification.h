@@ -12,6 +12,6 @@ namespace tailgate::uwp::bg::manager
 
 [[nodiscard]] std::optional<ForegroundConnectionNotification>
 BuildAuthenticationNotification(const tailgate::control::client::RegistrationResult& registration,
-                                std::string tailgateServer);
+                                std::string profileId);
 
 } // namespace tailgate::uwp::bg::manager

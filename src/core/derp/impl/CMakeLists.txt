@@ -2,6 +2,7 @@ tailgate_add_library(
     tailgate_core_derp_impl
     STATIC
     ConnectionImpl.cpp
+    DialOperation.cpp
 )
 target_link_libraries(
     tailgate_core_derp_impl

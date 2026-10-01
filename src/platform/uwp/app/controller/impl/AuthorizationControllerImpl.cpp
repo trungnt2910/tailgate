@@ -64,7 +64,7 @@ void AuthorizationControllerImpl::Cache(AuthorizationCache authorization)
         });
 }
 
-void AuthorizationControllerImpl::FindCached(const winrt::hstring& tailgateServer,
+void AuthorizationControllerImpl::FindCached(const winrt::hstring& profileId,
                                              const winrt::hstring& authKey,
                                              const winrt::hstring& hostname)
 {
@@ -76,7 +76,7 @@ void AuthorizationControllerImpl::FindCached(const winrt::hstring& tailgateServe
             {
                 return;
             }
-            if (state.Authorization()->TailgateServer != tailgateServer ||
+            if (profileId.empty() || state.Authorization()->ProfileId != profileId ||
                 state.Authorization()->AuthKey != authKey ||
                 state.Authorization()->Hostname != hostname)
             {

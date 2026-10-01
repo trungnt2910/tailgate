@@ -254,7 +254,9 @@ tailgate::base::EventWaitResult EventRegistry::Wait(std::optional<int> timerDesc
 void EventRegistry::Wake() noexcept
 {
     constexpr std::uint64_t Increment = 1;
-    (void)write(m_wake.Fd, &Increment, sizeof(Increment));
+    while (write(m_wake.Fd, &Increment, sizeof(Increment)) < 0 && errno == EINTR)
+    {
+    }
 }
 
 } // namespace tailgate::linux_frontend::event

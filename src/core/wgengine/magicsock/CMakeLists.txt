@@ -1,6 +1,7 @@
 tailgate_add_library(
     tailgate_core_wgengine_magicsock
     STATIC
+    Bind.cpp
     Connection.cpp
     PeerPathState.cpp
 )

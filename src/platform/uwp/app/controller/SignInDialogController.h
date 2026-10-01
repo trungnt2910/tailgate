@@ -29,7 +29,6 @@ public:
     virtual void OnAdvancedClicked() = 0;
     virtual void OnAdvancedPointerEntered() = 0;
     virtual void OnAdvancedPointerExited() = 0;
-    virtual void OnPrimaryButtonClick() = 0;
 };
 
 } // namespace tailgate::uwp

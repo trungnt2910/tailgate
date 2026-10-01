@@ -13,10 +13,13 @@
 #include <tailgate/hosted/Connection.h>
 #include <tailgate/hosted/Dns.h>
 #include <tailgate/hosted/PumpController.h>
+#include <tailgate/hosted/Recovery.h>
 #include <tailgate/hosted/ServerSession.h>
 #include <tailgate/hosted/ServerWriter.h>
+#include <tailgate/ipn/ipnlocal/DnsForwarder.h>
 #include <tailgate/net/http/Client.h>
 #include <tailgate/wgengine/Engine.h>
+#include <tailgate/wgengine/PeerProtocol.h>
 #include <tailgate/wgengine/Session.h>
 #include <tailgate/wgengine/magicsock/Connection.h>
 #include <tailgate/wgengine/ping/Tracker.h>
@@ -49,6 +52,7 @@ namespace tailgate::di
 void InstallCoreBindings(Injector& injector)
 {
     namespace boost_di = boost::di;
+    injector.InstallSingleton<tailgate::wgengine::PeerProtocol>();
     using ControlConnectionFactory = tailgate::control::client::ConnectionFactory;
     using ControlConnectionFactoryImpl = tailgate::control::client::impl::ConnectionFactoryImpl;
     using ControlSessionFactory = tailgate::control::client::SessionFactory;
@@ -88,6 +92,8 @@ void InstallCoreBindings(Injector& injector)
         boost_di::bind<Connection>.to<ConnectionImpl>(),
         boost_di::bind<PingTracker>.to<PingTrackerImpl>(),
         boost_di::bind<tailgate::hosted::Dns>(),
+        boost_di::bind<tailgate::hosted::Recovery>(),
+        boost_di::bind<tailgate::ipn::ipnlocal::DnsForwarder>(),
         boost_di::bind<HostedSession>.to<HostedSessionImpl>(),
         boost_di::bind<HostedServerFactory>.to<HostedServerFactoryImpl>(),
         boost_di::bind<PumpController>.to<PumpControllerImpl>(),

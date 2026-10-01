@@ -6,6 +6,7 @@ tailgate_add_library(
     Keys.cpp
     MbedTlsThreading.cpp
     MbedTlsThreading.h
+    PrefixedKey.cpp
     PsaCryptoContext.cpp
     PsaCryptoContext.h
     Random.cpp

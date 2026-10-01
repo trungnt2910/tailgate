@@ -16,6 +16,7 @@
 #include <tailgate/types/netmap/NetworkMap.h>
 #include <tailgate/types/nettype/UdpSocket.h>
 #include <tailgate/wgengine/Engine.h>
+#include <tailgate/wgengine/PacketPath.h>
 
 namespace tailgate::wgengine
 {
@@ -70,8 +71,16 @@ struct SessionPeerStats
     std::optional<tailgate::net::Endpoint> DirectEndpoint;
 };
 
+struct EndpointDiscoveryResult
+{
+    // An empty endpoint means discovery completed without a usable response.
+    std::optional<tailgate::net::Endpoint> Endpoint;
+};
+
 struct SessionWaitResult
 {
+    // Woken means no work remains to dispatch. Completion wakes carrying packets,
+    // maps, failures or timers are returned as Events.
     tailgate::base::EventWaitStatus Status = tailgate::base::EventWaitStatus::Events;
     std::vector<tailgate::types::nettype::UdpDatagram> Datagrams;
     std::vector<std::vector<std::uint8_t>> Packets;
@@ -83,12 +92,17 @@ struct SessionWaitResult
     std::vector<SessionPathEvent> PathEvents;
     std::vector<tailgate::base::Event> PlatformEvents;
     bool MaintenanceDue = false;
+    std::optional<EndpointDiscoveryResult> EndpointDiscovery;
 };
 
 class Session
 {
 public:
     virtual ~Session();
+
+    // Call after retiring the packet paths and stopping the session worker.
+    // Protocol state is retained; a new account must also reset PeerProtocol.
+    virtual void Reset() noexcept = 0;
 
     virtual void
     SetControlConnection(std::unique_ptr<tailgate::control::client::Connection> connection) = 0;
@@ -99,8 +113,15 @@ public:
     DerpConnection(DerpConnectionId connection) = 0;
     [[nodiscard]] virtual std::size_t DerpConnectionCount() const noexcept = 0;
     [[nodiscard]] virtual std::optional<tailgate::net::Endpoint>
+    // Bootstrap-only blocking form; running nodes use StartEndpointDiscovery and Wait.
     DiscoverEndpoint(const tailgate::net::Endpoint& server, std::chrono::milliseconds timeout) = 0;
+    // Start replaces any previous discovery; completion is returned by Wait.
+    // Both methods run on the serialized session worker.
+    virtual void StartEndpointDiscovery(const tailgate::net::Endpoint& server,
+                                        std::chrono::milliseconds timeout) = 0;
+    virtual void CancelEndpointDiscovery() noexcept = 0;
     virtual void Configure(SessionOptions options) = 0;
+    virtual void SetAdvertisedEndpoint(const tailgate::net::Endpoint& endpoint) = 0;
     virtual void UpdatePeers(const std::vector<tailgate::types::netmap::PeerConfig>& peers,
                              std::string exitNode = {}) = 0;
     virtual void SendPacket(const std::vector<std::uint8_t>& plaintext) = 0;
@@ -118,6 +139,7 @@ public:
          std::size_t maximumPacketSize,
          std::optional<base::TimeProvider::TimePoint> deadline = std::nullopt) = 0;
     virtual void Wake() noexcept = 0;
+    virtual void SetPacketPath(std::optional<std::reference_wrapper<PacketPath>> path) = 0;
 
 protected:
     Session() = default;

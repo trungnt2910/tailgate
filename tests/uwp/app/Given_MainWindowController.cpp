@@ -244,5 +244,47 @@ TEST_F(Given_MainWindowController, When_SignInIsAccepted_Then_AuthenticationAndC
     EXPECT_EQ(m_session->LastConnect->authKey, L"test-auth-key");
 }
 
+TEST_F(Given_MainWindowController, When_UpHasAuthKeyWithoutRelay_Then_StartsNativeConnection)
+{
+    tailgate::cli::Arguments arguments;
+    arguments.SelectedCommand = tailgate::cli::Command::Up;
+    arguments.Up.AuthKey = "test-auth-key";
+    m_subject->SetArguments(arguments);
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->Activate();
+        });
+    ASSERT_TRUE(m_session->LastConnect);
+
+    EXPECT_TRUE(m_session->LastConnect->tailgateServer.empty());
+    EXPECT_EQ(m_session->LastConnect->authKey, L"test-auth-key");
+    EXPECT_EQ(m_signIn->ShowCount, 0U);
+}
+
+TEST_F(Given_MainWindowController, When_UpExplicitlyClearsRelay_Then_DoesNotRestoreStoredRelay)
+{
+    tailgate::cli::Arguments arguments;
+    arguments.SelectedCommand = tailgate::cli::Command::Up;
+    arguments.Up.TailgateUrlSet = true;
+    m_subject->SetArguments(arguments);
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().TailgateServer(L"https://example.com");
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->Activate();
+        });
+    ASSERT_TRUE(m_session->LastConnect);
+
+    EXPECT_TRUE(m_session->LastConnect->tailgateServer.empty());
+    EXPECT_EQ(m_signIn->ShowCount, 0U);
+}
+
 } // namespace
 } // namespace tailgate::uwp::tests

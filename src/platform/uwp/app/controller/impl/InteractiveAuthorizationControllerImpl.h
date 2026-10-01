@@ -19,17 +19,17 @@ public:
     ~InteractiveAuthorizationControllerImpl() override;
 
     [[nodiscard]] const InteractiveAuthorizationState& GetState() const noexcept override;
-    void Listen(const winrt::hstring& tailgateServer) override;
+    void Listen(const winrt::hstring& profileId) override;
     void Stop() override;
     void Cancel() override;
 
 private:
-    void StartListening(const winrt::hstring& tailgateServer);
+    void StartListening(const winrt::hstring& profileId);
     FireAndForget Monitor(AuthorizationStateReceiver* receiver);
     void Publish(const ConnectionMessage& message);
 
     std::unique_ptr<AuthorizationStateReceiver> m_receiver;
-    winrt::hstring m_pendingTailgateServer;
+    winrt::hstring m_pendingProfileId;
     bool m_stopRequested = false;
     InteractiveAuthorizationState m_state;
     tailgate::base::Logger m_logger{"uwp-interactive-auth-ctrl"};

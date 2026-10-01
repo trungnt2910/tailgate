@@ -44,6 +44,7 @@ public:
     ProcessEvent(const tailgate::base::Event& event) = 0;
     [[nodiscard]] virtual std::vector<tailgate::types::netmap::NetworkConfig> Maintain() = 0;
     virtual void RequestReconnect() noexcept = 0;
+    virtual void ChangeNetwork(std::optional<std::string> networkInterface) = 0;
     virtual void Logout() = 0;
     [[nodiscard]] virtual const tailgate::crypto::Bytes32& NodePublicKey() const = 0;
     [[nodiscard]] virtual const tailgate::crypto::Bytes32& DiscoPrivateKey() const = 0;

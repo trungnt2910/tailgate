@@ -9,8 +9,10 @@
 
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/disco/Disco.h>
+#include <tailgate/hosted/Delegation.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/types/netmap/NetworkMap.h>
+#include <tailgate/wgengine/PeerProtocol.h>
 
 namespace tailgate::hosted
 {
@@ -59,6 +61,8 @@ struct ClientProcessResult
     std::vector<std::uint8_t> RemoteOutput;
     std::optional<DiscoPong> Pong;
     std::optional<std::uint64_t> PumpReply;
+    std::optional<DelegationReply> Delegation;
+    std::optional<std::uint64_t> AppliedMapRevision;
     bool NetworkMapChanged = false;
     bool DataPathReady = false;
 };
@@ -66,7 +70,7 @@ struct ClientProcessResult
 class Client final
 {
 public:
-    Client();
+    explicit Client(wgengine::PeerProtocol& protocol);
     ~Client();
 
     Client(const Client&) = delete;
@@ -78,6 +82,7 @@ public:
     void Stop() noexcept;
 
     [[nodiscard]] bool Active() const noexcept;
+    [[nodiscard]] std::uint64_t MapRevision() const noexcept;
     [[nodiscard]] const tailgate::types::netmap::NetworkConfig& Network() const;
     [[nodiscard]] tailgate::disco::Disco& Disco();
     [[nodiscard]] const std::string& ExitNode() const noexcept;

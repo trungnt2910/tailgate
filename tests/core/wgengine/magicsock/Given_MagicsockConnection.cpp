@@ -369,4 +369,57 @@ TEST_F(Given_MagicsockConnection, When_ConnectionCloses_Then_TheOwnedSocketAndPe
     EXPECT_FALSE(m_subject->LocalEndpoint().has_value());
 }
 
+TEST_F(Given_MagicsockConnection,
+       When_Rebinding_Then_RetainsPeersAndDiscardsOldPathsAndQueuedDatagrams)
+{
+    const auto peer = Peer(1);
+    ASSERT_TRUE(m_subject->Open(Options()));
+    ASSERT_TRUE(m_subject->AddPeer(peer));
+    ASSERT_TRUE(m_subject->MarkDirect(peer, Destination()));
+    m_socketFactory->States.front()->SendResult = nettype::SocketIoResult::WouldBlock;
+    ASSERT_EQ(m_subject->Send(peer, {1, 2}, true), magicsock::Connection::DirectSendResult::Queued);
+    ASSERT_EQ(m_subject->QueuedPackets(peer), 1U);
+    auto replacement = Options();
+    replacement.ReadinessToken.Value = SocketToken.Value + 1;
+
+    const auto rebound = m_subject->Rebind(replacement);
+    const auto stale = m_subject->ProcessEvent(
+        {.Token = SocketToken, .Readiness = tailgate::base::EventReadiness::Closed},
+        8,
+        TestReceiveSize);
+    const auto sent = m_subject->TrySendDirect(peer, Destination(), {3, 4});
+    ASSERT_EQ(m_socketFactory->States.size(), 2U);
+    ASSERT_EQ(m_socketFactory->States.back()->Sent.size(), 1U);
+
+    EXPECT_TRUE(rebound);
+    EXPECT_TRUE(m_socketFactory->States.front()->Closed);
+    EXPECT_TRUE(m_subject->HasPeer(peer));
+    EXPECT_FALSE(m_subject->HasDirectPath(peer));
+    EXPECT_FALSE(m_subject->AcceptDirectSource(Destination()));
+    EXPECT_EQ(m_subject->QueuedPackets(peer), 0U);
+    EXPECT_EQ(m_subject->QueuedBytes(peer), 0U);
+    EXPECT_FALSE(stale.Handled);
+    EXPECT_EQ(sent, nettype::SocketIoResult::Complete);
+    EXPECT_EQ(m_socketFactory->States.back()->Sent.front().Payload,
+              (std::vector<std::uint8_t>{3, 4}));
+}
+
+TEST_F(Given_MagicsockConnection,
+       When_ReplacementSocketCannotOpen_Then_PeersRemainAvailableForRetry)
+{
+    const auto peer = Peer(1);
+    ASSERT_TRUE(m_subject->Open(Options()));
+    ASSERT_TRUE(m_subject->AddPeer(peer));
+    ASSERT_TRUE(m_subject->MarkDirect(peer, Destination()));
+    m_socketFactory->FailOpen = true;
+
+    const auto rebound = m_subject->Rebind(Options());
+
+    EXPECT_FALSE(rebound);
+    EXPECT_TRUE(m_subject->HasPeer(peer));
+    EXPECT_FALSE(m_subject->HasDirectPath(peer));
+    EXPECT_FALSE(m_subject->LocalEndpoint());
+    EXPECT_TRUE(m_socketFactory->States.front()->Closed);
+}
+
 } // namespace

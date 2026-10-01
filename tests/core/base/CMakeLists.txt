@@ -1,6 +1,7 @@
 tailgate_add_test_library(
     tailgate_tests_core_base
     Given_ByteStream.cpp
+    Given_EventLoop.cpp
     Given_FakeTimeProvider.cpp
     Given_Logging.cpp
     Given_Strings.cpp

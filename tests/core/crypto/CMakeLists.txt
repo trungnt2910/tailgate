@@ -3,6 +3,7 @@ tailgate_add_test_library(
     Given_Certificate.cpp
     Given_Crypto.cpp
     Given_MbedTlsThreading.cpp
+    Given_PrefixedKey.cpp
     Given_PsaCryptoContext.cpp
 )
 target_include_directories(

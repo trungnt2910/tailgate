@@ -69,6 +69,10 @@ void PrintStatusJson(const Status& status, bool activeOnly)
                      {
                          {"Version", status.ClientVersion},
                          {"BackendState", status.BackendState},
+                         {"DesiredMode", status.DesiredMode},
+                         {"EffectiveMode", status.EffectiveMode},
+                         {"ModeTransition", status.ModeTransition},
+                         {"ModeFailure", status.ModeFailure},
                          {"Online", status.Online},
                          {"TailscaleIPs",
                           status.Address.empty() ? nlohmann::json::array()

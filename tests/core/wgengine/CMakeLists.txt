@@ -1,7 +1,10 @@
 tailgate_add_test_library(
     tailgate_tests_core_wgengine
+    Given_PeerProtocol.cpp
+    Given_WgengineEndpointDiscovery.cpp
     Given_WgengineEngine.cpp
     Given_WgengineSession.cpp
+    Given_WgengineSessionDisco.cpp
 )
 target_link_libraries(
     tailgate_tests_core_wgengine

@@ -17,6 +17,22 @@ string(
     " -Wno-error=unused-parameter"
     " -iquote \"${PROJECT_SOURCE_DIR}/src/core/wgengine/netstack/port\""
 )
+
+if(TAILGATE_BUILD_LINUX)
+    CPMAddPackage(
+        NAME c-ares
+        VERSION 1.34.6
+        URL https://github.com/c-ares/c-ares/releases/download/v1.34.6/c-ares-1.34.6.tar.gz
+        URL_HASH SHA256=912dd7cc3b3e8a79c52fd7fb9c0f4ecf0aaa73e45efda880266a2d6e26b84ef5
+        OPTIONS
+            "CARES_STATIC ON"
+            "CARES_SHARED OFF"
+            "CARES_BUILD_TOOLS OFF"
+            "CARES_BUILD_TESTS OFF"
+            "CARES_INSTALL OFF"
+    )
+endif()
+
 CPMAddPackage(
     NAME Lwip
     URL https://codeload.github.com/lwip-tcpip/lwip/tar.gz/refs/tags/STABLE-2_2_1_RELEASE

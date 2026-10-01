@@ -17,16 +17,14 @@ namespace
 class Given_SignInDialogView : public testing::Test
 {
 protected:
-    xaml::UIElement CreateSubject(bool advancedExpanded = true, bool validationErrorVisible = false)
+    xaml::UIElement CreateSubject(bool advancedExpanded = true, bool nativeMode = false)
     {
         m_dependencies.Initialize();
         m_controller = std::make_shared<FakeSignInDialogController>();
-        m_controller->GetState().TailgateServer(validationErrorVisible ? L""
-                                                                       : L"https://example.com");
+        m_controller->GetState().TailgateServer(nativeMode ? L"" : L"https://example.com");
         m_controller->GetState().AuthKey(L"test-auth-key");
         m_controller->GetState().Hostname(L"test-device");
         m_controller->GetState().AdvancedExpanded(advancedExpanded);
-        m_controller->GetState().ValidationErrorVisible(validationErrorVisible);
         m_subject = m_dependencies.Create<SignInDialogViewImpl>(di::bind<SignInDialogController>.to(
             [this](const auto&) -> SignInDialogController&
             {
@@ -57,7 +55,7 @@ TEST_F(Given_SignInDialogView, When_AdvancedFieldsAreVisible_Then_SignInDialogMa
     EXPECT_TRUE(result);
 }
 
-TEST_F(Given_SignInDialogView, When_ServerIsMissing_Then_ValidationStateMatchesGolden)
+TEST_F(Given_SignInDialogView, When_RelayIsEmpty_Then_NativeSignInMatchesGolden)
 {
     const auto content = TestHost::SetTestContentAsync(
                              [this]() -> xaml::UIElement
@@ -67,8 +65,24 @@ TEST_F(Given_SignInDialogView, When_ServerIsMissing_Then_ValidationStateMatchesG
                              .get();
 
     const auto result = TestHost::CheckGolden(
+        content, L"Given_SignInDialogView/When_RelayIsEmpty_Then_NativeSignInMatchesGolden.png");
+
+    EXPECT_TRUE(result);
+}
+
+TEST_F(Given_SignInDialogView, When_RelayIsEmptyAndOptionsExpanded_Then_OptionalRelayMatchesGolden)
+{
+    const auto content = TestHost::SetTestContentAsync(
+                             [this]() -> xaml::UIElement
+                             {
+                                 return CreateSubject(true, true);
+                             })
+                             .get();
+
+    const auto result = TestHost::CheckGolden(
         content,
-        L"Given_SignInDialogView/When_ServerIsMissing_Then_ValidationStateMatchesGolden.png");
+        L"Given_SignInDialogView/"
+        L"When_RelayIsEmptyAndOptionsExpanded_Then_OptionalRelayMatchesGolden.png");
 
     EXPECT_TRUE(result);
 }

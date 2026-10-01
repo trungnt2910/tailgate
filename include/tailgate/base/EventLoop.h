@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <mutex>
 #include <vector>
 
 #include <tailgate/base/TimeProvider.h>
@@ -64,6 +66,16 @@ public:
     [[nodiscard]] virtual EventWaitResult Wait(const WaitToken& waitToken,
                                                std::size_t maximumEvents) = 0;
     virtual void Wake() noexcept = 0;
+    // Completion-based transports post readiness, coalesced per token. The engine
+    // consumes it after Wait, alongside platform descriptor events.
+    void Post(Event event);
+    // Call after disabling a retired producer's notifications, before reusing its token.
+    void DiscardPostedEvents(EventToken token);
+    [[nodiscard]] std::vector<Event> TakePostedEvents(std::size_t maximumEvents);
+
+private:
+    std::mutex m_postedMutex;
+    std::map<std::uint64_t, EventReadiness> m_posted;
 };
 
 } // namespace tailgate::base

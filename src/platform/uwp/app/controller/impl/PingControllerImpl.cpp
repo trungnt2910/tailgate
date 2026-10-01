@@ -176,6 +176,8 @@ void HandlePingResponse(const std::weak_ptr<PingSessionState>& weakState,
         result.Status = response->Result == app_service::Status::Ok ? PingResultStatus::Success
                         : response->Result == app_service::Status::NoMatchingPeer
                             ? PingResultStatus::NoMatchingPeer
+                        : response->Result == app_service::Status::Timeout
+                            ? PingResultStatus::Timeout
                             : PingResultStatus::Failed;
         result.LatencyMilliseconds = static_cast<double>(response->LatencyMicroseconds) / 1000.0;
         result.Direct = response->Direct;

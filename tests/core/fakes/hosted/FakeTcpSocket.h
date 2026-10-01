@@ -14,6 +14,8 @@
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/types/nettype/TcpSocket.h>
 
+#include "fakes/types/nettype/FakeTcpSocket.h"
+
 namespace tailgate::tests::fakes::hosted
 {
 
@@ -22,8 +24,14 @@ class FakeTcpSocket final : public tailgate::types::nettype::TcpSocket
 public:
     FakeTcpSocket(tailgate::crypto::Bytes32 relayPrivateKey,
                   tailgate::crypto::Bytes32 serverNonce,
-                  bool reject)
-        : RelayPrivateKey(relayPrivateKey), ServerNonce(serverNonce), Reject(reject)
+                  bool reject,
+                  std::shared_ptr<tailgate::tests::fakes::FakeTcpSocketState> state = {})
+        : RelayPrivateKey(relayPrivateKey),
+          ServerNonce(serverNonce),
+          Reject(reject),
+          Transport(state
+                        ? std::make_unique<tailgate::tests::fakes::FakeTcpSocket>(std::move(state))
+                        : nullptr)
     {
         const tailgate::crypto::Bytes32 relayPublicKey =
             tailgate::crypto::X25519PublicFromPrivate(RelayPrivateKey);
@@ -41,6 +49,10 @@ public:
 
     std::optional<std::size_t> TryWriteSome(const std::uint8_t* data, std::size_t size) override
     {
+        if (NonBlocking && Transport)
+        {
+            return Transport->TryWriteSome(data, size);
+        }
         Output.insert(Output.end(), data, data + size);
         ++WriteCount;
         if (WriteCount == 2)
@@ -52,6 +64,10 @@ public:
 
     std::optional<std::vector<std::uint8_t>> TryReadSome(std::size_t maximumSize) override
     {
+        if (NonBlocking && Transport)
+        {
+            return Transport->TryReadSome(maximumSize);
+        }
         const std::size_t count = std::min(maximumSize, Input.size() - Offset);
         std::vector<std::uint8_t> result(Input.begin() + static_cast<std::ptrdiff_t>(Offset),
                                          Input.begin() +
@@ -75,6 +91,10 @@ public:
 
     void Close() noexcept override
     {
+        if (Transport)
+        {
+            Transport->Close();
+        }
     }
 
     [[nodiscard]] const std::vector<std::uint8_t>& WrittenBytes() const noexcept
@@ -125,6 +145,7 @@ private:
     std::size_t Offset = 0;
     std::size_t WriteCount = 0;
     bool NonBlocking = false;
+    std::unique_ptr<tailgate::tests::fakes::FakeTcpSocket> Transport;
 };
 
 class FakeTcpSocketFactory final : public tailgate::types::nettype::TcpSocketFactory

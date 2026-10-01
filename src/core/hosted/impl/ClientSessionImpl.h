@@ -9,6 +9,7 @@
 #include <tailgate/hosted/Client.h>
 #include <tailgate/hosted/ClientSession.h>
 #include <tailgate/ipn/ipnlocal/LocalServices.h>
+#include <tailgate/ipn/ipnlocal/PacketDispatch.h>
 #include <tailgate/wgengine/tstun/Device.h>
 
 namespace tailgate::hosted::impl
@@ -47,6 +48,7 @@ private:
     tailgate::hosted::Client& m_client;
     tailgate::wgengine::tstun::Device& m_device;
     std::shared_ptr<tailgate::ipn::ipnlocal::LocalServices> m_localServices;
+    ipn::ipnlocal::PacketDispatch m_dispatch;
     std::deque<std::vector<std::uint8_t>> m_pendingPackets;
     std::size_t m_pendingBytes = 0;
     bool m_open = false;

@@ -11,6 +11,7 @@
 
 #include <tailgate/crypto/Crypto.h>
 #include <tailgate/hosted/Protocol.h>
+#include <tailgate/hosted/RelayEndpoint.h>
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/dns/Dns.h>
 #include <tailgate/net/packet/Ipv4.h>
@@ -21,17 +22,6 @@
 namespace tailgate::uwp
 {
 
-namespace
-{
-
-constexpr std::size_t MaximumCanonicalDnsQueries = 8;
-constexpr std::chrono::seconds DnsConnectTimeout(20);
-constexpr std::string_view PublicDnsAddress = "1.1.1.1";
-constexpr std::string_view PublicDnsTlsName = "cloudflare-dns.com";
-constexpr std::string_view DnsOverTlsService = "853";
-
-} // namespace
-
 TailgateRelay::TailgateRelay(std::string host, std::string service)
     : m_requestHost(std::move(host)), m_validationHost(m_requestHost), m_service(std::move(service))
 {
@@ -41,35 +31,16 @@ TailgateRelay::TailgateRelay(std::string host, std::string service)
     }
 }
 
-void TailgateRelay::Resolve()
+void TailgateRelay::Resolve(const std::optional<std::string>& networkInterface,
+                            std::stop_token cancellation)
 {
-    m_usingCachedEndpoint = false;
-    m_validationHost = m_requestHost;
-    m_connectAddress.clear();
-    if (tailgate::net::Ipv4Address::TryParse(m_validationHost))
-    {
-        m_connectAddress = m_validationHost;
-        return;
-    }
     TcpSocketFactory socketFactory;
-    std::unique_ptr<tailgate::types::nettype::TcpSocket> dnsTls =
-        socketFactory.OpenTcpSocket(tailgate::types::nettype::TcpSocketOptions{
-            .ConnectAddress = std::string(PublicDnsAddress),
-            .Service = std::string(DnsOverTlsService),
-            .NetworkInterface = std::nullopt,
-            .TlsServerName = std::string(PublicDnsTlsName),
-            .IoTimeout = DnsConnectTimeout,
-            .ConnectTimeout = std::nullopt,
-            .ReadinessToken = {},
-            .AllowTls13 = false,
-            .NonBlockingAfterConnect = false,
-        });
-    const tailgate::crypto::Bytes32 random = tailgate::crypto::GeneratePrivateKey();
-    const tailgate::net::dns::DnsTarget target = tailgate::net::dns::ResolveDnsOverTlsTarget(
-        *dnsTls, m_validationHost, random[0], MaximumCanonicalDnsQueries);
-    m_validationHost = target.ValidationName;
-    m_connectAddress = target.ConnectAddress;
-    m_logger.LogInfo("relay resolution name={} address={}", m_validationHost, m_connectAddress);
+    tailgate::hosted::RelayEndpoint endpoint{
+        .Host = m_requestHost, .ConnectAddress = {}, .Port = m_service};
+    endpoint.Resolve(socketFactory, networkInterface, 0, cancellation, false);
+    m_validationHost = std::move(endpoint.Host);
+    m_connectAddress = std::move(endpoint.ConnectAddress);
+    m_usingCachedEndpoint = false;
 }
 
 void TailgateRelay::UseCachedEndpoint(std::string connectAddress, std::string validationHost)

@@ -39,6 +39,10 @@ class Engine
 public:
     virtual ~Engine();
 
+    // Call after retiring the packet paths and stopping the session worker.
+    // Protocol state is retained; a new account must also reset PeerProtocol.
+    virtual void Reset() noexcept = 0;
+
     [[nodiscard]] virtual bool
     OpenPacketDevice(const tailgate::wgengine::tstun::DeviceOptions& options) = 0;
     [[nodiscard]] virtual PacketWriteResult WritePacket(std::vector<std::uint8_t> packet) = 0;
@@ -50,6 +54,7 @@ public:
                                                 std::size_t maximumDatagramsPerSocket,
                                                 std::size_t maximumDatagramSize) = 0;
     virtual void Wake() noexcept = 0;
+    [[nodiscard]] virtual bool PacketDeviceOpen() const noexcept = 0;
 
 protected:
     Engine() = default;

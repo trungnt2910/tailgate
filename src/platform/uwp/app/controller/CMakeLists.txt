@@ -12,6 +12,8 @@ target_sources(
         HomePageController.h
         InteractiveAuthorizationController.h
         MainWindowController.h
+        ModeController.h
+        ModeRpcController.h
         NavigationController.h
         NodeAuthorizationDialogController.h
         PackageController.h

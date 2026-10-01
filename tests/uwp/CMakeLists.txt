@@ -20,9 +20,17 @@ uwp_add_executable(
     SOURCES
         App.cpp
         Given_Arguments.cpp
+        Given_NativeConnection.cpp
+        Given_NodeContext.cpp
         Given_TcpPortReservation.cpp
         Given_TestHost.cpp
+        Given_ThreadApartment.cpp
         Given_TimeProvider.cpp
+        Given_UwpEventLoop.cpp
+        Given_UwpStreamIo.cpp
+        Given_UwpUdpSocketFactory.cpp
+        Given_VpnPhonebook.cpp
+        Given_VpnReconnectState.cpp
         IdlingRegistry.cpp
         IdlingRegistry.h
         TestHost.cpp
@@ -36,6 +44,7 @@ target_link_libraries(
     tailgate_uwp_tests
     PRIVATE
         tailgate_tests
+        tailgate_tests_core_fakes
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_app>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_bg>"
         "$<LINK_LIBRARY:WHOLE_ARCHIVE,tailgate_tests_uwp_bg_tstun>"
@@ -44,7 +53,9 @@ target_link_libraries(
         Tailgate.Uwp.App.Controller.Impl
         Tailgate.Uwp.App.Ui
         Tailgate.Uwp.App.View.Impl
+        Tailgate.Uwp.Background.DI
         Tailgate.Uwp.Background.Manager
+        Tailgate.Uwp.Background.Plugin
         Tailgate.Uwp.Background.Service
         Tailgate.Uwp.Common
 )
@@ -52,6 +63,7 @@ target_include_directories(
     tailgate_uwp_tests
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${PROJECT_SOURCE_DIR}/src/core"
         "${PROJECT_SOURCE_DIR}/src/platform/uwp"
 )
 set_target_properties(

@@ -50,13 +50,9 @@ DerpClient::DerpClient(ByteStream& stream, Key privateKey, Key publicKey)
     }
 }
 
-DerpClient::DerpClient(ByteStream& stream, Authenticator authenticator)
-    : Stream(stream), Authenticate(std::move(authenticator))
+DerpClient::DerpClient(ByteStream& stream, Authenticator& authenticator)
+    : Stream(stream), m_authenticator(authenticator)
 {
-    if (!Authenticate)
-    {
-        throw std::invalid_argument("DERP authenticator is empty.");
-    }
     if (sodium_init() < 0)
     {
         throw std::runtime_error("Libsodium initialization failed.");
@@ -87,7 +83,7 @@ DerpClient::BuildClientInfo(const Key& privateKey, const Key& publicKey, const K
     return payload;
 }
 
-void DerpClient::Connect(const std::string& hostname)
+void DerpClient::Connect(const std::string& hostname, std::stop_token cancellation)
 {
     const std::string request = std::format("GET /derp HTTP/1.1\r\nHost: {}\r\n"
                                             "Connection: Upgrade\r\nUpgrade: DERP\r\n\r\n",
@@ -117,7 +113,8 @@ void DerpClient::Connect(const std::string& hostname)
     std::copy_n(greeting.Payload.begin() + 8, ServerKey.size(), ServerKey.begin());
 
     const std::vector<std::uint8_t> payload =
-        Authenticate ? Authenticate(ServerKey) : BuildClientInfo(PrivateKey, PublicKey, ServerKey);
+        m_authenticator ? m_authenticator->get().Authenticate(ServerKey, cancellation)
+                        : BuildClientInfo(PrivateKey, PublicKey, ServerKey);
     if (payload.size() < Key{}.size() + crypto_box_NONCEBYTES + crypto_box_MACBYTES)
     {
         throw std::runtime_error("DERP authenticator returned an invalid ClientInfo envelope.");
@@ -130,7 +127,7 @@ void DerpClient::Connect(const std::string& hostname)
     {
         throw std::runtime_error("DERP server did not authenticate the client.");
     }
-    if (!Authenticate)
+    if (!m_authenticator)
     {
         const std::size_t encryptedSize = serverInfo.Payload.size() - crypto_box_NONCEBYTES;
         std::vector<std::uint8_t> serverPlaintext(encryptedSize - crypto_box_MACBYTES);

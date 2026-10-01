@@ -25,7 +25,6 @@ public:
     void OnAdvancedClicked() override;
     void OnAdvancedPointerEntered() override;
     void OnAdvancedPointerExited() override;
-    void OnPrimaryButtonClick() override;
 
 private:
     ContentDialogController& m_dialogController;

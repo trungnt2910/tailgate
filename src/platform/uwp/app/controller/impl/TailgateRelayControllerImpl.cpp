@@ -24,7 +24,7 @@ winrt::hstring NormalizeTailgateServer(const winrt::hstring& value)
 {
     if (value.empty())
     {
-        UwpError::Throw(UwpError::Code::VpnServerRequired);
+        UwpError::Throw(UwpError::Code::VpnServerInvalid);
     }
     winrt::hstring normalized = value;
     if (std::wstring_view(normalized).find(L"://") == std::wstring_view::npos)

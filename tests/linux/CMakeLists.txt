@@ -3,7 +3,6 @@ tailgate_add_test_executable(
     Given_DataplaneEvent.cpp
     Given_FdStream.cpp
     Given_HostedConnectionRegistry.cpp
-    Given_HostedDerpRouteTable.cpp
     Given_Lifecycle.cpp
     Given_LinuxBindings.cpp
     Given_LinuxEventLoop.cpp
@@ -11,6 +10,7 @@ tailgate_add_test_executable(
     Given_LinuxPacketDevice.cpp
     Given_LinuxProcessWait.cpp
     Given_LinuxTcpPortReservation.cpp
+    Given_LinuxTcpResolutionDeathTest.cpp
     Given_LinuxTcpSocketFactory.cpp
     Given_LinuxUdpSocketFactory.cpp
     Given_Network.cpp

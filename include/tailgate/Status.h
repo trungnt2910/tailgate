@@ -35,6 +35,10 @@ struct Status
     std::string ClientVersion;
     std::string AuthorizationUrl;
     std::string Error;
+    std::string DesiredMode;
+    std::string EffectiveMode;
+    unsigned ModeTransition = 0;
+    unsigned ModeFailure = 0;
     std::uint64_t ConfigurationRevision = 0;
     std::vector<PeerStatus> Peers;
 };

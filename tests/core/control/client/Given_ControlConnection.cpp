@@ -86,3 +86,45 @@ TEST(Given_ControlConnection, When_ConnectionIsCreated_Then_CoreRequestsPlatform
     EXPECT_THROW(connect(), std::system_error);
     EXPECT_EQ(hostInfoProvider.Calls, 1U);
 }
+
+TEST(Given_ControlConnection,
+     When_DialingWithCancellationAndReadiness_Then_BothReachPlatformSockets)
+{
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto& sockets = dynamic_cast<tailgate::tests::fakes::FakeTcpSocketFactory&>(
+        injector.create<tailgate::types::nettype::TcpSocketFactory&>());
+    auto& events = injector.create<tailgate::base::EventLoop&>();
+    std::stop_source stopped;
+    auto options = Options();
+    options.Cancellation = stopped.get_token();
+    options.ReadinessEvents = std::ref(events);
+    std::vector<tailgate::types::nettype::TcpSocketOptions> attempts;
+    sockets.Open =
+        [&](const auto& socketOptions) -> std::unique_ptr<tailgate::types::nettype::TcpSocket>
+    {
+        attempts.push_back(socketOptions);
+        throw std::system_error(std::make_error_code(std::errc::connection_refused));
+    };
+    auto& factory = injector.create<tailgate::control::client::ConnectionFactory&>();
+    bool failed = false;
+
+    try
+    {
+        (void)factory.CreateConnection(options);
+    }
+    catch (const std::system_error&)
+    {
+        failed = true;
+    }
+    stopped.request_stop();
+    ASSERT_EQ(attempts.size(), 2U);
+    ASSERT_TRUE(attempts[0].ReadinessEvents.has_value());
+    ASSERT_TRUE(attempts[1].ReadinessEvents.has_value());
+
+    EXPECT_TRUE(failed);
+    EXPECT_TRUE(attempts[0].Cancellation.stop_requested());
+    EXPECT_TRUE(attempts[1].Cancellation.stop_requested());
+    EXPECT_EQ(&attempts[0].ReadinessEvents->get(), &events);
+    EXPECT_EQ(&attempts[1].ReadinessEvents->get(), &events);
+}

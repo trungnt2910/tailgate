@@ -12,6 +12,7 @@
 #include <winrt/Windows.Storage.h>
 
 #include "common/AuthorizationState.h"
+#include "common/EventSignal.h"
 
 #include "manager/impl/SessionManagerImpl.h"
 
@@ -126,14 +127,14 @@ TEST_F(Given_SessionManager, When_AuthenticationIsRequired_Then_ItTakesPrecedenc
 
 TEST_F(Given_SessionManager, When_LoginNotificationIsSent_Then_ForegroundReceivesControlUrl)
 {
-    const winrt::hstring tailgateServer = L"relay.example.com";
+    const winrt::hstring profileId = L"test-profile";
     const std::string authorizationUrl = "https://login.tailscale.com/a/fake-login-code";
-    AuthorizationStateReceiver receiver(tailgateServer);
+    AuthorizationStateReceiver receiver(profileId);
     const auto generation = m_subject->BeginConnect();
     const bg::manager::ForegroundConnectionNotification notification{
         .Kind = bg::manager::ForegroundConnectionKind::LoginRequired,
         .Url = authorizationUrl,
-        .TailgateServer = winrt::to_string(tailgateServer),
+        .ProfileId = winrt::to_string(profileId),
     };
 
     m_subject->Notify(generation, notification);
@@ -142,7 +143,7 @@ TEST_F(Given_SessionManager, When_LoginNotificationIsSent_Then_ForegroundReceive
 
     EXPECT_EQ(messages.front().Kind, ConnectionMessageKind::LoginRequired);
     EXPECT_EQ(messages.front().Url, winrt::to_hstring(authorizationUrl));
-    EXPECT_EQ(messages.front().TailgateServer, tailgateServer);
+    EXPECT_EQ(messages.front().ProfileId, profileId);
 }
 
 TEST_F(Given_SessionManager, When_Stopping_Then_LateReportsAreIgnoredUntilComplete)
@@ -185,6 +186,44 @@ TEST_F(Given_SessionManager, When_NetworkMapIsWritten_Then_NodeIdsArePersistedEx
     ASSERT_EQ(devices.Size(), 2U);
     EXPECT_EQ(devices.GetObjectAt(0).GetNamedString(L"NodeID"), winrt::to_hstring(SelfNodeId));
     EXPECT_EQ(devices.GetObjectAt(1).GetNamedString(L"NodeID"), winrt::to_hstring(PeerNodeId));
+}
+
+TEST_F(Given_SessionManager, When_AnotherProfilePublishes_Then_ReceiverIgnoresNotification)
+{
+    AuthorizationStateReceiver receiver(L"current-profile");
+    const auto generation = m_subject->BeginConnect();
+    const bg::manager::ForegroundConnectionNotification notification{
+        .Kind = bg::manager::ForegroundConnectionKind::ControlAuthorized,
+        .Url = {},
+        .ProfileId = "other-profile",
+    };
+
+    m_subject->Notify(generation, notification);
+    const auto messages = receiver.ReadAvailable();
+
+    EXPECT_TRUE(messages.empty());
+}
+
+TEST_F(Given_SessionManager, When_ProfileCancellationIsRequested_Then_MatchingMonitorSeesIt)
+{
+    AuthorizationStateReceiver receiver(L"current-profile");
+    ConnectionCancellationMonitor monitor(L"current-profile");
+    EventSignal stop;
+    ASSERT_TRUE(monitor.Available());
+
+    receiver.Cancel();
+    const auto reason = monitor.Wait(stop.Handle());
+
+    EXPECT_EQ(reason, ConnectionCancellationReason::Cancelled);
+}
+
+TEST_F(Given_SessionManager, When_CancellationMonitorBelongsToAnotherProfile_Then_IsUnavailable)
+{
+    AuthorizationStateReceiver receiver(L"current-profile");
+
+    ConnectionCancellationMonitor monitor(L"other-profile");
+
+    EXPECT_FALSE(monitor.Available());
 }
 
 } // namespace

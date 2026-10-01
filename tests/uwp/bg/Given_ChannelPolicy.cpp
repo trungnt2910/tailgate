@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <tailgate/net/Ipv4Address.h>
+
 #include "manager/ChannelPolicy.h"
 
 namespace tailgate::uwp::tests
@@ -105,6 +107,42 @@ TEST(Given_ChannelPolicy, When_ExitNodeIsEnabled_Then_ChannelPolicyChanges)
     const auto updated = ChannelPolicy::Build(network, true);
 
     EXPECT_NE(installed, updated);
+}
+
+TEST(Given_ChannelPolicy, When_ExitNodeCapturesInternet_Then_LoopbackWakesRemainOutsideVpn)
+{
+    const auto network = Network();
+    const auto loopback = tailgate::net::Ipv4Address::FromOctets(127, 0, 0, 1).HostOrder();
+    const auto quad100 = tailgate::net::Ipv4Address::FromOctets(100, 100, 100, 100).HostOrder();
+    const auto internet = tailgate::net::Ipv4Address::FromOctets(203, 0, 113, 1).HostOrder();
+
+    const auto policy = ChannelPolicy::Build(network, true);
+    const auto includes = [&](auto address)
+    {
+        return std::ranges::any_of(policy.Routes,
+                                   [address](const auto& route)
+                                   {
+                                       return route.Contains(address);
+                                   });
+    };
+    ASSERT_EQ(policy.ExcludedRoutes.size(), 1U);
+
+    EXPECT_TRUE(includes(internet));
+    EXPECT_TRUE(includes(quad100));
+    EXPECT_TRUE(policy.ExcludedRoutes.front().Contains(loopback));
+    EXPECT_FALSE(policy.ExcludedRoutes.front().Contains(internet));
+    EXPECT_FALSE(policy.ExcludedRoutes.front().Contains(quad100));
+}
+
+TEST(Given_ChannelPolicy, When_ExitNodeIsDisabled_Then_LoopbackExclusionIsPreserved)
+{
+    const auto network = Network();
+    const auto withExit = ChannelPolicy::Build(network, true);
+
+    const auto withoutExit = ChannelPolicy::Build(network, false);
+
+    EXPECT_EQ(withoutExit.ExcludedRoutes, withExit.ExcludedRoutes);
+    EXPECT_FALSE(withoutExit.ExcludedRoutes.empty());
 }
 
 TEST(Given_ChannelPolicy, When_DnsSuffixChanges_Then_ChannelPolicyChanges)

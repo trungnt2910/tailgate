@@ -8,6 +8,8 @@
 #include <tailgate/derp/Connection.h>
 #include <tailgate/types/nettype/TcpSocket.h>
 
+#include "DialOperation.h"
+
 namespace tailgate::derp::impl
 {
 
@@ -15,8 +17,9 @@ class ConnectionImpl final : public tailgate::derp::Connection
 {
 public:
     ConnectionImpl(tailgate::derp::ConnectionOptions options,
-                   tailgate::types::nettype::TcpSocketFactory& socketFactory,
-                   tailgate::base::TimeProvider& timeProvider);
+                   std::shared_ptr<tailgate::types::nettype::TcpSocketFactory> socketFactory,
+                   tailgate::base::TimeProvider& timeProvider,
+                   std::shared_ptr<tailgate::base::EventLoop> eventLoop);
     ~ConnectionImpl() override;
 
     void Send(const tailgate::derp::DerpClient::Key& destination,
@@ -25,6 +28,8 @@ public:
     [[nodiscard]] tailgate::derp::ConnectionEventResult
     ProcessEvent(const tailgate::base::Event& event) override;
     void Maintain() override;
+    void SetEnabled(bool enabled) override;
+    void ChangeNetwork(std::string networkInterface) override;
     [[nodiscard]] bool Connected() const noexcept override;
 
 private:
@@ -42,8 +47,11 @@ private:
     static constexpr std::size_t MaximumFramesPerFlush = 64;
 
     tailgate::derp::ConnectionOptions m_options;
-    tailgate::types::nettype::TcpSocketFactory& m_socketFactory;
+    std::shared_ptr<tailgate::types::nettype::TcpSocketFactory> m_socketFactory;
     tailgate::base::TimeProvider& m_timeProvider;
+    std::shared_ptr<tailgate::base::EventLoop> m_eventLoop;
+    std::unique_ptr<DialOperation> m_dial;
+    bool m_enabled = true;
     std::unique_ptr<tailgate::types::nettype::TcpSocket> m_socket;
     std::unique_ptr<tailgate::derp::DerpClient> m_client;
     tailgate::derp::DerpSendQueue m_outgoing{MaximumQueuedPackets, MaximumQueuedBytes};
@@ -55,15 +63,17 @@ private:
 class ConnectionFactoryImpl final : public tailgate::derp::ConnectionFactory
 {
 public:
-    ConnectionFactoryImpl(tailgate::types::nettype::TcpSocketFactory& socketFactory,
-                          tailgate::base::TimeProvider& timeProvider) noexcept;
+    ConnectionFactoryImpl(std::shared_ptr<tailgate::types::nettype::TcpSocketFactory> socketFactory,
+                          tailgate::base::TimeProvider& timeProvider,
+                          std::shared_ptr<tailgate::base::EventLoop> eventLoop) noexcept;
 
     [[nodiscard]] std::unique_ptr<tailgate::derp::Connection>
     CreateConnection(tailgate::derp::ConnectionOptions options) override;
 
 private:
-    tailgate::types::nettype::TcpSocketFactory& m_socketFactory;
+    std::shared_ptr<tailgate::types::nettype::TcpSocketFactory> m_socketFactory;
     tailgate::base::TimeProvider& m_timeProvider;
+    std::shared_ptr<tailgate::base::EventLoop> m_eventLoop;
 };
 
 } // namespace tailgate::derp::impl

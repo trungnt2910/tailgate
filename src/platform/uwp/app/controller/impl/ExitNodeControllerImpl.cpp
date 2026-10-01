@@ -16,8 +16,10 @@
 
 #include <winrt/Windows.Networking.Sockets.h>
 #include <winrt/Windows.Storage.Streams.h>
+#include <winrt/Windows.Storage.h>
 
 #include "common/EventSignal.h"
+#include "common/ExitNodeChangeResult.h"
 #include "common/UwpAppServiceProtocol.h"
 #include "common/VpnConstants.h"
 
@@ -260,6 +262,26 @@ ExitNodeControllerImpl::RequestChangeAsync(winrt::hstring nodeName,
 {
     try
     {
+        const auto completion = winrt::Windows::Storage::ApplicationData::Current().DataChanged(
+            winrt::auto_revoke,
+            [logger = m_logger, weakState = std::weak_ptr<ExitNodeChangeState>(state)](const auto&,
+                                                                                       const auto&)
+            {
+                try
+                {
+                    const auto current = weakState.lock();
+                    const auto response = ExitNodeChangeResult::Read();
+                    if (current && response && response->Sequence == current->Sequence())
+                    {
+                        current->StoreResponse(*response);
+                    }
+                }
+                catch (...)
+                {
+                    logger.LogWarning("failed to read exit-node completion: {}",
+                                      winrt::to_message());
+                }
+            });
         const sockets::DatagramSocket socket;
         socket.MessageReceived(
             [logger = m_logger, weakState = std::weak_ptr<ExitNodeChangeState>(state)](

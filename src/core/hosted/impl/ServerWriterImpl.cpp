@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <system_error>
 #include <vector>
 
 namespace tailgate::hosted::impl
@@ -60,6 +61,15 @@ void ServerWriterImpl::Process(ServerSession& session,
             break;
         }
         std::vector<Frame> frames;
+        {
+            std::lock_guard lock(m_outputMutex);
+            while (!m_output.empty())
+            {
+                m_outputBytes -= m_output.front().Payload().size();
+                frames.push_back(std::move(m_output.front()));
+                m_output.pop_front();
+            }
+        }
         if (auto pump = session.TakeDuePump())
         {
             frames.push_back(std::move(*pump));
@@ -117,6 +127,23 @@ void ServerWriterImpl::Process(ServerSession& session,
             break;
         }
     }
+}
+
+void ServerWriterImpl::Post(Frame frame)
+{
+    constexpr std::size_t MaximumControlFrames = 256;
+    constexpr std::size_t MaximumControlBytes = 1024U * 1024U;
+    {
+        std::lock_guard lock(m_outputMutex);
+        if (m_output.size() >= MaximumControlFrames ||
+            frame.Payload().size() > MaximumControlBytes - m_outputBytes)
+        {
+            throw std::system_error(std::make_error_code(std::errc::no_buffer_space));
+        }
+        m_outputBytes += frame.Payload().size();
+        m_output.push_back(std::move(frame));
+    }
+    Wake();
 }
 
 void ServerWriterImpl::Wake() noexcept

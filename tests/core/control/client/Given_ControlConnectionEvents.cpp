@@ -361,3 +361,86 @@ TEST(Given_ControlConnectionEvents,
     ASSERT_EQ(updates.size(), 1U);
     EXPECT_EQ(replacement->DiscoPrivateKey, registeredKey);
 }
+
+TEST(Given_ControlConnectionEvents,
+     When_EndpointsChangeWhileDisconnected_Then_ReconnectPublishesThem)
+{
+    ControlConnectionContext context;
+    auto replacement = ReplacementSession(5, 7);
+    context.SessionFactory.QueueState(replacement);
+    context.Connection.StartStreaming();
+    (void)context.Connection.ProcessEvent(
+        {.Token = ControlToken, .Readiness = tailgate::base::EventReadiness::Error});
+    context.TimeProvider.Advance(std::chrono::seconds(1));
+    const std::vector<tailgate::control::client::MapEndpoint> endpoints{
+        {.AddressPort = "192.0.2.1:41641", .Type = tailgate::control::client::EndpointType::Local}};
+
+    context.Connection.SetEndpoints(endpoints);
+    (void)CompleteReconnect(context);
+
+    EXPECT_TRUE(context.Connection.Connected());
+    EXPECT_EQ(replacement->Endpoints.size(), 1U);
+    EXPECT_EQ(replacement->Endpoints.at(0).AddressPort, endpoints.at(0).AddressPort);
+}
+
+TEST(Given_ControlConnectionEvents, When_EndpointsChangeDuringReconnect_Then_RefreshIsNotLost)
+{
+    ControlConnectionContext context;
+    auto first = ReplacementSession(5, 7);
+    auto second = ReplacementSession(5, 7);
+    context.SessionFactory.QueueState(first);
+    context.SessionFactory.QueueState(second);
+    context.Connection.StartStreaming();
+    (void)context.Connection.ProcessEvent(
+        {.Token = ControlToken, .Readiness = tailgate::base::EventReadiness::Error});
+    context.TimeProvider.Advance(std::chrono::seconds(1));
+    const std::vector<tailgate::control::client::MapEndpoint> endpoints{
+        {.AddressPort = "192.0.2.2:41641", .Type = tailgate::control::client::EndpointType::Local}};
+
+    (void)context.Connection.Maintain();
+    context.EventLoop.WaitForWake();
+    context.Connection.SetEndpoints(endpoints);
+    context.Connection.RequestReconnect();
+    (void)context.Connection.Maintain();
+    const auto wakes = context.EventLoop.WakeCalls();
+    (void)context.Connection.Maintain();
+    context.EventLoop.WaitForWake(wakes + 1);
+    (void)context.Connection.Maintain();
+
+    EXPECT_TRUE(context.Connection.Connected());
+    EXPECT_TRUE(first->Closed);
+    EXPECT_EQ(second->Endpoints.size(), 1U);
+    EXPECT_EQ(second->Endpoints.at(0).AddressPort, endpoints.at(0).AddressPort);
+}
+
+TEST(Given_ControlConnectionEvents, When_UnderlayDisappears_Then_DoesNotReconnectThroughVpnRoute)
+{
+    ControlConnectionContext context;
+
+    context.Connection.ChangeNetwork(std::nullopt);
+    context.TimeProvider.Advance(std::chrono::minutes(10));
+    const auto maps = context.Connection.Maintain();
+
+    EXPECT_FALSE(context.Connection.Connected());
+    EXPECT_TRUE(context.State->Closed);
+    EXPECT_TRUE(maps.empty());
+}
+
+TEST(Given_ControlConnectionEvents, When_CompletedReconnectBelongsToOldNetwork_Then_CannotAttach)
+{
+    ControlConnectionContext context;
+    auto replacement = ReplacementSession(5, 7);
+    context.SessionFactory.QueueState(replacement);
+    (void)context.Connection.ProcessEvent(
+        {.Token = ControlToken, .Readiness = tailgate::base::EventReadiness::Error});
+    context.TimeProvider.Advance(std::chrono::seconds(1));
+    (void)context.Connection.Maintain();
+    context.EventLoop.WaitForWake();
+
+    context.Connection.ChangeNetwork(std::nullopt);
+    const auto maps = context.Connection.Maintain();
+
+    EXPECT_FALSE(context.Connection.Connected());
+    EXPECT_TRUE(replacement->Closed);
+    EXPECT_TRUE(maps.empty());
+}

@@ -13,7 +13,7 @@ class TrackerImpl final : public Tracker
 public:
     [[nodiscard]] StartResult Start(const Request& request,
                                     const tailgate::types::netmap::NetworkConfig& network,
-                                    tailgate::disco::Disco& disco,
+                                    const CreateDiscoProbe& createDisco,
                                     TimePoint now) override;
     [[nodiscard]] std::optional<Result>
     CompleteDisco(const tailgate::crypto::Bytes32& peer,
@@ -24,6 +24,9 @@ public:
                                                      std::uint16_t peerApiPort,
                                                      TimePoint now) override;
     [[nodiscard]] std::vector<Result> Expire(TimePoint now) override;
+    [[nodiscard]] std::vector<Probe> RetryDisco(TimePoint now,
+                                                const CreateDiscoProbe& createDisco) override;
+    [[nodiscard]] std::optional<TimePoint> NextDeadline() const override;
     void Reset() noexcept override;
 
 private:
@@ -34,6 +37,8 @@ private:
         tailgate::disco::Disco::TransactionId DiscoTransaction{};
         tailgate::net::packet::TsmpToken TsmpToken{};
         TimePoint Started{};
+        TimePoint LastSent{};
+        crypto::Bytes32 DiscoKey{};
         std::string PeerName;
         std::string PeerAddress;
         std::string Relay;

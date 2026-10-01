@@ -14,6 +14,8 @@
 
 #include "support/ScriptedByteStream.h"
 
+#include "fakes/derp/FakeAuthenticator.h"
+
 namespace
 {
 
@@ -99,17 +101,12 @@ TEST(Given_DerpClient, When_ConnectingWithAuthenticator_Then_UpgradeAndIdentityA
     input.insert(input.end(), greeting.begin(), greeting.end());
     input.insert(input.end(), serverInfo.begin(), serverInfo.end());
     stream.QueueRead(std::move(input));
-    std::optional<tailgate::derp::DerpClient::Key> authenticatedServer;
-    const auto authenticate = [&](const tailgate::derp::DerpClient::Key& key)
-    {
-        authenticatedServer = key;
-        return std::vector<std::uint8_t>(DerpKeySize + CryptoBoxNonceSize + CryptoBoxMacSize);
-    };
+    tailgate::tests::fakes::derp::FakeAuthenticator authenticate;
     tailgate::derp::DerpClient client(stream, authenticate);
 
     client.Connect("derp.example.com");
 
-    EXPECT_EQ(authenticatedServer, std::optional(serverKey));
+    EXPECT_EQ(authenticate.ServerKey, std::optional(serverKey));
     EXPECT_TRUE(std::search(stream.Written.begin(),
                             stream.Written.end(),
                             std::begin("GET /derp HTTP/1.1"),

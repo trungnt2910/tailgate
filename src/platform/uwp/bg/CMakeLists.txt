@@ -7,6 +7,8 @@ tailgate_uwp_add_library(
     STATIC
     DI.cpp
     DI.h
+    plugin/NodeContext.cpp
+    plugin/NodeContext.h
     ResourceLoader.cpp
     ResourceLoader.h
 )
@@ -31,6 +33,8 @@ add_subdirectory(plugin)
 tailgate_uwp_add_library(
     Tailgate.Uwp.Background
     STATIC
+    BackgroundTaskLifetime.cpp
+    BackgroundTaskLifetime.h
     VpnBackgroundTask.cpp
     VpnBackgroundTask.h
 )

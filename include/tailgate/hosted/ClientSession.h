@@ -47,6 +47,8 @@ public:
     [[nodiscard]] virtual PacketDeviceStatus
     WritePacketDevice(std::vector<std::uint8_t> packet) = 0;
     [[nodiscard]] virtual PacketDeviceStatus FlushPacketDevice() = 0;
+    // Detaches this host device. The node owner stops shared local services on
+    // explicit shutdown; changing transport must not terminate their streams.
     virtual void ClosePacketDevice() noexcept = 0;
 
 protected:

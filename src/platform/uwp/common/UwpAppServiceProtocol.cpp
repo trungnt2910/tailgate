@@ -37,6 +37,7 @@ enum class FieldType : std::uint8_t
     Endpoint = 6,
     ExitNode = 7,
     PreserveSelection = 8,
+    ModeTransition = 9,
 };
 
 void AppendUint16(std::vector<std::uint8_t>& output, std::uint16_t value)
@@ -167,7 +168,7 @@ std::optional<Status> FindStatus(const Message& message)
 {
     const std::optional<std::span<const std::uint8_t>> field =
         FindField(message, FieldType::Status, 1);
-    if (!field || (*field)[0] > static_cast<std::uint8_t>(Status::NoMatchingExitNode))
+    if (!field || (*field)[0] > static_cast<std::uint8_t>(Status::ReconnectRequired))
     {
         return std::nullopt;
     }
@@ -330,6 +331,63 @@ std::optional<ExitNodeResponse> DecodeExitNodeResponse(const Message& message)
         .Sequence = message.Sequence,
         .ExitNode = *exitNode,
     };
+}
+
+std::vector<std::uint8_t> EncodeModeRequest(const ModeRequest& request)
+{
+    std::vector<std::uint8_t> payload;
+    AppendStringField(payload, FieldType::Relay, request.RelayUrl);
+    return EncodeMessage(MessageType::ModeRequest, request.Sequence, std::move(payload));
+}
+
+std::optional<ModeRequest> DecodeModeRequest(const Message& message)
+{
+    const auto relay = FindStringField(message, FieldType::Relay);
+    if (message.Type != MessageType::ModeRequest || !relay)
+    {
+        return std::nullopt;
+    }
+    return ModeRequest{.Sequence = message.Sequence, .RelayUrl = *relay};
+}
+
+std::vector<std::uint8_t> EncodeModeResponse(const ModeResponse& response)
+{
+    const auto& status = response.Transition;
+    std::vector<std::uint8_t> fields;
+    AppendByteField(fields, FieldType::Status, static_cast<std::uint8_t>(response.Result));
+    std::vector<std::uint8_t> state{static_cast<std::uint8_t>(status.Desired),
+                                    static_cast<std::uint8_t>(status.Effective),
+                                    static_cast<std::uint8_t>(status.Phase),
+                                    static_cast<std::uint8_t>(status.Failure),
+                                    static_cast<std::uint8_t>(status.RollingBack)};
+    AppendUint64(state, status.Generation);
+    AppendField(fields, FieldType::ModeTransition, state);
+    return EncodeMessage(MessageType::ModeResponse, response.Sequence, std::move(fields));
+}
+
+std::optional<ModeResponse> DecodeModeResponse(const Message& message)
+{
+    using tailgate::ipn::ipnlocal::NodeMode;
+    using tailgate::ipn::ipnlocal::TransitionFailure;
+    using tailgate::ipn::ipnlocal::TransitionPhase;
+    const auto result = FindStatus(message);
+    const auto state = FindField(message, FieldType::ModeTransition, 5 + sizeof(std::uint64_t));
+    if (message.Type != MessageType::ModeResponse || !result || !state ||
+        (*state)[0] > static_cast<unsigned>(NodeMode::Hosted) ||
+        (*state)[1] > static_cast<unsigned>(NodeMode::Hosted) ||
+        (*state)[2] > static_cast<unsigned>(TransitionPhase::Failed) ||
+        (*state)[3] > static_cast<unsigned>(TransitionFailure::RollbackFailed) || (*state)[4] > 1)
+    {
+        return std::nullopt;
+    }
+    return ModeResponse{.Result = *result,
+                        .Sequence = message.Sequence,
+                        .Transition = {.Desired = static_cast<NodeMode>((*state)[0]),
+                                       .Effective = static_cast<NodeMode>((*state)[1]),
+                                       .Phase = static_cast<TransitionPhase>((*state)[2]),
+                                       .Failure = static_cast<TransitionFailure>((*state)[3]),
+                                       .Generation = ReadUint64(*state, 5),
+                                       .RollingBack = (*state)[4] != 0}};
 }
 
 } // namespace tailgate::uwp::app_service

@@ -17,7 +17,6 @@
 #include <tailgate/types/nettype/TcpSocket.h>
 
 #include "fakes/hosted/FakeTcpSocket.h"
-#include "fakes/wgengine/tstun/FakeDevice.h"
 
 namespace
 {
@@ -62,9 +61,9 @@ TEST(Given_HostedConnection, When_ServerProofIsValid_Then_AuthenticatedSessionIs
 {
     const tailgate::crypto::Bytes32 relayPrivateKey = tailgate::crypto::GeneratePrivateKey();
     FakeTcpSocketFactory factory(relayPrivateKey, tailgate::crypto::GeneratePrivateKey(), false);
-    tailgate::tests::fakes::FakeDevice device(factory);
-    tailgate::hosted::Client client;
-    tailgate::hosted::Connection subject(device, client);
+    tailgate::wgengine::PeerProtocol clientProtocol;
+    tailgate::hosted::Client client{clientProtocol};
+    tailgate::hosted::Connection subject(factory);
     const tailgate::hosted::ConnectionOptions options = MakeOptions();
 
     const tailgate::hosted::ConnectionResult result = subject.Connect(options);
@@ -79,13 +78,13 @@ TEST(Given_HostedConnection, When_ServerProofIsValid_Then_AuthenticatedSessionIs
 }
 
 TEST(Given_HostedConnection,
-     When_EventDrivenSessionIsRequested_Then_HandshakeAndInitialMapRemainBlocking)
+     When_EventDrivenSessionIsRequested_Then_OnlyHandshakeRunsBeforeOwnerActivatesPath)
 {
     FakeTcpSocketFactory factory(
         tailgate::crypto::GeneratePrivateKey(), tailgate::crypto::GeneratePrivateKey(), false);
-    tailgate::tests::fakes::FakeDevice device(factory);
-    tailgate::hosted::Client client;
-    tailgate::hosted::Connection subject(device, client);
+    tailgate::wgengine::PeerProtocol clientProtocol;
+    tailgate::hosted::Client client{clientProtocol};
+    tailgate::hosted::Connection subject(factory);
     tailgate::hosted::ConnectionOptions options = MakeOptions();
     options.Socket.NonBlockingAfterConnect = true;
 
@@ -96,16 +95,17 @@ TEST(Given_HostedConnection,
     ASSERT_TRUE(factory.Options.has_value());
     EXPECT_FALSE(factory.Options->NonBlockingAfterConnect);
     EXPECT_TRUE(stream.IsNonBlocking());
-    EXPECT_TRUE(client.Active());
+    EXPECT_FALSE(client.Active());
+    EXPECT_EQ(result.Configuration.Network.Domain(), options.Client.Network.Domain());
 }
 
 TEST(Given_HostedConnection, When_ServerRejectsAuthentication_Then_TypedReasonIsReturned)
 {
     FakeTcpSocketFactory factory(
         tailgate::crypto::GeneratePrivateKey(), tailgate::crypto::GeneratePrivateKey(), true);
-    tailgate::tests::fakes::FakeDevice device(factory);
-    tailgate::hosted::Client client;
-    tailgate::hosted::Connection subject(device, client);
+    tailgate::wgengine::PeerProtocol clientProtocol;
+    tailgate::hosted::Client client{clientProtocol};
+    tailgate::hosted::Connection subject(factory);
     std::optional<tailgate::hosted::ConnectionError> error;
     std::string reason;
 

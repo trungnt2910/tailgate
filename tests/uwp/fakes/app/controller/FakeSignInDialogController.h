@@ -75,18 +75,12 @@ public:
         ++OnAdvancedPointerExitedCount;
     }
 
-    void OnPrimaryButtonClick() override
-    {
-        ++OnPrimaryButtonClickCount;
-    }
-
     std::optional<controls::ContentDialogResult> OnClosedArgument;
     std::size_t ShowCount = 0;
     std::size_t HideCount = 0;
     std::size_t OnAdvancedClickedCount = 0;
     std::size_t OnAdvancedPointerEnteredCount = 0;
     std::size_t OnAdvancedPointerExitedCount = 0;
-    std::size_t OnPrimaryButtonClickCount = 0;
 
 private:
     SignInDialogState m_state;

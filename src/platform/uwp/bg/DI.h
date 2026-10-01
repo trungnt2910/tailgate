@@ -2,22 +2,22 @@
 
 #include <memory>
 
-#include <boost/di.hpp>
-
+#include <tailgate/base/EventLoop.h>
 #include <tailgate/di/Bindings.h>
 #include <tailgate/hosted/Client.h>
 #include <tailgate/hosted/ClientSession.h>
 #include <tailgate/hosted/Connection.h>
+#include <tailgate/ipn/ipnlocal/DnsForwarder.h>
+#include <tailgate/ipn/ipnlocal/LocalServices.h>
+#include <tailgate/wgengine/PeerProtocol.h>
 
 #include "common/ResourceLoader.h"
 
 #include "manager/ControlPlaneManager.h"
 #include "manager/DataPlaneManager.h"
 #include "manager/SessionManager.h"
-#include "manager/TransportManager.h"
 #include "service/ExitNodeService.h"
-#include "service/HostedDnsService.h"
-#include "service/NetworkService.h"
+#include "service/ModeService.h"
 #include "service/PingService.h"
 
 #include "tstun/PacketDevice.h"
@@ -28,14 +28,13 @@ namespace tailgate::uwp::bg
 using manager::ControlPlaneManager;
 using manager::DataPlaneManager;
 using manager::SessionManager;
-using manager::TransportManager;
 using service::ExitNodeService;
-using service::HostedDnsService;
-using service::NetworkService;
+using service::ModeService;
 using service::PingService;
 
-using PluginInjector = std::unique_ptr<tailgate::di::Injector>;
+using PluginInjector = std::shared_ptr<tailgate::di::Injector>;
 
-[[nodiscard]] PluginInjector CreateRs2PluginInjector();
+// One graph per plugin. NodeContext explicitly resets account and transport state.
+[[nodiscard]] PluginInjector CreatePluginInjector();
 
 } // namespace tailgate::uwp::bg

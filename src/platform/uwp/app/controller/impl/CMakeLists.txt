@@ -19,6 +19,10 @@ tailgate_uwp_add_library(
     InteractiveAuthorizationControllerImpl.h
     MainWindowControllerImpl.cpp
     MainWindowControllerImpl.h
+    ModeControllerImpl.cpp
+    ModeControllerImpl.h
+    ModeRpcControllerImpl.cpp
+    ModeRpcControllerImpl.h
     NavigationControllerImpl.cpp
     NavigationControllerImpl.h
     NodeAuthorizationDialogControllerImpl.cpp

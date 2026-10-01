@@ -81,12 +81,12 @@ std::vector<StateDevice> DevicesFromNetworkMap(const tailgate::types::netmap::Ne
 class ForegroundConnectionMonitor final
 {
 public:
-    ForegroundConnectionMonitor(const std::string& tailgateServer,
+    ForegroundConnectionMonitor(const std::string& profileId,
                                 ForegroundCancellationHandler cancelled)
         : m_thread(
-              [tailgateServer, stopHandle = m_stop.Handle(), cancelled = std::move(cancelled)]
+              [profileId, stopHandle = m_stop.Handle(), cancelled = std::move(cancelled)]
               {
-                  ConnectionCancellationMonitor monitor(winrt::to_hstring(tailgateServer));
+                  ConnectionCancellationMonitor monitor(winrt::to_hstring(profileId));
                   const ConnectionCancellationReason reason = monitor.Wait(stopHandle);
                   if (reason == ConnectionCancellationReason::Cancelled)
                   {
@@ -198,18 +198,18 @@ void SessionManagerImpl::Notify(SessionGeneration generation,
     (void)PublishConnectionMessage(ConnectionMessage{
         .Kind = kind,
         .Url = winrt::to_hstring(notification.Url),
-        .TailgateServer = winrt::to_hstring(notification.TailgateServer),
+        .ProfileId = winrt::to_hstring(notification.ProfileId),
         .ErrorCode = static_cast<UwpError::Code>(notification.ErrorCode),
     });
 }
 
-void SessionManagerImpl::StartForegroundMonitor(const std::string& tailgateServer,
+void SessionManagerImpl::StartForegroundMonitor(const std::string& profileId,
                                                 ForegroundCancellationHandler cancelled)
 {
     StopForegroundMonitor();
     std::lock_guard lock(m_mutex);
     m_foregroundMonitor =
-        std::make_unique<ForegroundConnectionMonitor>(tailgateServer, std::move(cancelled));
+        std::make_unique<ForegroundConnectionMonitor>(profileId, std::move(cancelled));
 }
 
 void SessionManagerImpl::StopForegroundMonitor()
@@ -246,6 +246,7 @@ void SessionManagerImpl::WriteState(const tailgate::types::netmap::NetworkConfig
         {"AccountName", config.AccountName()},
         {"AccountDisplayName", config.AccountDisplayName()},
         {"ProfilePicUrl", config.AccountProfilePicUrl()},
+        {"ProfileId", winrt::to_string(Settings::GetString(L"ProfileId"))},
         {"TailgateServer", winrt::to_string(Settings::GetString(L"TailgateServer"))},
         {"SelfAddress", config.SelfAddress()},
         {"Devices", std::move(devicesJson)},

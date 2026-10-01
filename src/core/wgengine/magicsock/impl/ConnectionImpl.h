@@ -26,6 +26,7 @@ public:
     ~ConnectionImpl() override;
 
     [[nodiscard]] bool Open(const tailgate::types::nettype::UdpSocketOptions& options) override;
+    [[nodiscard]] bool Rebind(const tailgate::types::nettype::UdpSocketOptions& options) override;
     [[nodiscard]] bool AddPeer(const tailgate::crypto::Bytes32& peer) override;
     [[nodiscard]] bool RemovePeer(const tailgate::crypto::Bytes32& peer) override;
     [[nodiscard]] bool HasPeer(const tailgate::crypto::Bytes32& peer) const noexcept override;
@@ -87,6 +88,7 @@ private:
     [[nodiscard]] tailgate::types::nettype::SocketIoResult FlushPeer(PeerState& peer);
     [[nodiscard]] EventStatus FlushPending();
     void UpdateWriteInterest();
+    void CloseSocket() noexcept;
 
     static constexpr std::size_t MaximumPendingPacketsPerPeer = 1024;
     static constexpr std::size_t MaximumPendingBytesPerPeer = 4U * 1024U * 1024U;

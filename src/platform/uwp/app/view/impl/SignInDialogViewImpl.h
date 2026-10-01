@@ -36,7 +36,6 @@ private:
     controls::ContentDialog m_dialog;
     controls::StackPanel m_panel;
     controls::TextBox m_tailgateBox;
-    controls::TextBlock m_validationError;
     controls::Button m_advancedHeader;
     controls::FontIcon m_advancedChevron;
     controls::PasswordBox m_authKeyBox;

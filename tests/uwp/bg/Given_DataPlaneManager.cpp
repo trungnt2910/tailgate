@@ -1,26 +1,19 @@
-#include <chrono>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <vector>
 
-#include <boost/di.hpp>
 #include <gtest/gtest.h>
-
-#include <tailgate/hosted/Pump.h>
 
 #include "manager/impl/DataPlaneManagerImpl.h"
 
 #include "fakes/bg/manager/FakeSessionManager.h"
 #include "fakes/bg/service/FakeService.h"
-#include "fakes/di/FakeNetworkBindings.h"
+#include "fakes/ipn/ipnlocal/FakeNodeBackend.h"
 
 namespace tailgate::uwp::tests
 {
 namespace
 {
-
-namespace di = boost::di;
 
 class Given_DataPlaneManager : public testing::Test
 {
@@ -28,23 +21,10 @@ protected:
     void SetUp() override
     {
         m_session = std::make_shared<FakeSessionManager>();
-        m_core = std::make_unique<tailgate::di::Injector>();
-        tailgate::tests::fakes::InstallFakeNetworkBindings(*m_core);
-        auto injector =
-            di::make_injector(di::bind<bg::manager::SessionManager>.to(
-                                  [this](const auto&) -> bg::manager::SessionManager&
-                                  {
-                                      return *m_session;
-                                  }),
-                              di::bind<tailgate::hosted::PumpController>.to(
-                                  [this](const auto&) -> tailgate::hosted::PumpController&
-                                  {
-                                      return m_core->create<tailgate::hosted::PumpController&>();
-                                  }));
-        m_subject = injector.create<std::unique_ptr<bg::manager::DataPlaneManagerImpl>>();
+        m_subject = std::make_unique<bg::manager::DataPlaneManagerImpl>(*m_session);
     }
 
-    void StartPumpService()
+    void StartService()
     {
         m_subject->Register(m_service);
         m_subject->Start(1);
@@ -54,30 +34,14 @@ protected:
     {
         const std::vector<std::uint8_t> packet;
         const std::string relay = "relay.example.com";
-        bg::service::EncapsulationContext context{.Original = packet,
-                                                  .Client =
-                                                      m_core->create<tailgate::hosted::Client&>(),
-                                                  .RelayName = relay,
-                                                  .RemoteOutput = m_output};
+        const std::string exit;
+        bg::service::EncapsulationContext context{
+            .Original = packet, .Node = m_node, .RelayName = relay, .ExitNode = exit};
         m_subject->Encapsulate(context);
     }
 
-    std::optional<tailgate::hosted::PumpSchedule> Schedule()
-    {
-        tailgate::hosted::Decoder decoder;
-        decoder.Feed(m_output);
-        const auto frame = decoder.Next();
-        if (!frame || frame->Type() != tailgate::hosted::MessageType::PumpSchedule ||
-            decoder.Next())
-        {
-            return std::nullopt;
-        }
-        return tailgate::hosted::TryDecodePumpSchedule(frame->Payload());
-    }
-
+    tailgate::tests::fakes::FakeNodeBackend m_node;
     FakeService m_service;
-    std::vector<std::uint8_t> m_output;
-    std::unique_ptr<tailgate::di::Injector> m_core;
     std::shared_ptr<FakeSessionManager> m_session;
     std::unique_ptr<bg::manager::DataPlaneManagerImpl> m_subject;
 };
@@ -153,85 +117,35 @@ TEST_F(Given_DataPlaneManager, When_Reset_Then_ServicesAndGenerationAreReset)
     EXPECT_EQ(m_session->Reports.size(), 1U);
 }
 
-TEST_F(Given_DataPlaneManager, When_LocalOutputIsQueued_Then_ImmediateCallbackIsRequested)
+TEST_F(Given_DataPlaneManager, When_LocalRequestArrives_Then_RegisteredServicesReceiveIt)
 {
-    StartPumpService();
-    m_service.LocalPending = true;
+    StartService();
 
     Encapsulate();
-    const auto schedule = Schedule();
 
-    EXPECT_TRUE(schedule.has_value());
-    EXPECT_EQ(schedule.value_or(tailgate::hosted::PumpSchedule{}).Delay,
-              std::chrono::milliseconds::zero());
+    EXPECT_EQ(m_service.EncapsulateCount, 1U);
 }
 
-TEST_F(Given_DataPlaneManager, When_OutputAlreadyHasScheduledCallback_Then_DuplicateIsSuppressed)
+TEST_F(Given_DataPlaneManager, When_LocalOutputIsQueued_Then_WorkerDrainsIt)
 {
-    StartPumpService();
-    m_service.LocalPending = true;
-    Encapsulate();
-    ASSERT_TRUE(Schedule().has_value());
-    m_output.clear();
-
-    Encapsulate();
-
-    EXPECT_TRUE(m_output.empty());
-}
-
-TEST_F(Given_DataPlaneManager, When_NormalIncomingCallbackDrainsOutput_Then_NoImmediatePumpIsAdded)
-{
-    StartPumpService();
+    StartService();
     m_service.LocalPending = true;
     std::vector<std::vector<std::uint8_t>> local;
 
-    m_subject->FlushLocal(local, m_output);
+    m_subject->FlushLocal(local);
 
-    EXPECT_TRUE(m_output.empty());
     EXPECT_FALSE(m_service.LocalPending);
     EXPECT_EQ(m_service.FlushLocalCount, 1U);
 }
 
-TEST_F(Given_DataPlaneManager, When_CoreHasDeadline_Then_ServerIsAskedToWakeAtThatDeadline)
+TEST_F(Given_DataPlaneManager, When_Stopped_Then_LocalRequestsAreNotDispatched)
 {
-    StartPumpService();
-    const auto now = m_core->create<tailgate::base::TimeProvider&>().Now();
-    m_service.Deadline = now + std::chrono::milliseconds(1200);
-
-    Encapsulate();
-    const auto schedule = Schedule();
-
-    EXPECT_TRUE(schedule.has_value());
-    EXPECT_EQ(schedule.value_or(tailgate::hosted::PumpSchedule{}).Delay,
-              std::chrono::milliseconds(1200));
-}
-
-TEST_F(Given_DataPlaneManager,
-       When_IncomingTrafficDrainsScheduledOutput_Then_ObsoletePumpIsCancelled)
-{
-    StartPumpService();
-    m_service.LocalPending = true;
-    Encapsulate();
-    ASSERT_TRUE(Schedule().has_value());
-    m_output.clear();
-    std::vector<std::vector<std::uint8_t>> local;
-
-    m_subject->FlushLocal(local, m_output);
-    const auto schedule = Schedule();
-
-    EXPECT_TRUE(schedule.has_value());
-    EXPECT_FALSE(schedule.value_or(tailgate::hosted::PumpSchedule{}).Delay.has_value());
-}
-
-TEST_F(Given_DataPlaneManager, When_DataPlaneIsStopped_Then_NoCallbackIsScheduled)
-{
-    StartPumpService();
+    StartService();
     m_subject->Stop();
-    m_service.LocalPending = true;
 
     Encapsulate();
 
-    EXPECT_TRUE(m_output.empty());
+    EXPECT_EQ(m_service.EncapsulateCount, 0U);
 }
 
 } // namespace

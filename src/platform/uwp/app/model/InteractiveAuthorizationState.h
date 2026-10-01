@@ -24,7 +24,7 @@ class InteractiveAuthorizationState final : public ObservableState<InteractiveAu
 {
     TAILGATE_PROPERTY(Status, InteractiveAuthorizationStatus);
     TAILGATE_PROPERTY(Url, winrt::hstring);
-    TAILGATE_PROPERTY(TailgateServer, winrt::hstring);
+    TAILGATE_PROPERTY(ProfileId, winrt::hstring);
     TAILGATE_PROPERTY(Error, std::optional<UwpError::Code>);
 };
 

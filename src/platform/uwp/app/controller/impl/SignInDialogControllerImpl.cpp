@@ -27,7 +27,6 @@ void SignInDialogControllerImpl::Show(const winrt::hstring& tailgateServer,
             state.Error(error);
             state.AdvancedExpanded(!authKey.empty() || !hostname.empty());
             state.AdvancedHovered(false);
-            state.ValidationErrorVisible(false);
             state.Accepted(false);
         });
     m_dialogController.ShowDialog(ContentDialogControllerState::SignIn);
@@ -71,12 +70,6 @@ void SignInDialogControllerImpl::OnAdvancedPointerEntered()
 void SignInDialogControllerImpl::OnAdvancedPointerExited()
 {
     m_state.AdvancedHovered(false);
-}
-
-void SignInDialogControllerImpl::OnPrimaryButtonClick()
-{
-    const bool invalid = m_state.TailgateServer().empty();
-    m_state.ValidationErrorVisible(invalid);
 }
 
 } // namespace tailgate::uwp

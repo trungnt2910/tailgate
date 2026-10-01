@@ -2,7 +2,6 @@
 
 #include <memory>
 
-#include <tailgate/types/nettype/TcpSocket.h>
 #include <tailgate/wgengine/tstun/Device.h>
 
 #include "event/EventRegistry.h"
@@ -17,8 +16,7 @@ class TunDevice final : public tailgate::wgengine::tstun::Device
 {
 public:
     TunDevice(std::shared_ptr<PacketDescriptorProvider> descriptorProvider,
-              std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry,
-              tailgate::types::nettype::TcpSocketFactory& socketFactory);
+              std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry);
     ~TunDevice() override;
 
     [[nodiscard]] bool Open(const tailgate::wgengine::tstun::DeviceOptions& options) override;
@@ -28,13 +26,10 @@ public:
     TryWrite(const std::vector<std::uint8_t>& packet) override;
     void SetWriteInterest(bool enabled) override;
     void Close() noexcept override;
-    [[nodiscard]] std::unique_ptr<tailgate::types::nettype::TcpSocket>
-    OpenTransportSocket(const tailgate::types::nettype::TcpSocketOptions& options) override;
 
 private:
     std::shared_ptr<PacketDescriptorProvider> m_descriptorProvider;
     std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> m_eventRegistry;
-    tailgate::types::nettype::TcpSocketFactory& m_socketFactory;
     UniqueFd m_descriptor;
     tailgate::linux_frontend::event::EventHandle m_eventHandle;
     std::vector<std::uint8_t> m_readBuffer;

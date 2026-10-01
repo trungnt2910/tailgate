@@ -70,7 +70,7 @@ TEST_F(Given_AuthorizationController, When_FindingMatchingCache_Then_Authorizati
 {
     const AuthorizationCache cache{
         .Url = L"https://example.com/authorize",
-        .TailgateServer = L"https://example.com",
+        .ProfileId = L"test-profile",
         .AuthKey = L"test-auth-key",
         .Hostname = L"test-device",
         .MachineApproval = true,
@@ -84,11 +84,32 @@ TEST_F(Given_AuthorizationController, When_FindingMatchingCache_Then_Authorizati
     TestHost::RunOnUiThread(
         [this]
         {
-            m_subject->FindCached(L"https://example.com", L"test-auth-key", L"test-device");
+            m_subject->FindCached(L"test-profile", L"test-auth-key", L"test-device");
         });
 
     EXPECT_EQ(m_subject->GetState().Authorization(), std::optional(cache));
     EXPECT_EQ(m_subject->GetState().MatchedAuthorization(), std::optional(cache));
+}
+
+TEST_F(Given_AuthorizationController, When_ProfileChanges_Then_PreviousAuthorizationIsNotReused)
+{
+    AuthorizationCache cache;
+    cache.ProfileId = L"previous-profile";
+    cache.Url = L"https://example.com/authorize";
+    TestHost::RunOnUiThread(
+        [this, &cache]
+        {
+            m_subject->Cache(cache);
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->FindCached(L"new-profile", L"", L"");
+        });
+
+    EXPECT_FALSE(m_subject->GetState().Authorization());
+    EXPECT_FALSE(m_subject->GetState().MatchedAuthorization());
 }
 
 } // namespace

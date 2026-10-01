@@ -16,14 +16,18 @@
 namespace tailgate::derp::impl
 {
 
-ConnectionImpl::ConnectionImpl(tailgate::derp::ConnectionOptions options,
-                               tailgate::types::nettype::TcpSocketFactory& socketFactory,
-                               tailgate::base::TimeProvider& timeProvider)
+ConnectionImpl::ConnectionImpl(
+    tailgate::derp::ConnectionOptions options,
+    std::shared_ptr<tailgate::types::nettype::TcpSocketFactory> socketFactory,
+    tailgate::base::TimeProvider& timeProvider,
+    std::shared_ptr<tailgate::base::EventLoop> eventLoop)
     : m_options(std::move(options)),
-      m_socketFactory(socketFactory),
+      m_socketFactory(std::move(socketFactory)),
       m_timeProvider(timeProvider),
+      m_eventLoop(std::move(eventLoop)),
       m_nextReconnect(m_timeProvider.Now())
 {
+    m_enabled = m_options.Enabled;
     Maintain();
 }
 
@@ -34,30 +38,23 @@ ConnectionImpl::~ConnectionImpl()
 
 void ConnectionImpl::Connect()
 {
-    std::optional<std::string> networkInterface;
-    if (!m_options.NetworkInterface.empty())
+    if (!m_dial)
     {
-        networkInterface = m_options.NetworkInterface;
+        m_dial = std::make_unique<DialOperation>(m_options, m_socketFactory, m_eventLoop);
     }
-    m_socket = m_socketFactory.OpenTcpSocket(tailgate::types::nettype::TcpSocketOptions{
-        .ConnectAddress = m_options.Host,
-        .Service = "443",
-        .NetworkInterface = std::move(networkInterface),
-        .TlsServerName = m_options.Host,
-        .IoTimeout = std::chrono::seconds(20),
-        .ConnectTimeout = std::nullopt,
-        .ReadinessToken = m_options.ReadinessToken,
-        .AllowTls13 = false,
-        .NonBlockingAfterConnect = false,
-    });
-    m_client =
-        m_options.Authenticator
-            ? std::make_unique<tailgate::derp::DerpClient>(*m_socket, m_options.Authenticator)
-            : std::make_unique<tailgate::derp::DerpClient>(
-                  *m_socket, m_options.PrivateKey, m_options.PublicKey);
-    m_client->Connect(m_options.Host);
-    m_client->SetPreferred(m_options.Preferred);
-    m_client->Flush();
+    auto result = m_dial->TakeResult();
+    if (!result)
+    {
+        return;
+    }
+    m_dial.reset();
+    if (result->Error)
+    {
+        std::rethrow_exception(result->Error);
+    }
+    m_socket = std::move(result->Socket);
+    m_client = std::move(result->Client);
+    // Register readiness only after ownership has transferred to the event loop.
     m_socket->SetNonBlocking(true);
     m_reconnectDelay = InitialReconnectDelay;
     m_nextReconnect = tailgate::base::TimeProvider::TimePoint::max();
@@ -68,6 +65,7 @@ void ConnectionImpl::Connect()
 
 void ConnectionImpl::Disconnect() noexcept
 {
+    m_dial.reset();
     m_client.reset();
     if (m_socket)
     {
@@ -83,8 +81,40 @@ void ConnectionImpl::ScheduleReconnect() noexcept
     m_reconnectDelay = std::min(m_reconnectDelay * 2, MaximumReconnectDelay);
 }
 
+void ConnectionImpl::SetEnabled(bool enabled)
+{
+    if (m_enabled == enabled)
+    {
+        return;
+    }
+    m_enabled = enabled;
+    Disconnect();
+    m_outgoing = DerpSendQueue(MaximumQueuedPackets, MaximumQueuedBytes);
+    m_eventLoop->DiscardPostedEvents(m_options.ReadinessToken);
+    m_nextReconnect = m_timeProvider.Now();
+    m_reconnectDelay = InitialReconnectDelay;
+    if (enabled)
+    {
+        Maintain();
+    }
+}
+
+void ConnectionImpl::ChangeNetwork(std::string networkInterface)
+{
+    m_options.NetworkInterface = std::move(networkInterface);
+    Disconnect();
+    m_eventLoop->DiscardPostedEvents(m_options.ReadinessToken);
+    m_nextReconnect = m_timeProvider.Now();
+    m_reconnectDelay = InitialReconnectDelay;
+    Maintain();
+}
+
 void ConnectionImpl::Maintain()
 {
+    if (!m_enabled)
+    {
+        return;
+    }
     if (m_client)
     {
         try
@@ -122,6 +152,10 @@ void ConnectionImpl::Send(const tailgate::derp::DerpClient::Key& destination,
                           std::vector<std::uint8_t> packet,
                           tailgate::derp::DerpSendQueue::Priority priority)
 {
+    if (!m_enabled)
+    {
+        return;
+    }
     const tailgate::derp::DerpSendQueue::PushResult pushed = m_outgoing.Push(
         tailgate::derp::DerpSendQueue::Packet{
             .Destination = destination,
@@ -173,7 +207,15 @@ void ConnectionImpl::UpdateWriteInterest()
 {
     if (m_socket && m_client)
     {
-        m_socket->SetWriteInterest(m_client->HasPendingOutput() || m_socket->ReadNeedsWrite());
+        if (m_client->HasBufferedInput())
+        {
+            m_eventLoop->Post(
+                tailgate::base::Event{.Token = m_options.ReadinessToken,
+                                      .Readiness = tailgate::base::EventReadiness::Readable});
+        }
+        m_socket->SetWriteInterest(m_socket->ReadNeedsWrite() ||
+                                   (!m_socket->WriteNeedsRead() &&
+                                    (m_client->HasPendingOutput() || m_outgoing.Size() != 0)));
     }
 }
 
@@ -189,8 +231,15 @@ ConnectionImpl::ProcessEvent(const tailgate::base::Event& event)
         .Status = tailgate::derp::ConnectionEventStatus::Ready,
         .Packets = {},
     };
-    if (!m_client ||
-        tailgate::base::HasReadiness(event.Readiness, tailgate::base::EventReadiness::Error) ||
+    if (!m_client)
+    {
+        Maintain();
+        if (!m_client)
+        {
+            return result;
+        }
+    }
+    if (tailgate::base::HasReadiness(event.Readiness, tailgate::base::EventReadiness::Error) ||
         tailgate::base::HasReadiness(event.Readiness, tailgate::base::EventReadiness::Closed))
     {
         ScheduleReconnect();
@@ -244,16 +293,20 @@ bool ConnectionImpl::Connected() const noexcept
 }
 
 ConnectionFactoryImpl::ConnectionFactoryImpl(
-    tailgate::types::nettype::TcpSocketFactory& socketFactory,
-    tailgate::base::TimeProvider& timeProvider) noexcept
-    : m_socketFactory(socketFactory), m_timeProvider(timeProvider)
+    std::shared_ptr<tailgate::types::nettype::TcpSocketFactory> socketFactory,
+    tailgate::base::TimeProvider& timeProvider,
+    std::shared_ptr<tailgate::base::EventLoop> eventLoop) noexcept
+    : m_socketFactory(std::move(socketFactory)),
+      m_timeProvider(timeProvider),
+      m_eventLoop(std::move(eventLoop))
 {
 }
 
 std::unique_ptr<tailgate::derp::Connection>
 ConnectionFactoryImpl::CreateConnection(tailgate::derp::ConnectionOptions options)
 {
-    return std::make_unique<ConnectionImpl>(std::move(options), m_socketFactory, m_timeProvider);
+    return std::make_unique<ConnectionImpl>(
+        std::move(options), m_socketFactory, m_timeProvider, m_eventLoop);
 }
 
 } // namespace tailgate::derp::impl

@@ -46,6 +46,8 @@ public:
             .ReadinessToken = m_options.ReadinessToken,
             .AllowTls13 = false,
             .NonBlockingAfterConnect = false,
+            .Cancellation = m_options.Cancellation,
+            .ReadinessEvents = m_options.ReadinessEvents,
         });
     }
 

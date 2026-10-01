@@ -11,7 +11,6 @@
 
 #include <tailgate/base/Logger.h>
 
-#include "common/UwpFormat.h"
 #include "common/UwpLogger.h"
 
 #include "VpnBackgroundTask.h"
@@ -31,12 +30,8 @@ class TailgateActivationFactory
 public:
     winrt::Windows::Foundation::IInspectable ActivateInstance()
     {
-        m_logger.LogDebug("TailgateActivationFactory.ActivateInstance");
         return tailgate::uwp::bg::CreateVpnBackgroundTask();
     }
-
-private:
-    tailgate::base::Logger m_logger{"uwp-background-factory"};
 };
 
 } // namespace
@@ -62,7 +57,6 @@ extern "C" HRESULT WINAPI DllGetActivationFactory(HSTRING classId, void** factor
     *factory = nullptr;
 
     const winrt::hstring name{WindowsGetStringRawBuffer(classId, nullptr)};
-    BackgroundLogger.LogDebug("DllGetActivationFactory class={}", name);
     if (name != BackgroundTaskClassName)
     {
         return winrt::hresult_class_not_available(name).to_abi();

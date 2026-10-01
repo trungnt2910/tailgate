@@ -21,6 +21,7 @@
 #include <tailgate/base/ByteStream.h>
 #include <tailgate/net/tls/TlsStream.h>
 
+#include "CancellableWait.h"
 #include "SocketIo.h"
 #include "TcpStream.h"
 
@@ -81,10 +82,12 @@ public:
               options.Service,
               options.NetworkInterface.value_or(std::string{}),
               static_cast<int>(options.IoTimeout.count()),
-              static_cast<int>(options.ConnectTimeout.value_or(std::chrono::seconds{}).count()))),
+              static_cast<int>(options.ConnectTimeout.value_or(std::chrono::seconds{}).count()),
+              options.Cancellation)),
           m_eventRegistry(std::move(eventRegistry)),
           m_readinessToken(options.ReadinessToken),
           m_ioTimeout(options.IoTimeout),
+          m_cancellation(options.Cancellation),
           m_nonBlocking(options.NonBlockingAfterConnect)
     {
         if (options.TlsServerName)
@@ -212,20 +215,7 @@ private:
 
     void WaitFor(short events)
     {
-        pollfd descriptor{.fd = m_transport->NativeHandle(), .events = events, .revents = 0};
-        int result = 0;
-        do
-        {
-            result = poll(&descriptor, 1, static_cast<int>(m_ioTimeout.count() * 1000));
-        } while (result < 0 && errno == EINTR);
-        if (result == 0)
-        {
-            throw std::system_error(std::make_error_code(std::errc::timed_out));
-        }
-        if (result < 0)
-        {
-            throw std::system_error(errno, std::generic_category());
-        }
+        WaitForSocket(m_transport->NativeHandle(), events, m_ioTimeout, m_cancellation);
     }
 
     [[nodiscard]] tailgate::base::ByteStream& ActiveStream()
@@ -246,6 +236,7 @@ private:
     tailgate::linux_frontend::event::EventHandle m_eventHandle;
     tailgate::base::EventToken m_readinessToken;
     std::chrono::seconds m_ioTimeout;
+    std::stop_token m_cancellation;
     bool m_nonBlocking = false;
     bool m_writeInterest = false;
     bool m_eventRegistered = false;

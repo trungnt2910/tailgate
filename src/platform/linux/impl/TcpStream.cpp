@@ -14,49 +14,23 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "UniqueFd.h"
+
+#include "CancellableWait.h"
+#include "ResolveTcp.h"
+
 namespace tailgate::linux_frontend::impl
 {
-namespace
-{
-
-constexpr int MillisecondsPerSecond = 1000;
-
-// Connects with a bounded wait: a blocking connect() would otherwise wait for the kernel
-// default (minutes) when the endpoint drops packets.
-bool ConnectWithTimeout(int fd,
-                        const sockaddr* address,
-                        socklen_t addressLength,
-                        int timeoutSeconds)
-{
-    const int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0)
-    {
-        return false;
-    }
-    bool connected = connect(fd, address, addressLength) == 0;
-    if (!connected && errno == EINPROGRESS)
-    {
-        pollfd waiter{};
-        waiter.fd = fd;
-        waiter.events = POLLOUT;
-        if (poll(&waiter, 1, timeoutSeconds * MillisecondsPerSecond) == 1)
-        {
-            int socketError = 0;
-            socklen_t errorLength = sizeof(socketError);
-            connected = getsockopt(fd, SOL_SOCKET, SO_ERROR, &socketError, &errorLength) == 0 &&
-                        socketError == 0;
-        }
-    }
-    return connected && fcntl(fd, F_SETFL, flags) == 0;
-}
-
-} // namespace
 
 TcpStream::TcpStream(const std::string& host,
                      const std::string& service,
                      const std::string& interfaceName,
                      int ioTimeoutSeconds,
-                     int connectTimeoutSeconds)
+                     int connectTimeoutSeconds,
+                     std::stop_token cancellation)
+    : m_cancellation(cancellation),
+      m_readTimeout(std::chrono::seconds(ioTimeoutSeconds)),
+      m_writeTimeout(ioTimeoutSeconds)
 {
     if (ioTimeoutSeconds <= 0)
     {
@@ -67,42 +41,57 @@ TcpStream::TcpStream(const std::string& host,
         connectTimeoutSeconds = ioTimeoutSeconds;
     }
 
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    addrinfo* results = nullptr;
-    int gai = getaddrinfo(host.c_str(), service.c_str(), &hints, &results);
-    if (gai != 0)
+    const auto results =
+        ResolveTcp(host, service, std::chrono::seconds(connectTimeoutSeconds), cancellation);
+    UniqueFd connected;
+    for (const auto& entry : results)
     {
-        throw std::runtime_error("getaddrinfo failed: " + std::string(gai_strerror(gai)));
-    }
-
-    for (addrinfo* entry = results; entry != nullptr; entry = entry->ai_next)
-    {
-        int fd = socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
-        if (fd < 0)
+        ThrowIfCancelled(cancellation);
+        UniqueFd candidate(
+            socket(entry.Family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, entry.Protocol));
+        if (candidate.Fd < 0)
         {
             continue;
         }
-        if (!interfaceName.empty() &&
-            setsockopt(
-                fd, SOL_SOCKET, SO_BINDTODEVICE, interfaceName.c_str(), interfaceName.size() + 1) !=
-                0)
+        if (!interfaceName.empty() && setsockopt(candidate.Fd,
+                                                 SOL_SOCKET,
+                                                 SO_BINDTODEVICE,
+                                                 interfaceName.c_str(),
+                                                 interfaceName.size() + 1) != 0)
         {
-            close(fd);
-            freeaddrinfo(results);
-            throw std::runtime_error(std::format(
-                "failed to bind TCP transport to {}: {}", interfaceName, std::strerror(errno)));
+            throw std::system_error(errno, std::generic_category());
         }
-        if (ConnectWithTimeout(fd, entry->ai_addr, entry->ai_addrlen, connectTimeoutSeconds))
+        bool success = connect(candidate.Fd,
+                               reinterpret_cast<const sockaddr*>(&entry.Address),
+                               entry.Length) == 0;
+        if (!success && errno == EINPROGRESS)
         {
-            m_fd = fd;
+            try
+            {
+                WaitForSocket(candidate.Fd,
+                              POLLOUT,
+                              std::chrono::seconds(connectTimeoutSeconds),
+                              cancellation);
+                int error = 0;
+                socklen_t size = sizeof(error);
+                success = getsockopt(candidate.Fd, SOL_SOCKET, SO_ERROR, &error, &size) == 0 &&
+                          error == 0;
+            }
+            catch (const std::system_error& error)
+            {
+                if (error.code() != std::errc::timed_out)
+                {
+                    throw;
+                }
+            }
+        }
+        if (success)
+        {
+            connected = std::move(candidate);
             break;
         }
-        close(fd);
     }
-    freeaddrinfo(results);
+    m_fd = connected.Fd;
 
     if (m_fd < 0)
     {
@@ -117,10 +106,7 @@ TcpStream::TcpStream(const std::string& host,
                                  std::string(std::strerror(errno)));
     }
 
-    SetReadTimeout(std::chrono::seconds(ioTimeoutSeconds));
-    timeval timeout{};
-    timeout.tv_sec = ioTimeoutSeconds;
-    setsockopt(m_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    (void)connected.Release();
 }
 
 TcpStream::~TcpStream()
@@ -133,32 +119,57 @@ TcpStream::~TcpStream()
 
 std::optional<std::size_t> TcpStream::TryWriteSome(const std::uint8_t* data, std::size_t size)
 {
-    const ssize_t result = send(m_fd, data, size, MSG_NOSIGNAL);
-    if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+    for (;;)
     {
-        return std::nullopt;
+        ThrowIfCancelled(m_cancellation);
+        const ssize_t result = send(m_fd, data, size, MSG_NOSIGNAL);
+        if (result >= 0)
+        {
+            return static_cast<std::size_t>(result);
+        }
+        if (errno == EINTR)
+        {
+            continue;
+        }
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
+        if (m_nonBlocking)
+        {
+            return std::nullopt;
+        }
+        WaitForSocket(m_fd, POLLOUT, m_writeTimeout, m_cancellation);
     }
-    if (result < 0)
-    {
-        throw std::runtime_error("send failed: " + std::string(std::strerror(errno)));
-    }
-    return static_cast<std::size_t>(result);
 }
 
 std::optional<std::vector<std::uint8_t>> TcpStream::TryReadSome(std::size_t maxBytes)
 {
     std::vector<std::uint8_t> data(maxBytes);
-    ssize_t result = recv(m_fd, data.data(), data.size(), 0);
-    if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+    for (;;)
     {
-        return std::nullopt;
+        ThrowIfCancelled(m_cancellation);
+        const ssize_t result = recv(m_fd, data.data(), data.size(), 0);
+        if (result >= 0)
+        {
+            data.resize(static_cast<std::size_t>(result));
+            return data;
+        }
+        if (errno == EINTR)
+        {
+            continue;
+        }
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
+        if (m_nonBlocking)
+        {
+            return std::nullopt;
+        }
+        WaitForSocket(
+            m_fd, POLLIN, m_readTimeout.value_or(std::chrono::seconds::max()), m_cancellation);
     }
-    if (result < 0)
-    {
-        throw std::runtime_error("recv failed: " + std::string(std::strerror(errno)));
-    }
-    data.resize(static_cast<std::size_t>(result));
-    return data;
 }
 
 int TcpStream::NativeHandle() const
@@ -168,24 +179,12 @@ int TcpStream::NativeHandle() const
 
 void TcpStream::SetReadTimeout(std::optional<std::chrono::seconds> timeout)
 {
-    timeval value{};
-    if (timeout)
-    {
-        value.tv_sec = timeout->count();
-    }
-    if (setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, &value, sizeof(value)) != 0)
-    {
-        throw std::runtime_error("failed to configure TCP read timeout");
-    }
+    m_readTimeout = timeout;
 }
 
 void TcpStream::SetNonBlocking(bool enabled)
 {
-    const int flags = fcntl(m_fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(m_fd, F_SETFL, enabled ? flags | O_NONBLOCK : flags & ~O_NONBLOCK) != 0)
-    {
-        throw std::runtime_error("failed to configure TCP blocking mode");
-    }
+    m_nonBlocking = enabled;
 }
 
 } // namespace tailgate::linux_frontend::impl

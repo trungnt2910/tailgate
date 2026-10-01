@@ -1,129 +1,55 @@
-// libc++ 22 implements C++20 syncstream behind this opt-in. It must be enabled before
-// any standard-library header includes libc++'s configuration.
-#define _LIBCPP_ENABLE_EXPERIMENTAL
-
 #include "HostedServer.h"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
-#include <csignal>
 #include <cstring>
-#include <deque>
 #include <exception>
-#include <filesystem>
 #include <format>
 #include <functional>
-#include <iostream>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <syncstream>
 #include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <linux/if.h>
-#include <linux/if_tun.h>
-#include <net/route.h>
-#include <netdb.h>
-#include <poll.h>
-#include <sys/eventfd.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
-#include <boost/algorithm/string/join.hpp>
-#include <boost/di.hpp>
-
-#include <tailgate/PlatformFrontend.h>
 #include <tailgate/base/Logging.h>
-#include <tailgate/cli/Arguments.h>
-#include <tailgate/control/client/Connection.h>
-#include <tailgate/control/client/RetryBackoff.h>
-#include <tailgate/crypto/Crypto.h>
-#include <tailgate/derp/Client.h>
-#include <tailgate/derp/Connection.h>
-#include <tailgate/disco/Disco.h>
-#include <tailgate/hosted/Client.h>
-#include <tailgate/hosted/Connection.h>
-#include <tailgate/hosted/DiscoProbes.h>
-#include <tailgate/hosted/Protocol.h>
+#include <tailgate/hosted/DerpAuthenticator.h>
 #include <tailgate/hosted/ServerSession.h>
 #include <tailgate/hosted/ServerWriter.h>
-#include <tailgate/net/dns/Dns.h>
-#include <tailgate/net/dns/TailnetDns.h>
-#include <tailgate/net/packet/Ipv4.h>
-#include <tailgate/net/packet/Tsmp.h>
-#include <tailgate/qr/QrCode.h>
-#include <tailgate/serve/FunnelConfig.h>
-#include <tailgate/serve/acme/Client.h>
-#include <tailgate/types/nettype/TcpSocket.h>
-#include <tailgate/wgengine/Engine.h>
-#include <tailgate/wgengine/Session.h>
-#include <tailgate/wgengine/magicsock/Connection.h>
-#include <tailgate/wgengine/magicsock/PeerPathState.h>
-#include <tailgate/wgengine/router/Config.h>
-#include <tailgate/wgengine/wireguard/Router.h>
+#include <tailgate/ipn/ipnlocal/DelegatedNode.h>
 
 #include "event/EventRegistry.h"
-#include "impl/EventLoop.h"
-#include "impl/TimeProvider.h"
 
 #include "DI.h"
 #include "DataplaneEvents.h"
-#include "Files.h"
+#include "DerpTransports.h"
 #include "HostedConnectionRegistry.h"
 #include "Lifecycle.h"
 #include "Network.h"
 #include "PacketDescriptorProvider.h"
-#include "PeerApiServer.h"
-#include "PingIpc.h"
-#include "QrCode.h"
-#include "RelayServer.h"
-#include "State.h"
-#include "StatusWriter.h"
-#include "TunnelRunner.h"
 #include "UniqueFd.h"
 
 namespace
 {
 
-using tailgate::linux_frontend::AddRoute;
+using tailgate::base::EventReadiness;
+using tailgate::base::HasReadiness;
 using tailgate::linux_frontend::DataplaneEvent;
 using tailgate::linux_frontend::DefaultRouteInterface;
 using tailgate::linux_frontend::InterfaceIpv4Address;
-using tailgate::linux_frontend::OpenLocalDnsSocket;
-using tailgate::linux_frontend::OpenUdpSocket;
-using tailgate::linux_frontend::ParseIpv4Endpoint;
-using tailgate::linux_frontend::ReadResolverAddresses;
-using tailgate::linux_frontend::ReceiveUdp;
-using tailgate::linux_frontend::RemoveRoute;
 using tailgate::linux_frontend::ResolveIpv4UdpEndpoint;
-using tailgate::linux_frontend::SendUdp;
-using tailgate::linux_frontend::SetInterfaceAddress;
-using tailgate::linux_frontend::SetInterfaceIpv6Address;
-using tailgate::linux_frontend::SetInterfaceMtu;
-using tailgate::linux_frontend::TryParseIpv4Endpoint;
 using tailgate::linux_frontend::UniqueFd;
-using tailgate::linux_frontend::WriteResolver;
 using tailgate::linux_frontend::event::EventInterest;
 using tailgate::linux_frontend::event::EventRegistry;
-using Ipv4Prefix = tailgate::net::packet::Ipv4Prefix;
-using TailPeer = tailgate::types::netmap::PeerConfig;
-using tailgate::base::EventReadiness;
-using tailgate::base::HasReadiness;
 
 constexpr auto StunResponseTimeout = std::chrono::seconds(3);
 
@@ -287,47 +213,15 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
     UniqueFd relayControls(controls[0]);
     UniqueFd brokerControls(controls[1]);
     std::atomic<bool> stopping = false;
-    std::mutex derpMutex;
-    std::condition_variable derpChanged;
     std::mutex clientReadyMutex;
     std::condition_variable clientReadyChanged;
     bool clientReady = false;
-    std::map<std::uint64_t, std::optional<std::vector<std::uint8_t>>> derpResponses;
-    const tailgate::derp::DerpClient::Authenticator derpAuthenticator =
-        [&](const tailgate::derp::DerpClient::Key& serverKey)
-    {
-        const tailgate::hosted::ServerDerpChallenge challenge =
-            serverSession->BuildDerpChallenge(serverKey);
-        {
-            std::lock_guard lock(derpMutex);
-            derpResponses.emplace(challenge.RequestId, std::nullopt);
-        }
-        writeFrame(challenge.Output);
-        constexpr std::chrono::seconds AuthenticationTimeout(30);
-        std::unique_lock lock(derpMutex);
-        const bool completed = derpChanged.wait_for(
-            lock,
-            AuthenticationTimeout,
-            [&]()
-            {
-                const auto found = derpResponses.find(challenge.RequestId);
-                return stopping || (found != derpResponses.end() && found->second.has_value());
-            });
-        const auto found = derpResponses.find(challenge.RequestId);
-        if (!completed || found == derpResponses.end() || !found->second)
-        {
-            derpResponses.erase(challenge.RequestId);
-            throw std::runtime_error("relayed DERP authentication timed out");
-        }
-        std::vector<std::uint8_t> response = std::move(*found->second);
-        derpResponses.erase(found);
-        return response;
-    };
-
     tailgate::di::Injector writerInjector;
     InstallBindings(writerInjector);
     writerInjector.create<PacketDescriptorProvider&>().Borrow(relayPackets.Fd);
     auto& hostedWriter = writerInjector.create<tailgate::hosted::ServerWriter&>();
+    auto derpAuthenticator =
+        std::make_shared<tailgate::hosted::DerpAuthenticator>(*serverSession, hostedWriter);
     std::thread clientReader(
         [&]()
         {
@@ -366,6 +260,17 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
                             throw std::runtime_error("relay network-map forwarding failed");
                         }
                     }
+                    if (processed.Delegation)
+                    {
+                        const auto encoded =
+                            tailgate::hosted::EncodeDelegation(*processed.Delegation).Encode();
+                        if (send(relayControls.Fd, encoded.data(), encoded.size(), MSG_NOSIGNAL) <
+                            0)
+                        {
+                            throw std::system_error(
+                                std::make_error_code(std::errc::connection_reset));
+                        }
+                    }
                     if (processed.VerifiedPeerEndpoint)
                     {
                         const std::vector<std::uint8_t> encoded =
@@ -395,17 +300,7 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
                     }
                     if (processed.DerpResponse)
                     {
-                        {
-                            std::lock_guard lock(derpMutex);
-                            const auto found =
-                                derpResponses.find(processed.DerpResponse->RequestId());
-                            if (found == derpResponses.end() || found->second)
-                            {
-                                throw std::runtime_error("unexpected DERP authentication response");
-                            }
-                            found->second = std::move(processed.DerpResponse->ClientInfo());
-                        }
-                        derpChanged.notify_all();
+                        derpAuthenticator->AcceptResponse(std::move(*processed.DerpResponse));
                     }
                     if (processed.ClientReady)
                     {
@@ -432,7 +327,6 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
             }
             stopping = true;
             hostedWriter.Wake();
-            derpChanged.notify_all();
             clientReadyChanged.notify_all();
             shutdown(relayPackets.Fd, SHUT_RDWR);
             shutdown(relayControls.Fd, SHUT_RDWR);
@@ -497,8 +391,6 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
         }
         const std::vector<tailgate::net::Endpoint> serverEndpointCandidates =
             DiscoverHostedEndpointCandidates(underlayInterface, config, networkSession, connection);
-        tailgate::linux_frontend::DaemonStatus hostedStatus;
-        int readyFd = -1;
         const auto dataPathReady = [&]()
         {
             tailgate::linux_frontend::HostedConnectionRegistrationResult registration =
@@ -523,42 +415,65 @@ void RunHostedServer(tailgate::hosted::ServerSessionFactory& sessionFactory,
                     tailgate::hosted::ServerEndpointCandidates(serverEndpointCandidates))));
             writeFrame(tailgate::hosted::Frame(tailgate::hosted::MessageType::DataPathReady, {}));
         };
-        tailgate::linux_frontend::RunTunnel({},
-                                            authentication.Identity.NodePublicKey(),
-                                            {},
-                                            config,
-                                            config.DerpRegion(),
-                                            config.DerpHost(),
-                                            "",
-                                            false,
-                                            {},
-                                            {},
-                                            {},
-                                            {},
-                                            eventRegistry,
-                                            engine,
-                                            networkSession,
-                                            nullptr,
-                                            connection,
-                                            derpConnectionFactory,
-                                            hostedConnections,
-                                            hostedStatus,
-                                            readyFd,
-                                            false,
-                                            false,
-                                            true,
-                                            brokerControls.Fd,
-                                            {},
-                                            dataPathReady,
-                                            derpAuthenticator);
+        tailgate::derp::ConnectionOptions derpOptions;
+        derpOptions.NetworkInterface = underlayInterface;
+        derpOptions.PublicKey = authentication.Identity.NodePublicKey();
+        derpOptions.Authenticator = derpAuthenticator;
+        tailgate::linux_frontend::DerpTransports transports(derpConnectionFactory,
+                                                            std::move(derpOptions));
+        tailgate::ipn::ipnlocal::DelegatedNode node(
+            networkSession,
+            engine,
+            connection,
+            transports,
+            networkInjector.create<tailgate::base::TimeProvider&>());
+        node.Start(
+            config,
+            {.Name = {}, .ReadinessToken = DataplaneEvent(DataplaneEvent::Kind::Tun).Token()});
+        const auto controlToken = DataplaneEvent(DataplaneEvent::Kind::RelayControl).Token();
+        auto controlEvent =
+            eventRegistry.Register(brokerControls.Fd, EventInterest::Readable, controlToken);
+        bool pathReady = false;
+        std::vector<std::uint8_t> controlBuffer(tailgate::hosted::Frame::MaximumEncodedSize);
+        while (!Lifecycle::Stopping() && !Lifecycle::Reloading())
+        {
+            constexpr std::size_t MaximumPacketsPerTurn = 16;
+            constexpr std::size_t PacketBufferSize = 4096;
+            auto completed =
+                node.Wait(MaximumPacketsPerTurn, MaximumPacketsPerTurn, PacketBufferSize);
+            for (auto& output : node.TakeControlOutput())
+            {
+                hostedWriter.Post(std::move(output));
+            }
+            if (!pathReady && node.Connected())
+            {
+                dataPathReady();
+                pathReady = true;
+            }
+            for (const auto& event : completed.PlatformEvents)
+            {
+                if (event.Token == controlToken &&
+                    HasReadiness(event.Readiness, EventReadiness::Readable))
+                {
+                    const auto count =
+                        recv(brokerControls.Fd, controlBuffer.data(), controlBuffer.size(), 0);
+                    if (count <= 0)
+                    {
+                        throw std::system_error(std::make_error_code(std::errc::connection_reset));
+                    }
+                    node.HandleControl(std::vector<std::uint8_t>(controlBuffer.begin(),
+                                                                 controlBuffer.begin() + count));
+                }
+            }
+        }
     }
     catch (...)
     {
         connectionError = std::current_exception();
     }
     stopping = true;
+    closeConnection();
     hostedWriter.Wake();
-    derpChanged.notify_all();
     shutdown(relayPackets.Fd, SHUT_RDWR);
     shutdown(relayControls.Fd, SHUT_RDWR);
     clientReader.join();

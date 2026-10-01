@@ -47,9 +47,8 @@ const std::string& ConnectionException::Reason() const noexcept
     return m_reason;
 }
 
-Connection::Connection(tailgate::wgengine::tstun::Device& device,
-                       tailgate::hosted::Client& client) noexcept
-    : m_device(device), m_client(client)
+Connection::Connection(tailgate::types::nettype::TcpSocketFactory& sockets) noexcept
+    : m_sockets(sockets)
 {
 }
 
@@ -58,7 +57,7 @@ ConnectionResult Connection::Connect(ConnectionOptions options)
     const bool nonBlockingAfterConnect = options.Socket.NonBlockingAfterConnect;
     options.Socket.NonBlockingAfterConnect = false;
     std::unique_ptr<tailgate::types::nettype::TcpSocket> stream =
-        m_device.OpenTransportSocket(options.Socket);
+        m_sockets.OpenTcpSocket(options.Socket);
     Decoder decoder;
     decoder.Feed(RequestHttpUpgrade(*stream, options.HttpHost));
     const Frame challengeFrame = decoder.Read(*stream);
@@ -102,16 +101,20 @@ ConnectionResult Connection::Connect(ConnectionOptions options)
     {
         throw ConnectionException(ConnectionError::SessionIdentityInvalid);
     }
-    stream->WriteAll(m_client.Start(std::move(options.Client)));
+    // Only authenticate the relay here. The serialized owner starts delegation after
+    // it has settled ownership of native DERP; a preparation worker never touches crypto state.
     if (nonBlockingAfterConnect)
     {
         stream->SetNonBlocking(true);
     }
+    auto configuration = options.Client;
     return ConnectionResult{
         .Stream = std::move(stream),
         .RelayPublicKey = challenge.RelayPublicKey(),
         .RelaySession = std::move(session),
         .FrameDecoder = std::move(decoder),
+        .Configuration = std::move(configuration),
+        .Reconnect = std::move(options),
     };
 }
 

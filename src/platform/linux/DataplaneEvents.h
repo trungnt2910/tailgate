@@ -20,6 +20,7 @@ public:
         AdvertisedUdp,
         Control,
         RelayControl,
+        Network,
     };
 
     constexpr DataplaneEvent(Kind kind, std::uint32_t index = 0) noexcept

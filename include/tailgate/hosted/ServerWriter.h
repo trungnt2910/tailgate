@@ -25,6 +25,8 @@ public:
                      std::mutex& streamMutex,
                      const std::atomic<bool>& stopping) = 0;
     virtual void Wake() noexcept = 0;
+    // Thread-safe bounded control queue; stream writes remain on Run's worker.
+    virtual void Post(Frame frame) = 0;
 
 protected:
     ServerWriter() = default;

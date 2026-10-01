@@ -17,21 +17,21 @@ InteractiveAuthorizationControllerImpl::GetState() const noexcept
     return m_state;
 }
 
-void InteractiveAuthorizationControllerImpl::Listen(const winrt::hstring& tailgateServer)
+void InteractiveAuthorizationControllerImpl::Listen(const winrt::hstring& profileId)
 {
     if (m_receiver)
     {
-        m_pendingTailgateServer = tailgateServer;
+        m_pendingProfileId = profileId;
         m_stopRequested = true;
         m_receiver->Signal();
         return;
     }
-    StartListening(tailgateServer);
+    StartListening(profileId);
 }
 
 void InteractiveAuthorizationControllerImpl::Stop()
 {
-    m_pendingTailgateServer.clear();
+    m_pendingProfileId.clear();
     if (!m_receiver)
     {
         return;
@@ -50,18 +50,18 @@ void InteractiveAuthorizationControllerImpl::Cancel()
     m_state.Status(InteractiveAuthorizationStatus::Cancelled);
 }
 
-void InteractiveAuthorizationControllerImpl::StartListening(const winrt::hstring& tailgateServer)
+void InteractiveAuthorizationControllerImpl::StartListening(const winrt::hstring& profileId)
 {
     try
     {
-        m_receiver = std::make_unique<AuthorizationStateReceiver>(tailgateServer);
+        m_receiver = std::make_unique<AuthorizationStateReceiver>(profileId);
         m_stopRequested = false;
         m_state.Update(
             [&](InteractiveAuthorizationState& state)
             {
                 state.Status(InteractiveAuthorizationStatus::Listening);
                 state.Url(L"");
-                state.TailgateServer(tailgateServer);
+                state.ProfileId(profileId);
                 state.Error(std::nullopt);
             });
         (void)Monitor(m_receiver.get());
@@ -73,7 +73,7 @@ void InteractiveAuthorizationControllerImpl::StartListening(const winrt::hstring
             [&](InteractiveAuthorizationState& state)
             {
                 state.Status(InteractiveAuthorizationStatus::Failed);
-                state.TailgateServer(tailgateServer);
+                state.ProfileId(profileId);
                 state.Error(
                     UwpError::FromHresult(error.code()).value_or(UwpError::Code::Unexpected));
             });
@@ -97,7 +97,7 @@ FireAndForget InteractiveAuthorizationControllerImpl::Monitor(AuthorizationState
             }
             if (m_stopRequested)
             {
-                const winrt::hstring pending = std::exchange(m_pendingTailgateServer, {});
+                const winrt::hstring pending = std::exchange(m_pendingProfileId, {});
                 m_receiver.reset();
                 m_stopRequested = false;
                 m_state.Update(
@@ -136,7 +136,7 @@ FireAndForget InteractiveAuthorizationControllerImpl::Monitor(AuthorizationState
     {
         co_return;
     }
-    const winrt::hstring pending = std::exchange(m_pendingTailgateServer, {});
+    const winrt::hstring pending = std::exchange(m_pendingProfileId, {});
     m_receiver.reset();
     m_stopRequested = false;
     m_state.Update(
@@ -156,7 +156,7 @@ void InteractiveAuthorizationControllerImpl::Publish(const ConnectionMessage& me
     m_state.Update(
         [&](InteractiveAuthorizationState& state)
         {
-            state.TailgateServer(message.TailgateServer);
+            state.ProfileId(message.ProfileId);
             state.Url(message.Url);
             switch (message.Kind)
             {

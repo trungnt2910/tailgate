@@ -143,6 +143,10 @@ std::optional<DaemonStatus> ReadDaemonStatus()
 
     DaemonStatus result;
     result.ProcessId = json.value("pid", 0);
+    result.DesiredMode = json.value("DesiredMode", "");
+    result.EffectiveMode = json.value("EffectiveMode", "");
+    result.ModeTransition = json.value("ModeTransition", 0U);
+    result.ModeFailure = json.value("ModeFailure", 0U);
     result.BackendState = json.value("BackendState", "Stopped");
     result.Online = json.value("Online", false);
     result.Address = json.value("TailscaleIPs", std::vector<std::string>{}).empty()
@@ -200,6 +204,10 @@ void WriteDaemonStatus(const DaemonStatus& status)
         {"Version", status.ClientVersion},
         {"TUN", true},
         {"BackendState", status.BackendState},
+        {"DesiredMode", status.DesiredMode},
+        {"EffectiveMode", status.EffectiveMode},
+        {"ModeTransition", status.ModeTransition},
+        {"ModeFailure", status.ModeFailure},
         {"Online", status.Online},
         {"TailscaleIPs",
          status.Address.empty() ? nlohmann::json::array()
@@ -350,7 +358,7 @@ void WriteSettings(const SettingsState& settings)
                   "\n");
 }
 
-std::optional<AcmeState> ReadAcmeState()
+std::optional<tailgate::serve::acme::CertificateState> ReadAcmeState()
 {
     std::ifstream stream(AcmePath());
     if (!stream)
@@ -362,13 +370,14 @@ std::optional<AcmeState> ReadAcmeState()
     {
         throw std::runtime_error("Tailgate ACME state is not valid JSON");
     }
-    return AcmeState{.Domain = json.value("Domain", ""),
-                     .AccountPrivateKey = json.value("AccountPrivateKey", ""),
-                     .CertificatePem = json.value("CertificatePem", ""),
-                     .PrivateKeyPem = json.value("PrivateKeyPem", "")};
+    return tailgate::serve::acme::CertificateState{
+        .Domain = json.value("Domain", ""),
+        .AccountPrivateKey = json.value("AccountPrivateKey", ""),
+        .CertificatePem = json.value("CertificatePem", ""),
+        .PrivateKeyPem = json.value("PrivateKeyPem", "")};
 }
 
-void WriteAcmeState(const AcmeState& state)
+void WriteAcmeState(const tailgate::serve::acme::CertificateState& state)
 {
     EnsureStateDirectory();
     WriteFile(AcmePath(),

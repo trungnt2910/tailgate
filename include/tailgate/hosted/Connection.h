@@ -9,7 +9,6 @@
 #include <tailgate/hosted/Client.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/types/nettype/TcpSocket.h>
-#include <tailgate/wgengine/tstun/Device.h>
 
 namespace tailgate::hosted
 {
@@ -51,19 +50,19 @@ struct ConnectionResult
     tailgate::crypto::Bytes32 RelayPublicKey{};
     Session RelaySession;
     Decoder FrameDecoder;
+    ClientConfig Configuration;
+    ConnectionOptions Reconnect;
 };
 
 class Connection final
 {
 public:
-    Connection(tailgate::wgengine::tstun::Device& device,
-               tailgate::hosted::Client& client) noexcept;
+    explicit Connection(tailgate::types::nettype::TcpSocketFactory& sockets) noexcept;
 
     [[nodiscard]] ConnectionResult Connect(ConnectionOptions options);
 
 private:
-    tailgate::wgengine::tstun::Device& m_device;
-    tailgate::hosted::Client& m_client;
+    tailgate::types::nettype::TcpSocketFactory& m_sockets;
 };
 
 } // namespace tailgate::hosted

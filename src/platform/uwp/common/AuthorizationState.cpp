@@ -23,10 +23,10 @@ constexpr wchar_t AuthorizationMappingName[] = L"Tailgate.AuthorizationState";
 constexpr wchar_t AuthorizationEventName[] = L"Tailgate.AuthorizationStateChanged";
 constexpr wchar_t AuthorizationCancelEventName[] = L"Tailgate.AuthorizationCancelled";
 constexpr std::uint32_t AuthorizationMappingMagic = 0x54474155; // 'TGAU'.
-constexpr std::uint32_t AuthorizationMappingVersion = 4;
+constexpr std::uint32_t AuthorizationMappingVersion = 5;
 constexpr std::size_t AuthorizationQueueCapacity = 8;
 constexpr std::size_t AuthorizationUrlCapacity = 4096;
-constexpr std::size_t TailgateServerCapacity = 512;
+constexpr std::size_t ProfileIdCapacity = 512;
 tailgate::base::Logger AuthorizationPublisherLogger{"uwp-auth-publisher"};
 
 // These fixed-capacity fields are part of the versioned cross-process shared-memory layout;
@@ -47,8 +47,8 @@ struct AuthorizationMapping
     volatile LONG WriteSequence;
     volatile LONG CancelRequested;
     std::uint32_t ForegroundProcessId;
-    std::uint32_t TailgateServerLength;
-    std::array<char, TailgateServerCapacity> TailgateServer;
+    std::uint32_t ProfileIdLength;
+    std::array<char, ProfileIdCapacity> ProfileId;
     std::array<AuthorizationMessageSlot, AuthorizationQueueCapacity> Messages;
 };
 
@@ -92,12 +92,12 @@ bool IsMessageContentValid(ConnectionMessageKind kind,
 
 } // namespace
 
-AuthorizationStateReceiver::AuthorizationStateReceiver(const winrt::hstring& expectedTailgateServer)
+AuthorizationStateReceiver::AuthorizationStateReceiver(const winrt::hstring& expectedProfileId)
 {
-    const std::string expectedServer = winrt::to_string(expectedTailgateServer);
-    if (expectedServer.empty() || expectedServer.size() > TailgateServerCapacity)
+    const std::string expectedProfile = winrt::to_string(expectedProfileId);
+    if (expectedProfile.empty() || expectedProfile.size() > ProfileIdCapacity)
     {
-        m_logger.LogError("foreground server exceeds the authorization mapping format");
+        m_logger.LogError("foreground profile exceeds the authorization mapping format");
         winrt::throw_hresult(E_INVALIDARG);
     }
     SetLastError(ERROR_SUCCESS);
@@ -149,8 +149,8 @@ AuthorizationStateReceiver::AuthorizationStateReceiver(const winrt::hstring& exp
     view->Magic = AuthorizationMappingMagic;
     view->Version = AuthorizationMappingVersion;
     view->ForegroundProcessId = GetCurrentProcessId();
-    view->TailgateServerLength = static_cast<std::uint32_t>(expectedServer.size());
-    std::memcpy(view->TailgateServer.data(), expectedServer.data(), expectedServer.size());
+    view->ProfileIdLength = static_cast<std::uint32_t>(expectedProfile.size());
+    std::memcpy(view->ProfileId.data(), expectedProfile.data(), expectedProfile.size());
     InterlockedExchange(&view->WriteSequence, 0);
     m_mapping = std::move(mapping);
     m_view = std::move(mappedView);
@@ -169,10 +169,9 @@ std::vector<ConnectionMessage> AuthorizationStateReceiver::ReadAvailable()
         return result;
     }
     auto* view = static_cast<AuthorizationMapping*>(m_view.get());
-    const bool validMapping = view->Magic == AuthorizationMappingMagic &&
-                              view->Version == AuthorizationMappingVersion &&
-                              view->TailgateServerLength != 0 &&
-                              view->TailgateServerLength <= view->TailgateServer.size();
+    const bool validMapping =
+        view->Magic == AuthorizationMappingMagic && view->Version == AuthorizationMappingVersion &&
+        view->ProfileIdLength != 0 && view->ProfileIdLength <= view->ProfileId.size();
     if (!validMapping)
     {
         m_logger.LogWarning("foreground rejected an invalid connection-attempt queue");
@@ -185,7 +184,7 @@ std::vector<ConnectionMessage> AuthorizationStateReceiver::ReadAvailable()
         firstSequence = published - static_cast<LONG>(AuthorizationQueueCapacity) + 1;
         m_logger.LogWarning("foreground skipped overwritten connection-attempt messages");
     }
-    const std::string expectedServer(view->TailgateServer.data(), view->TailgateServerLength);
+    const std::string expectedProfile(view->ProfileId.data(), view->ProfileIdLength);
     for (LONG sequence = firstSequence; sequence <= published; ++sequence)
     {
         const std::size_t index =
@@ -218,7 +217,7 @@ std::vector<ConnectionMessage> AuthorizationStateReceiver::ReadAvailable()
         ConnectionMessage message;
         message.Kind = static_cast<ConnectionMessageKind>(kindValue);
         message.Url = winrt::to_hstring(url);
-        message.TailgateServer = winrt::to_hstring(expectedServer);
+        message.ProfileId = winrt::to_hstring(expectedProfile);
         message.ErrorCode = errorCode;
         result.push_back(std::move(message));
     }
@@ -261,9 +260,9 @@ void AuthorizationStateReceiver::Cancel()
 }
 
 ConnectionCancellationMonitor::ConnectionCancellationMonitor(
-    const winrt::hstring& expectedTailgateServer)
+    const winrt::hstring& expectedProfileId)
 {
-    const std::string expectedServer = winrt::to_string(expectedTailgateServer);
+    const std::string expectedProfile = winrt::to_string(expectedProfileId);
     winrt::handle mapping(
         OpenFileMappingFromApp(FILE_MAP_ALL_ACCESS, FALSE, AuthorizationMappingName));
     if (!mapping)
@@ -279,12 +278,11 @@ ConnectionCancellationMonitor::ConnectionCancellationMonitor(
     auto* view = static_cast<AuthorizationMapping*>(mappedView.get());
     const bool validMapping = view->Magic == AuthorizationMappingMagic &&
                               view->Version == AuthorizationMappingVersion &&
-                              view->ForegroundProcessId != 0 && view->TailgateServerLength != 0 &&
-                              view->TailgateServerLength <= view->TailgateServer.size();
-    const std::string activeServer =
-        validMapping ? std::string(view->TailgateServer.data(), view->TailgateServerLength)
-                     : std::string{};
-    if (!validMapping || activeServer != expectedServer)
+                              view->ForegroundProcessId != 0 && view->ProfileIdLength != 0 &&
+                              view->ProfileIdLength <= view->ProfileId.size();
+    const std::string activeProfile =
+        validMapping ? std::string(view->ProfileId.data(), view->ProfileIdLength) : std::string{};
+    if (!validMapping || activeProfile != expectedProfile)
     {
         return;
     }
@@ -351,8 +349,8 @@ ConnectionCancellationReason ConnectionCancellationMonitor::Wait(void* stopHandl
 bool PublishConnectionMessage(const ConnectionMessage& message)
 {
     const std::string url = winrt::to_string(message.Url);
-    const std::string tailgateServer = winrt::to_string(message.TailgateServer);
-    if (!IsMessageKindValid(static_cast<std::uint32_t>(message.Kind)) || tailgateServer.empty() ||
+    const std::string profileId = winrt::to_string(message.ProfileId);
+    if (!IsMessageKindValid(static_cast<std::uint32_t>(message.Kind)) || profileId.empty() ||
         url.size() > AuthorizationUrlCapacity ||
         !IsMessageContentValid(message.Kind, url.size(), message.ErrorCode))
     {
@@ -384,14 +382,12 @@ bool PublishConnectionMessage(const ConnectionMessage& message)
         return false;
     }
     auto* view = static_cast<AuthorizationMapping*>(mappedView.get());
-    const bool validMapping = view->Magic == AuthorizationMappingMagic &&
-                              view->Version == AuthorizationMappingVersion &&
-                              view->TailgateServerLength != 0 &&
-                              view->TailgateServerLength <= view->TailgateServer.size();
-    const std::string expectedServer =
-        validMapping ? std::string(view->TailgateServer.data(), view->TailgateServerLength)
-                     : std::string{};
-    if (!validMapping || tailgateServer != expectedServer)
+    const bool validMapping =
+        view->Magic == AuthorizationMappingMagic && view->Version == AuthorizationMappingVersion &&
+        view->ProfileIdLength != 0 && view->ProfileIdLength <= view->ProfileId.size();
+    const std::string expectedProfile =
+        validMapping ? std::string(view->ProfileId.data(), view->ProfileIdLength) : std::string{};
+    if (!validMapping || profileId != expectedProfile)
     {
         AuthorizationPublisherLogger.LogWarning(
             "background rejected an inactive connection-attempt queue");

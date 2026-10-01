@@ -1,5 +1,7 @@
 #pragma once
 
+#include <deque>
+
 #include <tailgate/base/EventLoop.h>
 #include <tailgate/base/TimeProvider.h>
 #include <tailgate/hosted/ServerWriter.h>
@@ -19,8 +21,12 @@ public:
              std::mutex& streamMutex,
              const std::atomic<bool>& stopping) override;
     void Wake() noexcept override;
+    void Post(Frame frame) override;
 
 private:
+    std::mutex m_outputMutex;
+    std::deque<Frame> m_output;
+    std::size_t m_outputBytes = 0;
     void Process(ServerSession& session,
                  tailgate::base::ByteStream& stream,
                  std::mutex& streamMutex,

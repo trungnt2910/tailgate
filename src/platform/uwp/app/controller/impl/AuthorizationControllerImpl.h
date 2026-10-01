@@ -20,7 +20,7 @@ public:
     void AcceptAuthentication() override;
     void ClearPendingAuthentication() override;
     void Cache(AuthorizationCache authorization) override;
-    void FindCached(const winrt::hstring& tailgateServer,
+    void FindCached(const winrt::hstring& profileId,
                     const winrt::hstring& authKey,
                     const winrt::hstring& hostname) override;
     void RequestPrompt(const winrt::hstring& url, bool machineApproval) override;

@@ -51,6 +51,20 @@ public:
         };
     }
 
+    void SetEnabled(bool enabled) override
+    {
+        Enabled = enabled;
+    }
+
+    void ChangeNetwork(std::string networkInterface) override
+    {
+        NetworkInterface = std::move(networkInterface);
+    }
+
+    bool Enabled = true;
+    bool Authenticated = true;
+    std::string NetworkInterface;
+
     void Maintain() override
     {
         ++MaintenanceCalls;
@@ -58,7 +72,7 @@ public:
 
     bool Connected() const noexcept override
     {
-        return true;
+        return Enabled && Authenticated;
     }
 
     std::size_t MaintenanceCalls = 0;

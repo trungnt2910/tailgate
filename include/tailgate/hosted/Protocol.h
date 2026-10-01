@@ -41,6 +41,9 @@ enum class MessageType : std::uint16_t
     PumpSchedule = 21,
     Pump = 22,
     Fragment = 23,
+    Delegation = 24,
+    DelegationReply = 25,
+    NetworkMapAck = 26,
 };
 
 class Frame

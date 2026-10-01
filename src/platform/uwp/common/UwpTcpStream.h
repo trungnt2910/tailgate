@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <optional>
+#include <stop_token>
 #include <string>
 
 #include <winrt/Windows.Foundation.h>
@@ -13,6 +14,8 @@
 
 #include "common/UwpFormat.h"
 
+#include "UwpStreamIo.h"
+
 namespace tailgate::uwp
 {
 
@@ -22,44 +25,23 @@ namespace tailgate::uwp
 class UwpTcpStream final : public tailgate::types::nettype::TcpSocket
 {
 public:
-    // An unset connect timeout uses the I/O timeout. A short connect timeout lets dial-with-
-    // fallback strategies abandon an unresponsive endpoint quickly while keeping long steady-
-    // state read timeouts.
     UwpTcpStream(winrt::Windows::Networking::Sockets::StreamSocket socket,
-                 const std::string& host,
-                 const std::string& service,
-                 winrt::Windows::Networking::Sockets::SocketProtectionLevel protection,
-                 std::chrono::seconds timeout = std::chrono::seconds(20),
-                 const std::string& tlsValidationHost = {},
-                 std::optional<std::chrono::seconds> connectTimeout = std::nullopt);
-
-    UwpTcpStream(const std::string& host,
-                 const std::string& service,
-                 winrt::Windows::Networking::Sockets::SocketProtectionLevel protection,
-                 std::chrono::seconds timeout = std::chrono::seconds(20),
-                 std::optional<std::chrono::seconds> connectTimeout = std::nullopt);
+                 const tailgate::types::nettype::TcpSocketOptions& options);
+    ~UwpTcpStream() override;
 
     [[nodiscard]] std::optional<std::size_t> TryWriteSome(const std::uint8_t* data,
                                                           std::size_t size) override;
     [[nodiscard]] std::optional<std::vector<std::uint8_t>>
     TryReadSome(std::size_t maxBytes) override;
+    [[nodiscard]] bool HasBufferedInput() const override;
     void SetReadTimeout(std::optional<std::chrono::seconds> timeout) override;
     void SetWriteInterest(bool enabled) override;
     void SetNonBlocking(bool enabled) override;
     void Close() noexcept override;
 
 private:
-    void SetNonBlockingReads(bool enabled);
-
     winrt::Windows::Networking::Sockets::StreamSocket m_socket;
-    winrt::Windows::Storage::Streams::IInputStream m_input{nullptr};
-    winrt::Windows::Storage::Streams::IOutputStream m_output{nullptr};
-    std::chrono::seconds m_ioTimeout;
-    std::optional<std::chrono::seconds> m_readTimeout;
-    winrt::Windows::Foundation::
-        IAsyncOperationWithProgress<winrt::Windows::Storage::Streams::IBuffer, std::uint32_t>
-            m_pendingRead{nullptr};
-    bool m_nonBlockingReads = false;
+    std::unique_ptr<UwpStreamIo> m_io;
     tailgate::base::Logger m_logger{"uwp-tcp"};
 };
 

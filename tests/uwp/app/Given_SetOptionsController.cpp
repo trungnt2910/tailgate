@@ -8,6 +8,7 @@
 #include "app/controller/impl/SetOptionsControllerImpl.h"
 
 #include "fakes/app/controller/FakeExitNodeController.h"
+#include "fakes/app/controller/FakeModeController.h"
 #include "fakes/app/controller/FakeSessionController.h"
 #include "fakes/app/controller/FakeSettingsController.h"
 
@@ -28,6 +29,7 @@ protected:
         m_exitNode = std::make_shared<FakeExitNodeController>();
         m_session = std::make_shared<FakeSessionController>();
         m_settings = std::make_shared<FakeSettingsController>();
+        m_modes = std::make_shared<FakeModeController>();
         auto injector = di::make_injector(di::bind<ExitNodeController>.to(
                                               [this](const auto&) -> ExitNodeController&
                                               {
@@ -37,6 +39,11 @@ protected:
                                               [this](const auto&) -> SessionController&
                                               {
                                                   return *m_session;
+                                              }),
+                                          di::bind<ModeController>.to(
+                                              [this](const auto&) -> ModeController&
+                                              {
+                                                  return *m_modes;
                                               }),
                                           di::bind<SettingsController>.to(
                                               [this](const auto&) -> SettingsController&
@@ -49,6 +56,7 @@ protected:
     std::shared_ptr<FakeExitNodeController> m_exitNode;
     std::shared_ptr<FakeSessionController> m_session;
     std::shared_ptr<FakeSettingsController> m_settings;
+    std::shared_ptr<FakeModeController> m_modes;
     std::unique_ptr<SetOptionsControllerImpl> m_subject;
 };
 

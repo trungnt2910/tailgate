@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 #ifndef BOOST_DI_CFG_CTOR_LIMIT_SIZE
 #define BOOST_DI_CFG_CTOR_LIMIT_SIZE 32

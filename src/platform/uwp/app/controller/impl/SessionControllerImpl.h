@@ -24,6 +24,7 @@ class VpnProfileController;
 struct ActiveConnectContext
 {
     std::optional<winrt::hstring> TailgateServer;
+    winrt::hstring ProfileId;
     std::optional<std::uint64_t> RelayOperationId;
     winrt::hstring AuthKey;
     winrt::hstring AttemptHostname;
@@ -34,6 +35,7 @@ struct ActiveConnectContext
     bool WaitingForAuthorizationListener = false;
     std::optional<ConnectionSettingsSnapshot> RollbackSettings;
     std::optional<UwpError::Code> Failure;
+    std::optional<UwpError::Code> ExitNodeChangeError;
 };
 
 class SessionControllerImpl final : public SessionController
@@ -62,8 +64,7 @@ public:
 
 private:
     [[nodiscard]] bool OperationInProgress(const char* operation) const;
-    [[nodiscard]] bool ShowCachedAuthorization(const winrt::hstring& tailgateServer,
-                                               const winrt::hstring& authKey);
+    [[nodiscard]] bool ShowCachedAuthorization(const winrt::hstring& authKey);
     void StartConnect(winrt::hstring tailgateServer,
                       winrt::hstring authKey,
                       bool showDialogOnFailure,
@@ -76,6 +77,7 @@ private:
     void StartPendingConnect();
     void HandleInteractiveAuthorization(const InteractiveAuthorizationState& interactive);
     void OnVpnProfileChanged();
+    void OnSettingsChanged();
     void OnControlPlaneChanged();
     void OnInteractiveAuthorizationChanged();
     void OnTailgateRelayChanged();
@@ -90,11 +92,13 @@ private:
     std::uint64_t m_nextTailgateRelayOperationId = 0;
     bool m_logoutWaitingForControlPlane = false;
     bool m_disconnectAfterRefresh = false;
+    bool m_policyRestartAttempted = false;
     SessionState m_state;
     StateEventRegistration m_controlPlaneRegistration;
     StateEventRegistration m_interactiveAuthorizationRegistration;
     StateEventRegistration m_tailgateRelayRegistration;
     StateEventRegistration m_vpnProfileRegistration;
+    StateEventRegistration m_settingsRegistration;
     tailgate::base::Logger m_logger{"uwp-session-ctrl"};
 };
 

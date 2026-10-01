@@ -9,6 +9,7 @@
 
 #include <tailgate/Status.h>
 #include <tailgate/crypto/Crypto.h>
+#include <tailgate/serve/acme/CertificateState.h>
 
 namespace tailgate::linux_frontend
 {
@@ -39,14 +40,6 @@ struct SettingsState
     std::uint64_t Revision = 0;
 };
 
-struct AcmeState
-{
-    std::string Domain;
-    std::string AccountPrivateKey;
-    std::string CertificatePem;
-    std::string PrivateKeyPem;
-};
-
 struct RelaySessionState
 {
     std::string ServerUrl;
@@ -63,8 +56,8 @@ void WriteIdentity(const IdentityState& identity);
 void RemoveProfileState();
 [[nodiscard]] std::optional<SettingsState> ReadSettings();
 void WriteSettings(const SettingsState& settings);
-[[nodiscard]] std::optional<AcmeState> ReadAcmeState();
-void WriteAcmeState(const AcmeState& state);
+[[nodiscard]] std::optional<tailgate::serve::acme::CertificateState> ReadAcmeState();
+void WriteAcmeState(const tailgate::serve::acme::CertificateState& state);
 [[nodiscard]] std::optional<RelaySessionState> ReadRelaySession();
 void WriteRelaySession(const RelaySessionState& state);
 void RemoveRelaySession();

@@ -1,17 +1,23 @@
 tailgate_add_test_library(
     tailgate_tests_core_hosted
+    Given_DelegationProtocol.cpp
     Given_Frame.cpp
     Given_HostedClient.cpp
     Given_HostedClientSession.cpp
     Given_HostedConnection.cpp
+    Given_HostedDerpAuthenticator.cpp
+    Given_HostedDerpRouteTable.cpp
     Given_HostedDiscoProbes.cpp
     Given_HostedDns.cpp
+    Given_HostedRecovery.cpp
     Given_HostedServerSession.cpp
     Given_HostedServerWriter.cpp
     Given_PacketFraming.cpp
     Given_PumpCodec.cpp
     Given_PumpController.cpp
+    Given_RelayEndpoint.cpp
     Given_RelayProtocol.cpp
+    Given_StreamTransport.cpp
 )
 target_link_libraries(
     tailgate_tests_core_hosted

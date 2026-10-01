@@ -79,6 +79,60 @@ protected:
     std::unique_ptr<SessionControllerImpl> m_subject;
 };
 
+TEST_F(Given_SessionController, When_ExternalVpnConnects_Then_SessionReflectsConnection)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().HasStoredProfile(true);
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Connected(true);
+                    state.Busy(false);
+                });
+        });
+
+    EXPECT_TRUE(m_subject->GetState().Connected());
+    EXPECT_FALSE(m_subject->GetState().Busy());
+    EXPECT_FALSE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_FALSE(m_vpn->ConnectServer.has_value());
+}
+
+TEST_F(Given_SessionController, When_ExternalVpnDisconnects_Then_SessionRetainsStoredProfile)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().HasStoredProfile(true);
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Connected(true);
+                });
+        });
+    ASSERT_TRUE(m_subject->GetState().Connected());
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_vpn->GetState().Connected(false);
+        });
+
+    EXPECT_FALSE(m_subject->GetState().Connected());
+    EXPECT_FALSE(m_subject->GetState().Busy());
+    EXPECT_TRUE(m_settings->GetState().HasStoredProfile());
+    EXPECT_EQ(m_subject->GetState().SignInRequest(), 0U);
+    EXPECT_EQ(m_vpn->LogoutCount, 0U);
+}
+
 TEST_F(Given_SessionController, When_ExitNodeChangeFinishes_Then_SessionReturnsToIdle)
 {
     TestHost::RunOnUiThread(
@@ -133,7 +187,7 @@ TEST_F(Given_SessionController, When_ValidatedServerConnects_Then_AuthorizationL
     EXPECT_EQ(m_authorization->FindCachedCount, 1U);
     EXPECT_EQ(m_settings->SetAuthenticationTailgateServer, server);
     EXPECT_EQ(m_settings->SetAuthenticationAuthKey, L"test-auth-key");
-    EXPECT_EQ(m_interactive->ListenArgument, server);
+    EXPECT_EQ(m_interactive->ListenArgument, L"test-profile");
 }
 
 TEST_F(Given_SessionController, When_ConnectIsRequestedDuringOperation_Then_LatestRequestIsPending)
@@ -331,6 +385,390 @@ TEST_F(Given_SessionController, When_ConnectSupersedesDisconnectDuringRefresh_Th
     EXPECT_EQ(m_vpn->DisconnectCount, 0U);
     EXPECT_TRUE(m_relay->LastPreflight.has_value());
     EXPECT_FALSE(m_subject->GetState().PendingConnect().has_value());
+}
+
+TEST_F(Given_SessionController, When_RelayIsEmpty_Then_NativeAuthorizationSkipsPreflight)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->Connect(L"", L"test-auth-key", false, false, std::nullopt);
+        });
+
+    EXPECT_FALSE(m_relay->LastPreflight);
+    EXPECT_EQ(m_settings->SetAuthenticationTailgateServer, L"");
+    EXPECT_EQ(m_interactive->ListenArgument, L"test-profile");
+    EXPECT_FALSE(m_vpn->ConnectServer);
+}
+
+TEST_F(Given_SessionController, When_NativeListenerIsReady_Then_ConnectsWithoutRelay)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->Connect(L"", L"", false, false, std::nullopt);
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_interactive->GetState().Update(
+                [](auto& state)
+                {
+                    state.ProfileId(L"test-profile");
+                    state.Status(InteractiveAuthorizationStatus::Listening);
+                });
+        });
+
+    EXPECT_EQ(m_vpn->ConnectServer, L"");
+    EXPECT_FALSE(m_relay->LastPreflight);
+}
+
+TEST_F(Given_SessionController,
+       When_ListenerFailsDuringStatusRefresh_Then_FinishesConnectionAttempt)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().HasStoredProfile(true);
+            m_subject->Connect(L"", L"", false, false, std::nullopt);
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(true);
+                });
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_interactive->GetState().Update(
+                [](auto& state)
+                {
+                    state.ProfileId(L"test-profile");
+                    state.Status(InteractiveAuthorizationStatus::Failed);
+                    state.Error(UwpError::Code::Unexpected);
+                });
+        });
+
+    EXPECT_FALSE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_FALSE(m_subject->GetState().Busy());
+    EXPECT_EQ(m_subject->GetState().Error(), UwpError::Code::Unexpected);
+    EXPECT_EQ(m_vpn->CancelConnectCount, 0U);
+}
+
+TEST_F(Given_SessionController, When_AnotherProfileListenerReportsReady_Then_DoesNotConnect)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->Connect(L"", L"", false, false, std::nullopt);
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_interactive->GetState().Update(
+                [](auto& state)
+                {
+                    state.ProfileId(L"other-profile");
+                    state.Status(InteractiveAuthorizationStatus::Listening);
+                });
+        });
+
+    EXPECT_FALSE(m_vpn->ConnectServer);
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+}
+
+TEST_F(Given_SessionController, When_StoredNativeProfileConnects_Then_ReusesItsIdentity)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().ProfileId(L"stored-profile");
+            m_settings->GetState().ProfileValidated(true);
+            m_settings->GetState().HasStoredProfile(true);
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->ConnectStoredOrRequestSignIn();
+        });
+
+    EXPECT_EQ(m_interactive->ListenArgument, L"stored-profile");
+    EXPECT_EQ(m_subject->GetState().SignInRequest(), 0U);
+    EXPECT_FALSE(m_relay->LastPreflight);
+}
+
+TEST_F(Given_SessionController, When_RelayPreflightFails_Then_RestoresPreviousNativeConnection)
+{
+    ConnectionSettingsSnapshot previous;
+    previous.TailgateServer = L"";
+    TestHost::RunOnUiThread(
+        [this, &previous]
+        {
+            m_settings->GetState().ProfileId(L"stored-profile");
+            m_settings->GetState().HasStoredProfile(true);
+            m_subject->Connect(L"https://example.com", L"", false, true, previous);
+        });
+    ASSERT_TRUE(m_relay->LastPreflight);
+    const auto operation = m_relay->LastPreflight->operationId;
+
+    TestHost::RunOnUiThread(
+        [this, operation]
+        {
+            m_relay->GetState().Update(
+                [operation](auto& state)
+                {
+                    state.OperationId(operation);
+                    state.Error(UwpError::Code::RelayConnectionFailed);
+                    state.Busy(false);
+                });
+        });
+
+    EXPECT_EQ(m_settings->RestoreConnectionSettingsArgument, previous);
+    EXPECT_EQ(m_settings->SetAuthenticationTailgateServer, L"");
+    EXPECT_EQ(m_interactive->ListenArgument, L"stored-profile");
+    EXPECT_EQ(m_relay->LastPreflight->operationId, operation);
+}
+
+TEST_F(Given_SessionController,
+       When_PolicyRestartIsRequestedForConnectedProfile_Then_UsesExistingConnectWorkflow)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().ProfileId(L"test-profile");
+            m_settings->GetState().ProfileValidated(true);
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(false);
+                    state.Connected(true);
+                });
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().PolicyRestartRequired(true);
+        });
+
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_EQ(m_subject->GetState().Activity(), SessionActivity::Starting);
+    EXPECT_EQ(m_interactive->ListenArgument, L"test-profile");
+}
+
+TEST_F(Given_SessionController,
+       When_RefreshCompletesDuringExitNodeChange_Then_PolicyRestartStillStarts)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().ProfileId(L"test-profile");
+            m_settings->GetState().ProfileValidated(true);
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(false);
+                    state.Connected(true);
+                });
+            m_subject->BeginExitNodeChange();
+        });
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Busy(false);
+                    state.Connected(true);
+                });
+            m_settings->GetState().PolicyRestartRequired(true);
+        });
+
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_EQ(m_subject->GetState().Activity(), SessionActivity::Starting);
+    EXPECT_EQ(m_interactive->ListenArgument, L"test-profile");
+}
+
+TEST_F(Given_SessionController,
+       When_PolicyRestartIsPendingAfterUserDisconnected_Then_DoesNotReconnect)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().PolicyRestartRequired(true);
+        });
+
+    EXPECT_FALSE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_FALSE(m_interactive->ListenArgument);
+}
+
+TEST_F(Given_SessionController,
+       When_DisconnectedRefreshArrivesBeforePolicyRestart_Then_ExitNodeRestartStillStarts)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Connected(true);
+                    state.Busy(false);
+                });
+            m_subject->BeginExitNodeChange();
+        });
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Connected(false);
+                    state.Busy(false);
+                });
+            m_settings->GetState().PolicyRestartRequired(true);
+        });
+
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_EQ(m_subject->GetState().Activity(), SessionActivity::Starting);
+    EXPECT_EQ(m_interactive->ListenArgument, L"test-profile");
+}
+
+TEST_F(Given_SessionController,
+       When_PolicyRestartArrivesDuringRefresh_Then_ExitNodeRestartStillStarts)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Connected(true);
+                    state.Busy(false);
+                });
+            m_subject->BeginExitNodeChange();
+        });
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_vpn->GetState().Busy(true);
+            m_settings->GetState().PolicyRestartRequired(true);
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Refreshing);
+                    state.Connected(false);
+                    state.Busy(false);
+                });
+        });
+
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_EQ(m_subject->GetState().Activity(), SessionActivity::Starting);
+    EXPECT_EQ(m_interactive->ListenArgument, L"test-profile");
+}
+
+TEST_F(Given_SessionController,
+       When_ExitNodeAcknowledgementArrivesDuringDial_Then_DialRetainsWorkflowOwnership)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Connect(L"", L"", false, true, std::nullopt);
+            m_interactive->GetState().Update(
+                [](auto& state)
+                {
+                    state.ProfileId(L"test-profile");
+                    state.Status(InteractiveAuthorizationStatus::Listening);
+                });
+        });
+    ASSERT_TRUE(m_vpn->ConnectServer.has_value());
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->FinishExitNodeChange(std::nullopt);
+        });
+
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_TRUE(m_subject->GetState().Busy());
+    EXPECT_EQ(m_subject->GetState().Activity(), SessionActivity::Starting);
+    EXPECT_EQ(m_vpn->RefreshCount, 0U);
+}
+
+TEST_F(Given_SessionController,
+       When_ExitNodeTimeoutArrivesDuringDial_Then_DialRetainsWorkflowOwnership)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Connect(L"", L"", false, true, std::nullopt);
+            m_interactive->GetState().Update(
+                [](auto& state)
+                {
+                    state.ProfileId(L"test-profile");
+                    state.Status(InteractiveAuthorizationStatus::Listening);
+                });
+        });
+    ASSERT_TRUE(m_vpn->ConnectServer.has_value());
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->FinishExitNodeChange(UwpError::Code::VpnBackgroundRestartTimedOut);
+        });
+
+    EXPECT_TRUE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_TRUE(m_subject->GetState().Busy());
+    EXPECT_EQ(m_subject->GetState().Activity(), SessionActivity::Starting);
+    EXPECT_EQ(m_vpn->RefreshCount, 0U);
+}
+
+TEST_F(Given_SessionController,
+       When_ExitNodeErrorPrecedesSuccessfulRedial_Then_ErrorRemainsVisibleAfterCompletion)
+{
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Connect(L"", L"", false, true, std::nullopt);
+            m_interactive->GetState().Update(
+                [](auto& state)
+                {
+                    state.ProfileId(L"test-profile");
+                    state.Status(InteractiveAuthorizationStatus::Listening);
+                });
+        });
+    ASSERT_TRUE(m_vpn->ConnectServer.has_value());
+
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->FinishExitNodeChange(UwpError::Code::ExitNodeRejected);
+            m_vpn->GetState().Update(
+                [](auto& state)
+                {
+                    state.Activity(VpnProfileActivity::Connecting);
+                    state.Connected(true);
+                    state.Busy(false);
+                });
+        });
+
+    EXPECT_TRUE(m_subject->GetState().Connected());
+    EXPECT_FALSE(m_subject->GetState().ConnectionOperationActive());
+    EXPECT_FALSE(m_subject->GetState().Busy());
+    EXPECT_EQ(m_subject->GetState().Error(), UwpError::Code::ExitNodeRejected);
 }
 
 } // namespace

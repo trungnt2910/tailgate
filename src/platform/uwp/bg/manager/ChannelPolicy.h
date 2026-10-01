@@ -21,6 +21,7 @@ struct ChannelPolicy
     std::string Ipv4Address;
     std::vector<std::string> Ipv6Addresses;
     std::vector<tailgate::net::packet::Ipv4Prefix> Routes;
+    std::vector<tailgate::net::packet::Ipv4Prefix> ExcludedRoutes;
     std::vector<DnsNamespace> DnsNamespaces;
 
     [[nodiscard]] static ChannelPolicy Build(const tailgate::types::netmap::NetworkConfig& config,

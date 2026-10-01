@@ -13,6 +13,7 @@
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 
+#include "common/ExitNodeChangeResult.h"
 #include "common/Settings.h"
 #include "common/VpnConstants.h"
 
@@ -98,8 +99,9 @@ void ExitNodeService::Encapsulate(EncapsulationContext& context)
     {
         return;
     }
+    context.Handled = true;
     const std::optional<tailgate::net::Ipv4Address> self =
-        tailgate::net::Ipv4Address::TryParse(context.Client.Network().SelfAddress());
+        tailgate::net::Ipv4Address::TryParse(context.Node.Network().SelfAddress());
     const std::optional<app_service::ExitNodeRequest> request =
         app_service::DecodeExitNodeRequest(*message);
     if (!self || datagram->Source() != self->HostOrder() || datagram->SourcePort() == 0 || !request)
@@ -108,15 +110,9 @@ void ExitNodeService::Encapsulate(EncapsulationContext& context)
         return;
     }
     context.ReconnectRequested =
-        context.ReconnectRequested || Handle(*datagram,
-                                             *request,
-                                             context.Client.Network(),
-                                             context.Client.ExitNode(),
-                                             m_responses) == ExitNodeAction::Reconnect;
-}
-
-void ExitNodeService::Decapsulate(DecapsulationContext&)
-{
+        context.ReconnectRequested ||
+        Handle(*datagram, *request, context.Node.Network(), context.ExitNode, m_responses) ==
+            ExitNodeAction::Reconnect;
 }
 
 void ExitNodeService::FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput)
@@ -222,6 +218,11 @@ void ExitNodeService::QueuePendingResponse(std::vector<std::vector<std::uint8_t>
                                          m_pending->Result,
                                          m_pending->Sequence,
                                          m_pending->ActiveExitNode));
+    ExitNodeChangeResult::Publish(app_service::ExitNodeResponse{
+        .Result = m_pending->Result,
+        .Sequence = m_pending->Sequence,
+        .ExitNode = m_pending->ActiveExitNode,
+    });
     Remove();
     m_logger.LogInfo("completed exit-node change after channel restart seq={} exit-node={}",
                      m_pending->Sequence,

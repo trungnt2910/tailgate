@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include <objbase.h>
+
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.UI.Core.h>
@@ -190,6 +192,7 @@ void SettingsControllerImpl::Reload()
     winrt::hstring profilePicUrl;
     winrt::hstring selfAddress;
     std::vector<UwpDevice> devices;
+    winrt::hstring profileId;
     winrt::hstring tailgateServer;
     winrt::hstring hostname;
     winrt::hstring exitNode;
@@ -202,6 +205,8 @@ void SettingsControllerImpl::Reload()
     bool registrationComplete = false;
     bool profileValidated = false;
     bool loaded = false;
+    bool policyRestartRequired = false;
+    tailgate::ipn::ipnlocal::TransitionStatus mode;
     try
     {
         const auto folder = storage::ApplicationData::Current().LocalFolder().Path();
@@ -255,8 +260,39 @@ void SettingsControllerImpl::Reload()
         }
 
         const auto values = storage::ApplicationData::Current().LocalSettings().Values();
+        policyRestartRequired =
+            winrt::unbox_value_or<winrt::hstring>(values.TryLookup(L"NetworkPolicyRestartRequired"),
+                                                  L"") == L"true";
+        profileId = winrt::unbox_value_or<winrt::hstring>(values.TryLookup(L"ProfileId"), L"");
         tailgateServer =
             winrt::unbox_value_or<winrt::hstring>(values.TryLookup(L"TailgateServer"), L"");
+        using tailgate::ipn::ipnlocal::NodeMode;
+        using tailgate::ipn::ipnlocal::TransitionFailure;
+        using tailgate::ipn::ipnlocal::TransitionPhase;
+        using tailgate::ipn::ipnlocal::TransitionStatus;
+        mode.Desired = mode.Effective =
+            tailgateServer.empty() ? NodeMode::Native : NodeMode::Hosted;
+        if (const auto stored =
+                values.TryLookup(L"ModeState").try_as<storage::ApplicationDataCompositeValue>())
+        {
+            const auto desired =
+                winrt::unbox_value_or<std::uint32_t>(stored.TryLookup(L"Desired"), 0);
+            const auto effective =
+                winrt::unbox_value_or<std::uint32_t>(stored.TryLookup(L"Effective"), 0);
+            const auto phase = winrt::unbox_value_or<std::uint32_t>(stored.TryLookup(L"Phase"), 0);
+            const auto failure =
+                winrt::unbox_value_or<std::uint32_t>(stored.TryLookup(L"Failure"), 0);
+            if (desired <= static_cast<unsigned>(NodeMode::Hosted) &&
+                effective <= static_cast<unsigned>(NodeMode::Hosted) &&
+                phase <= static_cast<unsigned>(TransitionPhase::Failed) &&
+                failure <= static_cast<unsigned>(TransitionFailure::RollbackFailed))
+            {
+                mode.Desired = static_cast<NodeMode>(desired);
+                mode.Effective = static_cast<NodeMode>(effective);
+                mode.Phase = static_cast<TransitionPhase>(phase);
+                mode.Failure = static_cast<TransitionFailure>(failure);
+            }
+        }
         hostname = winrt::unbox_value_or<winrt::hstring>(values.TryLookup(L"Hostname"), L"");
         exitNode = winrt::unbox_value_or<winrt::hstring>(values.TryLookup(L"ExitNode"), L"");
         exitNodeSelection =
@@ -287,7 +323,9 @@ void SettingsControllerImpl::Reload()
             state.AccountName(std::move(accountName));
             state.AccountDisplayName(std::move(accountDisplayName));
             state.ProfilePicUrl(std::move(profilePicUrl));
+            state.ProfileId(std::move(profileId));
             state.TailgateServer(std::move(tailgateServer));
+            state.ModeTransition(mode);
             state.Hostname(std::move(hostname));
             state.ExitNode(std::move(exitNode));
             state.ExitNodeSelection(std::move(exitNodeSelection));
@@ -300,15 +338,17 @@ void SettingsControllerImpl::Reload()
             state.ConnectionSettings(std::move(connectionSettings));
             state.RegistrationComplete(registrationComplete);
             state.ProfileValidated(profileValidated);
-            state.HasStoredProfile(profileValidated && !state.TailgateServer().empty());
+            state.HasStoredProfile(profileValidated && !state.ProfileId().empty());
             state.Loaded(loaded);
+            state.PolicyRestartRequired(policyRestartRequired);
         });
 }
 
 void SettingsControllerImpl::Clear()
 {
     const auto values = storage::ApplicationData::Current().LocalSettings().Values();
-    for (const auto* name : {L"MachinePrivateKey",
+    for (const auto* name : {L"ProfileId",
+                             L"MachinePrivateKey",
                              L"NodePrivateKey",
                              L"DiscoPrivateKey",
                              L"RegistrationComplete",
@@ -319,6 +359,7 @@ void SettingsControllerImpl::Clear()
                              L"NodeFollowupUrl",
                              L"AuthKey",
                              L"TailgateServer",
+                             L"ModeState",
                              L"Hostname",
                              L"ExitNode",
                              L"ExitNodeSelection",
@@ -327,6 +368,7 @@ void SettingsControllerImpl::Clear()
                              L"PinnedRelayPublicKey",
                              L"RelayResolution",
                              L"PendingExitNodeChange",
+                             L"ExitNodeChangeResult",
                              L"NetworkPolicyRestartRequired"})
     {
         values.Remove(name);
@@ -369,6 +411,12 @@ void SettingsControllerImpl::SetAuthentication(const winrt::hstring& tailgateSer
                                                const winrt::hstring& authKey)
 {
     const auto values = storage::ApplicationData::Current().LocalSettings().Values();
+    if (winrt::unbox_value_or<winrt::hstring>(values.TryLookup(L"ProfileId"), L"").empty())
+    {
+        GUID identifier{};
+        winrt::check_hresult(CoCreateGuid(&identifier));
+        values.Insert(L"ProfileId", winrt::box_value(winrt::to_hstring(winrt::guid{identifier})));
+    }
     values.Insert(L"TailgateServer", winrt::box_value(tailgateServer));
     if (!authKey.empty())
     {

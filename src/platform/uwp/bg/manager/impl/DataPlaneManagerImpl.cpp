@@ -85,9 +85,8 @@ void RemoveRelayResolution(const winrt::hstring& server)
 
 } // namespace
 
-DataPlaneManagerImpl::DataPlaneManagerImpl(SessionManager& sessionManager,
-                                           tailgate::hosted::PumpController& pump)
-    : m_sessionManager(sessionManager), m_pump(pump)
+DataPlaneManagerImpl::DataPlaneManagerImpl(SessionManager& sessionManager)
+    : m_sessionManager(sessionManager)
 {
 }
 
@@ -107,7 +106,6 @@ void DataPlaneManagerImpl::Register(service::IService& service)
 void DataPlaneManagerImpl::Start(SessionGeneration generation)
 {
     std::lock_guard lock(m_mutex);
-    m_pump.Reset();
     m_generation = generation;
     m_started = true;
     for (service::IService* service : m_services)
@@ -119,7 +117,9 @@ void DataPlaneManagerImpl::Start(SessionGeneration generation)
 
 DataPlaneProbe DataPlaneManagerImpl::Probe(const std::string& server,
                                            const std::string& host,
-                                           const std::string& service)
+                                           const std::string& service,
+                                           const std::string& networkInterface,
+                                           std::stop_token cancellation)
 {
     m_sessionManager.Report(SessionEvent{
         .Generation = m_generation,
@@ -134,7 +134,7 @@ DataPlaneProbe DataPlaneManagerImpl::Probe(const std::string& server,
     }
     else
     {
-        relay.Resolve();
+        relay.Resolve(networkInterface, cancellation);
     }
     m_sessionManager.Report(SessionEvent{
         .Generation = m_generation,
@@ -172,7 +172,6 @@ void DataPlaneManagerImpl::Connect()
 void DataPlaneManagerImpl::Stop()
 {
     std::lock_guard lock(m_mutex);
-    m_pump.Reset();
     for (auto service = m_services.rbegin(); service != m_services.rend(); ++service)
     {
         (*service)->Stop();
@@ -183,7 +182,6 @@ void DataPlaneManagerImpl::Stop()
 void DataPlaneManagerImpl::Reset()
 {
     std::lock_guard lock(m_mutex);
-    m_pump.Reset();
     for (service::IService* service : m_services)
     {
         service->Reset();
@@ -203,24 +201,9 @@ void DataPlaneManagerImpl::Encapsulate(service::EncapsulationContext& context)
     {
         service->Encapsulate(context);
     }
-    SchedulePump(context.RemoteOutput);
 }
 
-void DataPlaneManagerImpl::Decapsulate(service::DecapsulationContext& context)
-{
-    std::lock_guard lock(m_mutex);
-    if (!m_started)
-    {
-        return;
-    }
-    for (service::IService* service : m_services)
-    {
-        service->Decapsulate(context);
-    }
-}
-
-void DataPlaneManagerImpl::FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput,
-                                      std::vector<std::uint8_t>& remoteOutput)
+void DataPlaneManagerImpl::FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput)
 {
     std::lock_guard lock(m_mutex);
     if (!m_started)
@@ -231,8 +214,6 @@ void DataPlaneManagerImpl::FlushLocal(std::vector<std::vector<std::uint8_t>>& lo
     {
         service->FlushLocal(localOutput);
     }
-    // Decide after the entire incoming batch drains, not after each decoded relay frame.
-    SchedulePump(remoteOutput);
 }
 
 std::size_t DataPlaneManagerImpl::ServiceCount() const
@@ -248,26 +229,6 @@ void DataPlaneManagerImpl::Report(SessionEventKind kind)
         .Component = SessionComponent::DataPlane,
         .Kind = kind,
     });
-}
-
-void DataPlaneManagerImpl::SchedulePump(std::vector<std::uint8_t>& remoteOutput)
-{
-    bool pending = false;
-    std::optional<tailgate::base::TimeProvider::TimePoint> deadline;
-    for (const auto* service : m_services)
-    {
-        pending |= service->HasLocalOutput();
-        const auto next = service->NextDeadline();
-        if (next && (!deadline || *next < *deadline))
-        {
-            deadline = next;
-        }
-    }
-    if (const auto schedule = m_pump.Update(pending, deadline))
-    {
-        const auto bytes = tailgate::hosted::EncodePumpSchedule(*schedule).Encode();
-        remoteOutput.insert(remoteOutput.end(), bytes.begin(), bytes.end());
-    }
 }
 
 } // namespace tailgate::uwp::bg::manager

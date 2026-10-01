@@ -109,8 +109,8 @@ public:
     void StateChanged(const tailgate::control::client::RegistrationResult& state) override
     {
         const std::optional<ForegroundConnectionNotification> notification =
-            BuildAuthenticationNotification(
-                state, winrt::to_string(Settings::GetString(L"TailgateServer")));
+            BuildAuthenticationNotification(state,
+                                            winrt::to_string(Settings::GetString(L"ProfileId")));
         if (!notification)
         {
             return;
@@ -155,9 +155,14 @@ ControlPlaneManagerImpl::~ControlPlaneManagerImpl()
     StopMaintenance();
 }
 
-void ControlPlaneManagerImpl::Start(SessionGeneration generation)
+void ControlPlaneManagerImpl::Start(SessionGeneration generation,
+                                    const std::string& networkInterface)
 {
+    std::lock_guard lock(m_mutex);
     m_generation = generation;
+    m_networkInterface = networkInterface;
+    m_endpoints.clear();
+    m_openCancellation = std::stop_source{};
     m_stopping = false;
     Report(SessionEventKind::Connecting);
 }
@@ -187,6 +192,14 @@ tailgate::control::client::RegistrationResult
 ControlPlaneManagerImpl::Connect(const std::string& authKey)
 {
     m_logger.LogInfo("starting control registration");
+    std::stop_token cancellation;
+    std::string networkInterface;
+    {
+        std::lock_guard lock(m_mutex);
+        cancellation = m_openCancellation.get_token();
+        networkInterface = m_networkInterface;
+        m_refreshEndpoints = false;
+    }
     std::unique_ptr<tailgate::control::client::Session> controlSession =
         m_controlSessionFactory.CreateSession(
             tailgate::control::client::SessionOptions{
@@ -194,10 +207,11 @@ ControlPlaneManagerImpl::Connect(const std::string& authKey)
                 .MachinePrivateKey = m_machinePrivateKey,
                 .NodePrivateKey = m_nodePrivateKey,
                 .ExternalNodePublicKey = std::nullopt,
-                .NetworkInterface = {},
+                .NetworkInterface = networkInterface,
                 .ReadinessToken = {},
                 .IoTimeout = ControlIoTimeout,
                 .PlaintextConnectTimeout = PlaintextControlConnectTimeout,
+                .Cancellation = cancellation,
             },
             m_socketFactory);
     controlSession->SetDiscoPrivateKey(m_discoPrivateKey);
@@ -207,6 +221,7 @@ ControlPlaneManagerImpl::Connect(const std::string& authKey)
         {
             throw std::runtime_error("Control maintenance is stopping.");
         }
+        controlSession->SetEndpoints(m_endpoints);
         m_controlSession = std::move(controlSession);
     }
     m_controlSession->SetReadTimeout(std::nullopt);
@@ -245,6 +260,7 @@ ControlPlaneManagerImpl::Connect(const std::string& authKey)
     Settings::Remove(L"NodeFollowupUrl");
     storage::ApplicationData::Current().SignalDataChanged();
     m_controlSession->UpdateHostInfo(config.DerpRegion());
+    m_preferredDerp = config.DerpRegion();
     if (!registration.NetworkMapStreaming)
     {
         m_controlSession->SetPreferredDerp(config.DerpRegion());
@@ -254,6 +270,63 @@ ControlPlaneManagerImpl::Connect(const std::string& authKey)
     return registration;
 }
 
+void ControlPlaneManagerImpl::PublishEndpoints(
+    std::vector<tailgate::control::client::MapEndpoint> endpoints)
+{
+    std::unique_lock lock(m_mutex);
+    m_endpoints = std::move(endpoints);
+    if (m_maintenanceActive)
+    {
+        // The control worker owns its protocol state. Interrupt just its stream;
+        // the normal reconnect uses the latest endpoints without stopping the VPN.
+        m_refreshEndpoints = true;
+        if (m_controlSession)
+        {
+            m_controlSession->Close();
+        }
+        m_stopChanged.notify_all();
+        return;
+    }
+    if (!m_controlSession)
+    {
+        throw std::logic_error("endpoint publication requires the control bootstrap worker");
+    }
+    m_controlSession->SetEndpoints(m_endpoints);
+    lock.unlock();
+    // Bootstrap discovers UDP endpoints after registration. SetEndpoints only changes
+    // local request state; the existing read-only map stream will not publish it.
+    // This caller still owns the session until StartMaintenance. Release the lock
+    // so RequestStop can close a stalled update during connection cancellation.
+    m_controlSession->SetReadTimeout(ControlIoTimeout);
+    try
+    {
+        m_controlSession->UpdateHostInfo(m_preferredDerp);
+    }
+    catch (...)
+    {
+        m_controlSession->SetReadTimeout(std::nullopt);
+        throw;
+    }
+    m_controlSession->SetReadTimeout(std::nullopt);
+}
+
+void ControlPlaneManagerImpl::ChangeNetwork(const std::string& networkInterface)
+{
+    std::stop_source cancellation(std::nostopstate);
+    {
+        std::lock_guard lock(m_mutex);
+        m_networkInterface = networkInterface;
+        cancellation = m_openCancellation;
+        m_openCancellation = std::stop_source{};
+        if (m_controlSession)
+        {
+            m_controlSession->Close();
+        }
+    }
+    cancellation.request_stop();
+    m_stopChanged.notify_all();
+}
+
 void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandler)
 {
     if (m_maintenanceThread.joinable())
@@ -261,6 +334,10 @@ void ControlPlaneManagerImpl::StartMaintenance(NetworkMapHandler networkMapHandl
         throw std::logic_error("Control maintenance is already running.");
     }
     m_stopping = false;
+    {
+        std::lock_guard lock(m_mutex);
+        m_maintenanceActive = true;
+    }
     m_maintenanceThread = std::thread(
         [this, networkMapHandler = std::move(networkMapHandler)]
         {
@@ -342,11 +419,19 @@ void ControlPlaneManagerImpl::StopMaintenance()
         m_maintenanceThread.join();
         m_logger.LogDebug("control maintenance join end");
     }
+    std::lock_guard lock(m_mutex);
+    m_maintenanceActive = false;
 }
 
 void ControlPlaneManagerImpl::RequestStop()
 {
-    m_stopping = true;
+    std::stop_source source(std::nostopstate);
+    {
+        std::lock_guard lock(m_mutex);
+        m_stopping = true;
+        source = m_openCancellation;
+    }
+    source.request_stop();
     m_stopChanged.notify_all();
     std::lock_guard lock(m_mutex);
     if (m_controlSession)
@@ -397,12 +482,13 @@ const tailgate::crypto::Bytes32& ControlPlaneManagerImpl::DiscoPrivateKey() cons
 bool ControlPlaneManagerImpl::WaitForRetry(std::chrono::milliseconds delay) const
 {
     std::unique_lock lock(m_mutex);
-    return !m_stopChanged.wait_for(lock,
-                                   delay,
-                                   [this]()
-                                   {
-                                       return m_stopping.load();
-                                   });
+    (void)m_stopChanged.wait_for(lock,
+                                 delay,
+                                 [this]()
+                                 {
+                                     return m_stopping.load() || m_refreshEndpoints;
+                                 });
+    return !m_stopping;
 }
 
 void ControlPlaneManagerImpl::Report(SessionEventKind kind)

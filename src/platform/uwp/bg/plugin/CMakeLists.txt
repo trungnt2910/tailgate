@@ -1,6 +1,12 @@
 tailgate_uwp_add_library(
     Tailgate.Uwp.Background.Plugin
     STATIC
+    HostedConnection.cpp
+    HostedConnection.h
+    ModeRequests.cpp
+    ModeRequests.h
+    NativeConnection.cpp
+    NativeConnection.h
     TailgateVpnPlugin.cpp
     TailgateVpnPlugin.h
 )

@@ -7,6 +7,7 @@
 #include <winrt/base.h>
 
 #include <tailgate/crypto/Crypto.h>
+#include <tailgate/ipn/ipnlocal/TransitionCoordinator.h>
 
 #include "app/model/ObservableState.h"
 
@@ -75,7 +76,9 @@ public:
     TAILGATE_PROPERTY(AccountName, winrt::hstring);
     TAILGATE_PROPERTY(AccountDisplayName, winrt::hstring);
     TAILGATE_PROPERTY(ProfilePicUrl, winrt::hstring);
+    TAILGATE_PROPERTY(ProfileId, winrt::hstring);
     TAILGATE_PROPERTY(TailgateServer, winrt::hstring);
+    TAILGATE_PROPERTY(ModeTransition, tailgate::ipn::ipnlocal::TransitionStatus);
     TAILGATE_PROPERTY(Hostname, winrt::hstring);
     TAILGATE_PROPERTY(ExitNode, winrt::hstring);
     TAILGATE_PROPERTY(ExitNodeSelection, winrt::hstring);
@@ -90,6 +93,7 @@ public:
     TAILGATE_PROPERTY(ProfileValidated, bool);
     TAILGATE_PROPERTY(HasStoredProfile, bool);
     TAILGATE_PROPERTY(Loaded, bool);
+    TAILGATE_PROPERTY(PolicyRestartRequired, bool);
 };
 
 } // namespace tailgate::uwp

@@ -45,6 +45,7 @@ public:
     ProcessEvent(const tailgate::base::Event& event) override;
     [[nodiscard]] std::vector<tailgate::types::netmap::NetworkConfig> Maintain() override;
     void RequestReconnect() noexcept override;
+    void ChangeNetwork(std::optional<std::string> networkInterface) override;
     void Logout() override;
     [[nodiscard]] const tailgate::crypto::Bytes32& NodePublicKey() const override;
     [[nodiscard]] const tailgate::crypto::Bytes32& DiscoPrivateKey() const override;
@@ -56,6 +57,7 @@ private:
         std::unique_ptr<tailgate::control::client::Session> Session;
         std::optional<tailgate::types::netmap::NetworkConfig> Network;
         std::exception_ptr Error;
+        std::uint64_t Generation = 0;
     };
 
     void Connect();
@@ -78,7 +80,9 @@ private:
     tailgate::base::TimeProvider& m_timeProvider;
     tailgate::base::EventLoop& m_eventLoop;
     std::unique_ptr<tailgate::control::client::Session> m_session;
-    std::thread m_reconnectThread;
+    std::jthread m_reconnectThread;
+    std::uint64_t m_networkGeneration = 0;
+    bool m_networkAvailable = true;
     std::mutex m_reconnectMutex;
     std::optional<ReconnectResult> m_reconnectResult;
     std::optional<tailgate::crypto::Bytes32> m_discoPrivateKey;

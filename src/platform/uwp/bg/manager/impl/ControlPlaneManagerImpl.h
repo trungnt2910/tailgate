@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <stop_token>
 #include <thread>
 
 #include <tailgate/base/Logger.h>
@@ -29,10 +30,12 @@ public:
                             TcpSocketFactory& socketFactory);
     ~ControlPlaneManagerImpl() override;
 
-    void Start(SessionGeneration generation) override;
+    void Start(SessionGeneration generation, const std::string& networkInterface) override;
     void LoadIdentity(bool registered) override;
     [[nodiscard]] tailgate::control::client::RegistrationResult
     Connect(const std::string& authKey) override;
+    void PublishEndpoints(std::vector<tailgate::control::client::MapEndpoint> endpoints) override;
+    void ChangeNetwork(const std::string& networkInterface) override;
     void StartMaintenance(NetworkMapHandler networkMapHandler) override;
     void StopMaintenance() override;
     void RequestStop() override;
@@ -53,6 +56,12 @@ private:
     SessionManager& m_sessionManager;
     tailgate::control::client::SessionFactory& m_controlSessionFactory;
     TcpSocketFactory& m_socketFactory;
+    std::stop_source m_openCancellation;
+    std::string m_networkInterface;
+    std::vector<tailgate::control::client::MapEndpoint> m_endpoints;
+    bool m_refreshEndpoints = false;
+    bool m_maintenanceActive = false;
+    int m_preferredDerp = 0;
     SessionGeneration m_generation = 0;
     tailgate::crypto::Bytes32 m_machinePrivateKey{};
     tailgate::crypto::Bytes32 m_nodePrivateKey{};

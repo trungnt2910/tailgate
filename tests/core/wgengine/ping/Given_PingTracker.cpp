@@ -42,6 +42,15 @@ tailgate::types::netmap::NetworkConfig Network(const tailgate::crypto::Bytes32& 
     return result;
 }
 
+tailgate::wgengine::ping::CreateDiscoProbe ProbeBuilder(tailgate::disco::Disco& disco)
+{
+    return [&disco](const tailgate::crypto::Bytes32&, const tailgate::crypto::Bytes32& key)
+               -> std::optional<tailgate::wgengine::ping::DiscoProbe>
+    {
+        return tailgate::wgengine::ping::DiscoProbe::Build(disco, key);
+    };
+}
+
 struct Subject
 {
     tailgate::di::Injector Injector;
@@ -74,7 +83,7 @@ TEST(Given_PingTracker, When_DiscoPingStarts_Then_PortableProbeIsBuilt)
     };
 
     const tailgate::wgengine::ping::StartResult result =
-        subject.Tracker->Start(request, network, localDisco, {});
+        subject.Tracker->Start(request, network, ProbeBuilder(localDisco), {});
     const std::optional<tailgate::disco::Disco::Message> message =
         result.Outbound ? remoteDisco.Parse(result.Outbound->Payload) : std::nullopt;
 
@@ -106,7 +115,7 @@ TEST(Given_PingTracker, When_MatchingDiscoPongCompletes_Then_MetadataAndLatencyA
         .Relay = "hosted-relay",
     };
     const tailgate::wgengine::ping::StartResult started =
-        subject.Tracker->Start(request, network, localDisco, Started);
+        subject.Tracker->Start(request, network, ProbeBuilder(localDisco), Started);
     ASSERT_TRUE(started.Outbound.has_value());
     const std::optional<tailgate::disco::Disco::Message> ping =
         remoteDisco.Parse(started.Outbound->Payload);
@@ -143,7 +152,7 @@ TEST(Given_PingTracker, When_RequestExpires_Then_TypedTimeoutResultIsReturnedOnc
         .Relay = {},
     };
     const tailgate::wgengine::ping::StartResult started =
-        subject.Tracker->Start(request, network, localDisco, {});
+        subject.Tracker->Start(request, network, ProbeBuilder(localDisco), {});
     ASSERT_TRUE(started.Outbound.has_value());
     const auto deadline = tailgate::wgengine::ping::Tracker::TimePoint(Timeout);
 
@@ -176,7 +185,7 @@ TEST(Given_PingTracker, When_TsmpPongCompletes_Then_PeerApiPortIsReturned)
         .Relay = {},
     };
     const tailgate::wgengine::ping::StartResult started =
-        subject.Tracker->Start(request, network, localDisco, Started);
+        subject.Tracker->Start(request, network, ProbeBuilder(localDisco), Started);
     ASSERT_TRUE(started.Outbound.has_value());
     const std::optional<std::vector<std::uint8_t>> pongPacket =
         tailgate::net::packet::TsmpPacket::BuildPong(started.Outbound->Payload, 8080);
@@ -216,7 +225,7 @@ TEST(Given_PingTracker, When_PeerNodeKeyIsInvalid_Then_ProbeIsRejected)
     };
 
     const tailgate::wgengine::ping::StartResult result =
-        subject.Tracker->Start(request, network, disco, {});
+        subject.Tracker->Start(request, network, ProbeBuilder(disco), {});
 
     EXPECT_EQ(result.Status, tailgate::wgengine::ping::StartStatus::NoNodeKey);
     EXPECT_FALSE(result.Outbound.has_value());
@@ -237,11 +246,78 @@ TEST(Given_PingTracker, When_PeerDoesNotExist_Then_NoProbeIsTracked)
     };
 
     const tailgate::wgengine::ping::StartResult result =
-        subject.Tracker->Start(request, network, disco, {});
+        subject.Tracker->Start(request, network, ProbeBuilder(disco), {});
     const std::vector<tailgate::wgengine::ping::Result> expired = subject.Tracker->Expire(
         tailgate::wgengine::ping::Tracker::TimePoint(std::chrono::seconds(10)));
 
     EXPECT_EQ(result.Status, tailgate::wgengine::ping::StartStatus::NoMatchingPeer);
     EXPECT_FALSE(result.Outbound.has_value());
     EXPECT_TRUE(expired.empty());
+}
+
+TEST(Given_PingTracker, When_RetryIsDue_Then_InjectedSenderOwnsTransactionAndDeadlineAdvances)
+{
+    Subject subject;
+    const auto network =
+        Network(tailgate::crypto::GeneratePrivateKey(), tailgate::crypto::GeneratePrivateKey());
+    int sends = 0;
+    tailgate::disco::Disco::TransactionId transaction{};
+    const tailgate::wgengine::ping::CreateDiscoProbe send =
+        [&](const auto&, const auto&) -> std::optional<tailgate::wgengine::ping::DiscoProbe>
+    {
+        transaction.front() = static_cast<std::uint8_t>(++sends);
+        return tailgate::wgengine::ping::DiscoProbe{.Transaction = transaction, .Payload = {}};
+    };
+    const tailgate::wgengine::ping::Request request{.Id = RequestId,
+                                                    .Target = "peer",
+                                                    .PingMode =
+                                                        tailgate::wgengine::ping::Mode::Disco,
+                                                    .Timeout = std::chrono::seconds(5),
+                                                    .Relay = {}};
+    const auto started = subject.Tracker->Start(request, network, send, {});
+    ASSERT_TRUE(started.Outbound.has_value());
+    const auto due = tailgate::wgengine::ping::Tracker::TimePoint(std::chrono::seconds(1));
+    ASSERT_EQ(subject.Tracker->NextDeadline(), due);
+
+    const auto probes = subject.Tracker->RetryDisco(due, send);
+    const auto deadline = subject.Tracker->NextDeadline();
+    const auto completed =
+        subject.Tracker->CompleteDisco(started.Outbound->Peer, transaction, 0, due);
+
+    EXPECT_EQ(sends, 2);
+    EXPECT_EQ(probes.size(), 1U);
+    EXPECT_EQ(deadline, due + std::chrono::seconds(1));
+    EXPECT_TRUE(completed.has_value());
+    EXPECT_FALSE(subject.Tracker->NextDeadline().has_value());
+}
+
+TEST(Given_PingTracker, When_RequestHasExpired_Then_RetryDoesNotSend)
+{
+    Subject subject;
+    const auto network =
+        Network(tailgate::crypto::GeneratePrivateKey(), tailgate::crypto::GeneratePrivateKey());
+    int sends = 0;
+    const tailgate::wgengine::ping::CreateDiscoProbe send =
+        [&](const auto&, const auto&) -> std::optional<tailgate::wgengine::ping::DiscoProbe>
+    {
+        ++sends;
+        return tailgate::wgengine::ping::DiscoProbe{};
+    };
+    const tailgate::wgengine::ping::Request request{.Id = RequestId,
+                                                    .Target = "peer",
+                                                    .PingMode =
+                                                        tailgate::wgengine::ping::Mode::Disco,
+                                                    .Timeout = std::chrono::seconds(1),
+                                                    .Relay = {}};
+    const auto started = subject.Tracker->Start(request, network, send, {});
+    ASSERT_TRUE(started.Outbound.has_value());
+    const auto due = tailgate::wgengine::ping::Tracker::TimePoint(std::chrono::seconds(1));
+
+    const auto probes = subject.Tracker->RetryDisco(due, send);
+    const auto expired = subject.Tracker->Expire(due);
+
+    EXPECT_EQ(sends, 1);
+    EXPECT_TRUE(probes.empty());
+    EXPECT_EQ(expired.size(), 1U);
+    EXPECT_FALSE(subject.Tracker->NextDeadline().has_value());
 }

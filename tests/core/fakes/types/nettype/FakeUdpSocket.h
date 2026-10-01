@@ -105,6 +105,10 @@ public:
     OpenUdpSocket(const tailgate::types::nettype::UdpSocketOptions& options) override
     {
         Options.push_back(options);
+        if (FailOpen)
+        {
+            return nullptr;
+        }
         auto state = std::make_shared<FakeUdpSocketState>();
         state->LocalEndpoint = options.BindEndpoint;
         if (state->LocalEndpoint.Port() == 0)
@@ -118,6 +122,8 @@ public:
     }
 
     static constexpr std::uint16_t FirstEphemeralPort = 40000;
+
+    bool FailOpen = false;
 
     std::vector<tailgate::types::nettype::UdpSocketOptions> Options;
     std::vector<std::shared_ptr<FakeUdpSocketState>> States;

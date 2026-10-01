@@ -142,14 +142,9 @@ void SettingsPageViewImpl::Render()
     m_serverItem.Tapped(
         [this](const auto&, const auto&)
         {
-            const winrt::hstring hostPort =
-                m_state.TailgateServer().empty()
-                    ? m_resourceLoader.Get(Resources::Settings::NotConfigured)
-                    : m_state.TailgateHostPort();
-            m_clipboardController.SetText(hostPort);
+            m_clipboardController.SetText(m_state.TailgateHostPort());
         });
     list.Items().Append(m_serverItem);
-
     list.Items().Append(m_uiFactory.SectionSpacing());
     auto bugItem = m_uiFactory.ListItem(
         m_uiFactory.Text(m_resourceLoader.Get(Resources::Settings::BugReport), AppStyle::TextBody));
@@ -196,11 +191,12 @@ void SettingsPageViewImpl::OnStateChange(const std::string&)
     m_notSignedIn.Visibility(signedOutVisibility);
     m_profileChevron.Visibility(signedInVisibility);
     m_adminItem.Visibility(signedInVisibility);
-    m_signedInSpacing.Visibility(signedInVisibility);
-    m_serverItem.Visibility(signedInVisibility);
-    m_serverValue.Text(m_state.TailgateServer().empty()
-                           ? m_resourceLoader.Get(Resources::Settings::NotConfigured)
-                           : m_state.TailgateHostPort());
+    const auto relayVisibility = signedIn && !m_state.TailgateServer().empty()
+                                     ? xaml::Visibility::Visible
+                                     : xaml::Visibility::Collapsed;
+    m_signedInSpacing.Visibility(relayVisibility);
+    m_serverItem.Visibility(relayVisibility);
+    m_serverValue.Text(m_state.TailgateHostPort());
     m_versionText.Text(
         m_resourceLoader.Format(Resources::Settings::Version,
                                 std::wstring_view(m_packageController.GetState().VersionText())));

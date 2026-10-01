@@ -22,6 +22,9 @@ struct SessionState
     std::deque<tailgate::types::netmap::NetworkConfig> NetworkMaps;
     tailgate::control::client::RegistrationResult Registration;
     std::vector<std::string> Operations;
+    std::vector<tailgate::control::client::MapEndpoint> Endpoints;
+    std::vector<std::vector<tailgate::control::client::MapEndpoint>> PublishedEndpoints;
+    std::vector<int> PublishedDerpRegions;
     tailgate::crypto::Bytes32 NodePublicKey{};
     tailgate::crypto::Bytes32 DiscoPrivateKey{};
     std::optional<tailgate::crypto::Bytes32> GeneratedDiscoPrivateKey;
@@ -89,9 +92,11 @@ public:
     {
     }
 
-    void UpdateHostInfo(int) override
+    void UpdateHostInfo(int preferredDerp) override
     {
         m_state->Operations.emplace_back("update-host-info");
+        m_state->PublishedEndpoints.push_back(m_state->Endpoints);
+        m_state->PublishedDerpRegions.push_back(preferredDerp);
     }
 
     void SetDiscoPrivateKey(const tailgate::crypto::Bytes32& privateKey) override
@@ -99,8 +104,9 @@ public:
         m_state->DiscoPrivateKey = privateKey;
     }
 
-    void SetEndpoints(std::vector<tailgate::control::client::MapEndpoint>) override
+    void SetEndpoints(std::vector<tailgate::control::client::MapEndpoint> endpoints) override
     {
+        m_state->Endpoints = std::move(endpoints);
     }
 
     void SetPreferredDerp(int) override

@@ -41,6 +41,8 @@ public:
     [[nodiscard]] virtual SocketIoResult TrySendTo(const tailgate::net::Endpoint& destination,
                                                    const std::vector<std::uint8_t>& payload) = 0;
     [[nodiscard]] virtual UdpReceiveResult TryReceive(std::size_t maximumSize) = 0;
+    // Port zero means native binding is still pending. A completed bind has a
+    // nonzero port and signals Writable; setup failure signals Error instead.
     [[nodiscard]] virtual tailgate::net::Endpoint LocalEndpoint() const = 0;
     virtual void SetWriteInterest(bool enabled) = 0;
     virtual void Close() noexcept = 0;

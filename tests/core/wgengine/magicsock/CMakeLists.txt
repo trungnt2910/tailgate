@@ -1,5 +1,6 @@
 tailgate_add_test_library(
     tailgate_tests_core_wgengine_magicsock
+    Given_MagicsockBind.cpp
     Given_MagicsockConnection.cpp
     Given_PeerPathState.cpp
 )
@@ -8,4 +9,9 @@ target_link_libraries(
     PRIVATE
         tailgate_core
         tailgate_tests_core_fakes
+)
+target_include_directories(
+    tailgate_tests_core_wgengine_magicsock
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/core
 )

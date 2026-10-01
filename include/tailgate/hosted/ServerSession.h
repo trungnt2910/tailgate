@@ -9,6 +9,7 @@
 
 #include <tailgate/base/TimeProvider.h>
 #include <tailgate/crypto/Crypto.h>
+#include <tailgate/hosted/Delegation.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/types/netmap/NetworkMap.h>
 
@@ -62,6 +63,7 @@ struct ServerSessionProcessResult
     std::optional<PeerEndpoint> VerifiedPeerEndpoint;
     std::optional<tailgate::types::netmap::NetworkConfig> NetworkMap;
     std::optional<DerpAuthenticationResponse> DerpResponse;
+    std::optional<DelegationRequest> Delegation;
     std::vector<Frame> RemoteOutput;
     std::optional<std::string> DnsName;
     bool ClientReady = false;

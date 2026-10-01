@@ -80,7 +80,8 @@ protected:
     crypto::Bytes32 m_peerPublic;
     wgengine::wireguard::WireGuardTunnel m_peer;
     wgengine::wireguard::WireGuardTunnel::PeerId m_peerId = 0;
-    hosted::Client m_client;
+    tailgate::wgengine::PeerProtocol m_clientProtocol;
+    hosted::Client m_client{m_clientProtocol};
 };
 
 tailgate::hosted::ClientConfig MakeConfig()
@@ -111,7 +112,8 @@ tailgate::types::netmap::PeerConfig MakePeer(const tailgate::crypto::Bytes32& pu
 
 TEST_F(Given_HostedClient, When_Started_Then_InitialNetworkMapFrameIsReturned)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     const auto expectedNodeId = config.Network.SelfNodeId();
     const std::string expectedDomain = config.Network.Domain();
@@ -132,7 +134,8 @@ TEST_F(Given_HostedClient, When_Started_Then_InitialNetworkMapFrameIsReturned)
 
 TEST_F(Given_HostedClient, When_KeepAliveIsBuilt_Then_HeartbeatFrameIsReturned)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     (void)subject.Start(MakeConfig());
 
     const std::vector<std::uint8_t> output = subject.BuildKeepAlive();
@@ -148,7 +151,8 @@ TEST_F(Given_HostedClient, When_KeepAliveIsBuilt_Then_HeartbeatFrameIsReturned)
 
 TEST_F(Given_HostedClient, When_KeepAliveIsRequestedBeforeStart_Then_NoTransportBytesAreProduced)
 {
-    hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    hosted::Client subject{subjectProtocol};
 
     const auto output = subject.BuildKeepAlive();
 
@@ -157,7 +161,8 @@ TEST_F(Given_HostedClient, When_KeepAliveIsRequestedBeforeStart_Then_NoTransport
 
 TEST_F(Given_HostedClient, When_KeepAliveIsRequestedAfterStop_Then_NoTransportBytesAreProduced)
 {
-    hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    hosted::Client subject{subjectProtocol};
     (void)subject.Start(MakeConfig());
     subject.Stop();
 
@@ -170,15 +175,17 @@ TEST_F(Given_HostedClient,
        When_KeepAliveArrivesDuringReconnect_Then_NewRelayStreamHasNoMissingPrefix)
 {
     constexpr std::size_t PacketCapacity = 1500;
-    hosted::Client subject;
-    (void)subject.Start(MakeConfig());
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    hosted::Client subject{subjectProtocol};
+    const auto config = MakeConfig();
+    (void)subject.Start(config);
     subject.Stop();
     hosted::PacketEncoder encoder;
     hosted::Decoder relay;
 
     encoder.Queue(subject.BuildKeepAlive());
     const auto obsoleteTransportPacket = encoder.Next(PacketCapacity);
-    (void)subject.Start(MakeConfig());
+    (void)subject.Start(config);
     encoder.Queue(subject.BuildKeepAlive());
     relay.Feed(encoder.Next(PacketCapacity));
     const auto firstFrame = relay.Next();
@@ -193,7 +200,8 @@ TEST_F(Given_HostedClient,
 
 TEST_F(Given_HostedClient, When_DataPathReadyArrives_Then_ReadinessIsReported)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     (void)subject.Start(MakeConfig());
     const tailgate::hosted::Frame ready(tailgate::hosted::MessageType::DataPathReady, {});
 
@@ -208,7 +216,8 @@ TEST_F(Given_HostedClient,
 {
     constexpr std::uint16_t PeerPort = 41641;
     constexpr std::uint16_t ServerPort = 51234;
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     const tailgate::crypto::Bytes32 peerNodePrivate = tailgate::crypto::GeneratePrivateKey();
     const tailgate::crypto::Bytes32 peerNodePublic =
@@ -260,7 +269,8 @@ TEST_F(Given_HostedClient,
 
 TEST_F(Given_HostedClient, When_NetworkMapIsUpdated_Then_RelayUpdateFrameIsReturned)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     tailgate::types::netmap::NetworkConfig next = config.Network;
     next.SelfName("client.example.ts.net");
@@ -281,7 +291,8 @@ TEST_F(Given_HostedClient, When_NetworkMapIsUpdated_Then_RelayUpdateFrameIsRetur
 
 TEST_F(Given_HostedClient, When_HeartbeatArrives_Then_HeartbeatIsReturned)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     (void)subject.Start(MakeConfig());
     const tailgate::hosted::Frame heartbeat(tailgate::hosted::MessageType::Heartbeat, {});
 
@@ -299,7 +310,8 @@ TEST_F(Given_HostedClient, When_HeartbeatArrives_Then_HeartbeatIsReturned)
 TEST_F(Given_HostedClient, When_DerpChallengeArrives_Then_AuthenticatedResponseIsReturned)
 {
     constexpr std::uint64_t RequestId = 77;
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     (void)subject.Start(MakeConfig());
     const tailgate::hosted::Frame challenge(
         tailgate::hosted::MessageType::DerpChallenge,
@@ -323,7 +335,8 @@ TEST_F(Given_HostedClient, When_DerpChallengeArrives_Then_AuthenticatedResponseI
 TEST_F(Given_HostedClient,
        When_DirectWireGuardPacketHasIncorrectRelayHint_Then_CryptographicPeerIsUsed)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     tailgate::crypto::Bytes32 firstPeerPrivate{};
     firstPeerPrivate[1] = 1;
@@ -372,7 +385,8 @@ TEST_F(Given_HostedClient, When_DirectDiscoPongArrives_Then_VerifiedEndpointIsAc
     constexpr std::uint16_t DirectPort = 41641;
     const tailgate::net::Ipv4Address directAddress =
         tailgate::net::Ipv4Address::FromOctets(192, 0, 2, 10);
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     const tailgate::crypto::Bytes32 clientDiscoPrivate = config.DiscoPrivateKey;
     const tailgate::crypto::Bytes32 clientNodePublic = config.NodePublicKey;
@@ -421,7 +435,8 @@ TEST_F(Given_HostedClient,
        When_FreshDiscoPongConfirmsSameEndpoint_Then_RelayReceivesNewConfirmation)
 {
     const net::Endpoint direct(net::Ipv4Address::FromOctets(192, 0, 2, 10), 41641);
-    hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    hosted::Client subject{subjectProtocol};
     auto config = MakeConfig();
     disco::Disco clientDisco(config.DiscoPrivateKey, config.NodePublicKey);
     const auto peerPrivate = crypto::GeneratePrivateKey();
@@ -474,7 +489,8 @@ TEST_F(Given_HostedClient, When_DerpDiscoPingArrives_Then_PongUsesIngressRoute)
     constexpr std::uint64_t RouteToken = 42;
     constexpr std::uint16_t ConfiguredDerpRegion = 5;
     constexpr std::uint16_t IngressDerpRegion = 7;
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     config.Network.DerpRegion(ConfiguredDerpRegion);
     const tailgate::crypto::Bytes32 clientDiscoPrivate = config.DiscoPrivateKey;
@@ -528,7 +544,8 @@ TEST_F(Given_HostedClient, When_DerpDiscoPingArrives_Then_PongUsesIngressRoute)
 
 TEST_F(Given_HostedClient, When_NetworkMapRetainsIdentity_Then_CoreUpdatesItsState)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     tailgate::types::netmap::NetworkConfig next = config.Network;
     next.SelfName("client.example.ts.net");
@@ -547,7 +564,8 @@ TEST_F(Given_HostedClient, When_NetworkMapRetainsIdentity_Then_CoreUpdatesItsSta
 
 TEST_F(Given_HostedClient, When_NetworkMapChangesIdentity_Then_TypedErrorIsReturned)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     tailgate::hosted::ClientConfig config = MakeConfig();
     tailgate::types::netmap::NetworkConfig next = config.Network;
     next.SelfNodeId(next.SelfNodeId() + 1);
@@ -571,7 +589,8 @@ TEST_F(Given_HostedClient, When_NetworkMapChangesIdentity_Then_TypedErrorIsRetur
 
 TEST_F(Given_HostedClient, When_Stopped_Then_SessionStateIsReleased)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     (void)subject.Start(MakeConfig());
     ASSERT_TRUE(subject.Active());
 
@@ -583,7 +602,8 @@ TEST_F(Given_HostedClient, When_Stopped_Then_SessionStateIsReleased)
 
 TEST_F(Given_HostedClient, When_DiscoIsRequestedWhileStopped_Then_TypedErrorIsReturned)
 {
-    tailgate::hosted::Client subject;
+    tailgate::wgengine::PeerProtocol subjectProtocol;
+    tailgate::hosted::Client subject{subjectProtocol};
     std::optional<tailgate::hosted::ClientError> error;
 
     try

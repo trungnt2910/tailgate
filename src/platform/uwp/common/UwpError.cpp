@@ -13,8 +13,6 @@ const ResourceKey& UwpError::Resource(Code error) noexcept
         return Resources::Error::RelayConnectionFailed;
     case Code::ConnectionCancelled:
         return Resources::Error::ConnectionCancelled;
-    case Code::VpnServerRequired:
-        return Resources::Error::VpnServerRequired;
     case Code::VpnServerInvalid:
         return Resources::Error::VpnServerInvalid;
     case Code::VpnProfileTransitionTimedOut:

@@ -1,7 +1,31 @@
-tailgate_add_test_library(tailgate_tests_core_ipn_ipnlocal Given_LocalServices.cpp)
+tailgate_add_test_library(
+    tailgate_tests_core_ipn_ipnlocal
+    Given_DelegatedNode.cpp
+    Given_DelegationLease.cpp
+    Given_DerpConnections.cpp
+    Given_DnsForwarder.cpp
+    Given_HostedNode.cpp
+    Given_LocalServices.cpp
+    Given_NativeNode.cpp
+    Given_NetworkPolicy.cpp
+    Given_NodeBootstrap.cpp
+    Given_NodeRuntime.cpp
+    Given_NodeStatus.cpp
+    Given_PacketDispatch.cpp
+    Given_PeerTable.cpp
+    Given_SwitchingNode.cpp
+    Given_TransitionCoordinator.cpp
+    Given_UnderlayResolver.cpp
+    Given_UnderlaySelection.cpp
+)
 target_link_libraries(
     tailgate_tests_core_ipn_ipnlocal
     PRIVATE
         tailgate_core
         tailgate_tests_core_fakes
+)
+target_include_directories(
+    tailgate_tests_core_ipn_ipnlocal
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/core
 )

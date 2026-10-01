@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <optional>
+#include <stop_token>
 #include <string>
 
 #include <tailgate/base/ByteStream.h>
@@ -22,7 +23,8 @@ public:
               const std::string& service,
               const std::string& interfaceName = {},
               int ioTimeoutSeconds = DefaultIoTimeoutSeconds,
-              int connectTimeoutSeconds = 0);
+              int connectTimeoutSeconds = 0,
+              std::stop_token cancellation = {});
     ~TcpStream() override;
 
     TcpStream(const TcpStream&) = delete;
@@ -38,6 +40,10 @@ public:
 
 private:
     int m_fd = -1;
+    std::stop_token m_cancellation;
+    std::optional<std::chrono::seconds> m_readTimeout;
+    std::chrono::seconds m_writeTimeout;
+    bool m_nonBlocking = false;
 };
 
 } // namespace tailgate::linux_frontend::impl

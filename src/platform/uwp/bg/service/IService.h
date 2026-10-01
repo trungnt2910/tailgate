@@ -5,7 +5,7 @@
 #include <vector>
 
 #include <tailgate/base/TimeProvider.h>
-#include <tailgate/hosted/Client.h>
+#include <tailgate/ipn/ipnlocal/NodeBackend.h>
 
 #include "manager/SessionManager.h"
 
@@ -17,18 +17,11 @@ using manager::SessionGeneration;
 struct EncapsulationContext
 {
     const std::vector<std::uint8_t>& Original;
-    tailgate::hosted::Client& Client;
+    tailgate::ipn::ipnlocal::NodeBackend& Node;
     const std::string& RelayName;
-    std::vector<std::uint8_t>& RemoteOutput;
+    const std::string& ExitNode;
+    bool Handled = false;
     bool ReconnectRequested = false;
-};
-
-struct DecapsulationContext
-{
-    const tailgate::hosted::Frame& Message;
-    tailgate::hosted::Client& Client;
-    std::vector<std::vector<std::uint8_t>>& LocalOutput;
-    std::vector<std::uint8_t>& RemoteOutput;
 };
 
 class IService
@@ -40,7 +33,6 @@ public:
     virtual void Stop() = 0;
     virtual void Reset() = 0;
     virtual void Encapsulate(EncapsulationContext& context) = 0;
-    virtual void Decapsulate(DecapsulationContext& context) = 0;
     virtual void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) = 0;
     [[nodiscard]] virtual bool HasLocalOutput() const = 0;
     [[nodiscard]] virtual std::optional<tailgate::base::TimeProvider::TimePoint>

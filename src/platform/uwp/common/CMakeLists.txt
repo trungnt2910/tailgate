@@ -5,12 +5,20 @@ tailgate_uwp_add_library(
     Arguments.h
     AuthorizationState.cpp
     AuthorizationState.h
+    EventLoop.cpp
+    EventLoop.h
     EventSignal.cpp
     EventSignal.h
+    ExitNodeChangeResult.cpp
+    ExitNodeChangeResult.h
     HostInfo.cpp
     HostInfo.h
     MappedView.cpp
     MappedView.h
+    NetworkAdapter.cpp
+    NetworkAdapter.h
+    NetworkMonitor.cpp
+    NetworkMonitor.h
     ResourceKey.h
     ResourceLoader.cpp
     ResourceLoader.h
@@ -22,8 +30,16 @@ tailgate_uwp_add_library(
     TcpPortReservationFactory.h
     TcpSocketFactory.cpp
     TcpSocketFactory.h
+    ThreadApartment.cpp
+    ThreadApartment.h
     TimeProvider.cpp
     TimeProvider.h
+    UdpEndpointResolver.cpp
+    UdpEndpointResolver.h
+    UdpSocketFactory.cpp
+    UdpSocketFactory.h
+    UnderlayResolver.cpp
+    UnderlayResolver.h
     UwpAliases.h
     UwpAppServiceProtocol.cpp
     UwpAppServiceProtocol.h
@@ -35,9 +51,15 @@ tailgate_uwp_add_library(
     UwpLogger.h
     UwpMachineIdentity.cpp
     UwpMachineIdentity.h
+    UwpStreamIo.cpp
+    UwpStreamIo.h
     UwpTcpStream.cpp
     UwpTcpStream.h
     VpnConstants.h
+    VpnPhonebook.cpp
+    VpnPhonebook.h
+    VpnReconnectState.cpp
+    VpnReconnectState.h
 )
 target_include_directories(
     Tailgate.Uwp.Common

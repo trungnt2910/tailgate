@@ -28,6 +28,11 @@ SessionControllerImpl::SessionControllerImpl(
       m_tailgateRelayController(tailgateRelayController),
       m_vpnProfileController(vpnProfileController)
 {
+    m_settingsRegistration = m_settingsController.GetState().Subscribe(
+        [this](const auto&, const auto&)
+        {
+            OnSettingsChanged();
+        });
     m_controlPlaneRegistration = m_controlPlaneController.GetState().Subscribe(
         [this](const auto&, const auto&)
         {
@@ -66,12 +71,12 @@ bool SessionControllerImpl::OperationInProgress(const char* operation) const
     return true;
 }
 
-bool SessionControllerImpl::ShowCachedAuthorization(const winrt::hstring& tailgateServer,
-                                                    const winrt::hstring& authKey)
+bool SessionControllerImpl::ShowCachedAuthorization(const winrt::hstring& authKey)
 {
     m_settingsController.Reload();
-    m_authorizationController.FindCached(
-        tailgateServer, authKey, m_settingsController.GetState().Hostname());
+    m_authorizationController.FindCached(m_settingsController.GetState().ProfileId(),
+                                         authKey,
+                                         m_settingsController.GetState().Hostname());
     const auto& authorization = m_authorizationController.GetState().MatchedAuthorization();
     if (!authorization)
     {
@@ -102,8 +107,7 @@ void SessionControllerImpl::Connect(winrt::hstring tailgateServer,
                  relay.RequestedTailgateServer() == tailgateServer);
             if (sameServer)
             {
-                cachedAuthorizationShown =
-                    ShowCachedAuthorization(*m_activeConnect->TailgateServer, authKey);
+                cachedAuthorizationShown = ShowCachedAuthorization(authKey);
             }
         }
         if (cachedAuthorizationShown)
@@ -159,8 +163,9 @@ void SessionControllerImpl::StartConnect(winrt::hstring tailgateServer,
     m_activeConnect = std::move(context);
 
     const bool requiresPreflight =
-        !m_settingsController.GetState().ProfileValidated() ||
-        m_settingsController.GetState().TailgateServer() != tailgateServer;
+        !tailgateServer.empty() &&
+        (!m_settingsController.GetState().ProfileValidated() ||
+         m_settingsController.GetState().TailgateServer() != tailgateServer);
     if (requiresPreflight)
     {
         m_logger.LogInfo("validating Tailgate server");
@@ -168,9 +173,6 @@ void SessionControllerImpl::StartConnect(winrt::hstring tailgateServer,
         return;
     }
     m_activeConnect->TailgateServer = std::move(tailgateServer);
-    (void)ShowCachedAuthorization(*m_activeConnect->TailgateServer, m_activeConnect->AuthKey);
-    m_settingsController.SetAuthentication(*m_activeConnect->TailgateServer,
-                                           m_activeConnect->AuthKey);
     StartVpnConnect();
 }
 
@@ -191,8 +193,12 @@ void SessionControllerImpl::StartVpnConnect()
     {
         return;
     }
+    m_settingsController.SetAuthentication(*m_activeConnect->TailgateServer,
+                                           m_activeConnect->AuthKey);
+    m_activeConnect->ProfileId = m_settingsController.GetState().ProfileId();
+    (void)ShowCachedAuthorization(m_activeConnect->AuthKey);
     m_activeConnect->WaitingForAuthorizationListener = true;
-    m_interactiveAuthorizationController.Listen(*m_activeConnect->TailgateServer);
+    m_interactiveAuthorizationController.Listen(m_activeConnect->ProfileId);
 }
 
 void SessionControllerImpl::OnTailgateRelayChanged()
@@ -210,9 +216,6 @@ void SessionControllerImpl::OnTailgateRelayChanged()
         return;
     }
     m_activeConnect->TailgateServer = relay.TailgateServer();
-    (void)ShowCachedAuthorization(*m_activeConnect->TailgateServer, m_activeConnect->AuthKey);
-    m_settingsController.SetAuthentication(*m_activeConnect->TailgateServer,
-                                           m_activeConnect->AuthKey);
     StartVpnConnect();
 }
 
@@ -221,7 +224,7 @@ void SessionControllerImpl::OnInteractiveAuthorizationChanged()
     const InteractiveAuthorizationState& interactive =
         m_interactiveAuthorizationController.GetState();
     if (!m_activeConnect || !m_activeConnect->TailgateServer ||
-        interactive.TailgateServer() != *m_activeConnect->TailgateServer)
+        interactive.ProfileId() != m_activeConnect->ProfileId)
     {
         return;
     }
@@ -253,7 +256,7 @@ void SessionControllerImpl::HandleInteractiveAuthorization(
     {
         AuthorizationCache cache;
         cache.Url = interactive.Url();
-        cache.TailgateServer = interactive.TailgateServer();
+        cache.ProfileId = interactive.ProfileId();
         cache.AuthKey = m_activeConnect->AuthKey;
         cache.Hostname = m_activeConnect->AttemptHostname;
         const bool machineApproval =
@@ -271,7 +274,8 @@ void SessionControllerImpl::HandleInteractiveAuthorization(
     case InteractiveAuthorizationStatus::Failed:
         m_authorizationController.Clear();
         m_activeConnect->Failure = interactive.Error().value_or(UwpError::Code::Unexpected);
-        if (m_vpnProfileController.GetState().Busy())
+        if (m_vpnProfileController.GetState().Busy() &&
+            m_vpnProfileController.GetState().Activity() == VpnProfileActivity::Connecting)
         {
             m_vpnProfileController.CancelConnect();
         }
@@ -287,6 +291,37 @@ void SessionControllerImpl::HandleInteractiveAuthorization(
     case InteractiveAuthorizationStatus::Idle:
         return;
     }
+}
+
+void SessionControllerImpl::OnSettingsChanged()
+{
+    const auto& settings = m_settingsController.GetState();
+    if (!settings.PolicyRestartRequired())
+    {
+        m_policyRestartAttempted = false;
+        return;
+    }
+    const bool exitNodeChange = m_state.ConnectionOperationActive() &&
+                                m_state.Activity() == SessionActivity::ChangingSettings;
+    // RS2 can retire the connection handle before a queued status query completes.
+    // An accepted exit-node change still needs its restart even if that query says offline.
+    if (m_policyRestartAttempted || (!m_state.Connected() && !exitNodeChange) || m_activeConnect ||
+        m_vpnProfileController.GetState().Busy() ||
+        (m_state.ConnectionOperationActive() &&
+         m_state.Activity() != SessionActivity::ChangingSettings))
+    {
+        return;
+    }
+    m_policyRestartAttempted = true;
+    m_state.Update(
+        [](auto& state)
+        {
+            state.ConnectionOperationActive(true);
+            state.Activity(SessionActivity::Starting);
+            state.Busy(true);
+            state.Error(std::nullopt);
+        });
+    StartConnect(settings.TailgateServer(), L"", false, true, std::nullopt);
 }
 
 void SessionControllerImpl::OnVpnProfileChanged()
@@ -308,10 +343,10 @@ void SessionControllerImpl::OnVpnProfileChanged()
         if (vpn.Connected() && !vpn.Error())
         {
             m_state.Update(
-                [](SessionState& state)
+                [&](SessionState& state)
                 {
                     state.Connected(true);
-                    state.Error(std::nullopt);
+                    state.Error(m_activeConnect->ExitNodeChangeError);
                 });
             FinishConnectWorkflow();
             return;
@@ -365,8 +400,13 @@ void SessionControllerImpl::OnVpnProfileChanged()
             [&](SessionState& state)
             {
                 state.Connected(!vpn.Error() && vpn.Connected());
-                state.Busy(false);
-                state.Activity(SessionActivity::Idle);
+                // A refresh may finish after an exit-node change has started.
+                // Keep that operation visible so its policy restart can proceed.
+                if (!state.ConnectionOperationActive())
+                {
+                    state.Busy(false);
+                    state.Activity(SessionActivity::Idle);
+                }
             });
         if (m_disconnectAfterRefresh)
         {
@@ -376,6 +416,7 @@ void SessionControllerImpl::OnVpnProfileChanged()
         else
         {
             StartPendingConnect();
+            OnSettingsChanged();
         }
         return;
     case VpnProfileActivity::Idle:
@@ -400,10 +441,18 @@ void SessionControllerImpl::HandleConnectFailure(std::optional<UwpError::Code> e
         m_activeConnect->RollbackSettings.reset();
         m_activeConnect->TailgateServer.reset();
         const std::optional<winrt::hstring>& previousTailgateServer = previous.TailgateServer;
-        if (previousTailgateServer && !previousTailgateServer->empty())
+        if (previousTailgateServer)
         {
             m_activeConnect->Failure.reset();
-            StartTailgateRelayPreflight(*previousTailgateServer);
+            if (previousTailgateServer->empty())
+            {
+                m_activeConnect->TailgateServer = *previousTailgateServer;
+                StartVpnConnect();
+            }
+            else
+            {
+                StartTailgateRelayPreflight(*previousTailgateServer);
+            }
             return;
         }
         m_logger.LogWarning("cannot restore previous VPN server: server is missing");
@@ -602,6 +651,17 @@ void SessionControllerImpl::BeginExitNodeChange()
 
 void SessionControllerImpl::FinishExitNodeChange(std::optional<UwpError::Code> error)
 {
+    // The acknowledgement can arrive before ConnectProfileAsync finishes, or its
+    // timeout can belong to a previous request while a replacement dial is active.
+    // That dial owns completion; do not unlock the UI and admit another connection.
+    if (m_activeConnect)
+    {
+        if (m_activeConnect->RestartConnectedProfile)
+        {
+            m_activeConnect->ExitNodeChangeError = error;
+        }
+        return;
+    }
     m_state.Update(
         [&](SessionState& state)
         {

@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <tailgate/ipn/ipnlocal/TransitionCoordinator.h>
+
 namespace tailgate::uwp::app_service
 {
 
@@ -19,6 +21,8 @@ enum class MessageType : std::uint8_t
     PingResponse = 2,
     ExitNodeRequest = 3,
     ExitNodeResponse = 4,
+    ModeRequest = 5,
+    ModeResponse = 6,
 };
 
 enum class Status : std::uint8_t
@@ -27,6 +31,10 @@ enum class Status : std::uint8_t
     NoMatchingPeer = 1,
     NoDiscoKey = 2,
     NoMatchingExitNode = 3,
+    Timeout = 4,
+    Busy = 5,
+    InvalidRelay = 6,
+    ReconnectRequired = 7,
 };
 
 struct Field
@@ -71,6 +79,25 @@ struct ExitNodeResponse
     std::uint64_t Sequence = 0;
     std::string ExitNode;
 };
+
+struct ModeRequest
+{
+    std::uint64_t Sequence = 0;
+    std::string RelayUrl;
+};
+
+struct ModeResponse
+{
+    bool operator==(const ModeResponse&) const = default;
+    Status Result = Status::Ok;
+    std::uint64_t Sequence = 0;
+    tailgate::ipn::ipnlocal::TransitionStatus Transition;
+};
+
+[[nodiscard]] std::vector<std::uint8_t> EncodeModeRequest(const ModeRequest& request);
+[[nodiscard]] std::optional<ModeRequest> DecodeModeRequest(const Message& message);
+[[nodiscard]] std::vector<std::uint8_t> EncodeModeResponse(const ModeResponse& response);
+[[nodiscard]] std::optional<ModeResponse> DecodeModeResponse(const Message& message);
 
 [[nodiscard]] bool IsMessage(std::span<const std::uint8_t> payload);
 [[nodiscard]] std::optional<Message> DecodeMessage(std::span<const std::uint8_t> payload);

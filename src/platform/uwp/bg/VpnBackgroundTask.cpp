@@ -15,6 +15,8 @@
 
 #include "plugin/TailgateVpnPlugin.h"
 
+#include "BackgroundTaskLifetime.h"
+
 namespace tailgate::uwp::bg
 {
 namespace
@@ -33,9 +35,9 @@ class VpnBackgroundTask : public winrt::implements<VpnBackgroundTask, background
 public:
     void Run(const background::IBackgroundTaskInstance& taskInstance)
     {
-        auto deferral = taskInstance.GetDeferral();
         try
         {
+            const BackgroundTaskLifetime lifetime(taskInstance);
             const foundation::IInspectable triggerDetails = taskInstance.TriggerDetails();
             vpn::IVpnPlugIn plugin{nullptr};
             {
@@ -49,17 +51,14 @@ public:
                 }
                 else
                 {
+                    m_logger.LogDebug("creating VPN plugin");
                     plugin = CreateTailgateVpnPlugin();
                     properties.Insert(PluginKey, plugin);
                     m_logger.LogDebug("created VPN plugin");
                 }
             }
-            m_logger.LogTrace("VpnChannel::ProcessEventAsync begin instance={} trigger={}",
-                              taskInstance.InstanceId(),
-                              winrt::get_class_name(triggerDetails));
             vpn::VpnChannel::ProcessEventAsync(plugin, triggerDetails);
-            m_logger.LogTrace("VpnChannel::ProcessEventAsync end instance={}",
-                              taskInstance.InstanceId());
+            return;
         }
         catch (const winrt::hresult_error& error)
         {
@@ -75,7 +74,6 @@ public:
         {
             m_logger.LogError("VpnBackgroundTask.Run failed with an unknown exception");
         }
-        deferral.Complete();
     }
 
 private:

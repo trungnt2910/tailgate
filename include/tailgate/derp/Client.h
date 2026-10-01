@@ -5,6 +5,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <vector>
 
@@ -13,11 +14,18 @@
 namespace tailgate::derp
 {
 
+class Authenticator
+{
+public:
+    virtual ~Authenticator() = default;
+    [[nodiscard]] virtual std::vector<std::uint8_t>
+    Authenticate(const std::array<std::uint8_t, 32>& serverKey, std::stop_token cancellation) = 0;
+};
+
 class DerpClient
 {
 public:
     using Key = std::array<std::uint8_t, 32>;
-    using Authenticator = std::function<std::vector<std::uint8_t>(const Key& serverKey)>;
 
     struct Packet
     {
@@ -26,10 +34,10 @@ public:
     };
 
     DerpClient(tailgate::base::ByteStream& stream, Key privateKey, Key publicKey);
-    DerpClient(tailgate::base::ByteStream& stream, Authenticator authenticator);
+    DerpClient(tailgate::base::ByteStream& stream, Authenticator& authenticator);
     [[nodiscard]] static std::vector<std::uint8_t>
     BuildClientInfo(const Key& privateKey, const Key& publicKey, const Key& serverKey);
-    void Connect(const std::string& hostname);
+    void Connect(const std::string& hostname, std::stop_token cancellation = {});
     void Send(const Key& destination, const std::vector<std::uint8_t>& packet);
     [[nodiscard]] Packet Receive();
     [[nodiscard]] std::optional<Packet> ReceiveAvailable();
@@ -55,7 +63,7 @@ private:
     Key PrivateKey;
     Key PublicKey;
     Key ServerKey{};
-    Authenticator Authenticate;
+    std::optional<std::reference_wrapper<Authenticator>> m_authenticator;
     std::vector<std::uint8_t> ReceiveBuffer;
     std::vector<std::uint8_t> SendBuffer;
     std::size_t SendOffset = 0;

@@ -13,6 +13,7 @@ struct VpnConstants final
     struct Product final
     {
         static constexpr wchar_t Name[] = L"Tailgate";
+        static constexpr wchar_t ControlUrl[] = L"https://controlplane.tailscale.com";
         static constexpr wchar_t AdminConsoleUrl[] = L"https://login.tailscale.com/admin/machines";
         static constexpr wchar_t BugReportUrl[] = L"https://github.com/trungnt2910/tailgate/issues";
     };

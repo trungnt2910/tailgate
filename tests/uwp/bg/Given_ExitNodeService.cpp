@@ -9,6 +9,7 @@
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 
+#include "common/ExitNodeChangeResult.h"
 #include "common/Settings.h"
 #include "common/UwpAppServiceProtocol.h"
 
@@ -50,6 +51,7 @@ protected:
     void SetUp() override
     {
         Settings::Remove(L"PendingExitNodeChange");
+        Settings::Remove(L"ExitNodeChangeResult");
         m_dataPlane = std::make_shared<FakeDataPlaneManager>();
         auto injector = di::make_injector(di::bind<bg::manager::DataPlaneManager>.to(
             [this](const auto&) -> bg::manager::DataPlaneManager&
@@ -62,6 +64,7 @@ protected:
     void TearDown() override
     {
         Settings::Remove(L"PendingExitNodeChange");
+        Settings::Remove(L"ExitNodeChangeResult");
         Settings::Remove(L"ExitNode");
         Settings::Remove(L"ExitNodeSelection");
     }
@@ -144,8 +147,14 @@ TEST_F(Given_ExitNodeService, When_AcceptedChangeCommits_Then_SuccessResponseIsQ
     m_subject->CommitPending(activeExitNode);
     m_subject->QueuePendingResponse(appResponses);
     const auto response = DecodeResponse(appResponses);
+    const auto completion = ExitNodeChangeResult::Read();
+    const auto recorded = completion.value_or(app_service::ExitNodeResponse{});
 
     ASSERT_TRUE(response.has_value());
+    EXPECT_TRUE(completion.has_value());
+    EXPECT_EQ(recorded.Sequence, RequestSequence);
+    EXPECT_EQ(recorded.Result, app_service::Status::Ok);
+    EXPECT_EQ(recorded.ExitNode, "exit");
     EXPECT_EQ(activeExitNode, "exit");
     EXPECT_EQ(response->Result, app_service::Status::Ok);
     EXPECT_EQ(response->Sequence, RequestSequence);

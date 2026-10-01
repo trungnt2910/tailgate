@@ -35,14 +35,14 @@ struct ConnectionMessage
 {
     ConnectionMessageKind Kind = ConnectionMessageKind::LoginRequired;
     winrt::hstring Url;
-    winrt::hstring TailgateServer;
+    winrt::hstring ProfileId;
     UwpError::Code ErrorCode = UwpError::Code::None;
 };
 
 class AuthorizationStateReceiver final
 {
 public:
-    explicit AuthorizationStateReceiver(const winrt::hstring& expectedTailgateServer);
+    explicit AuthorizationStateReceiver(const winrt::hstring& expectedProfileId);
     ~AuthorizationStateReceiver();
 
     AuthorizationStateReceiver(const AuthorizationStateReceiver&) = delete;
@@ -67,7 +67,7 @@ private:
 class ConnectionCancellationMonitor final
 {
 public:
-    explicit ConnectionCancellationMonitor(const winrt::hstring& expectedTailgateServer);
+    explicit ConnectionCancellationMonitor(const winrt::hstring& expectedProfileId);
     ~ConnectionCancellationMonitor();
 
     ConnectionCancellationMonitor(const ConnectionCancellationMonitor&) = delete;

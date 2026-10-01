@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <stop_token>
 #include <string>
 #include <vector>
 
@@ -11,7 +12,6 @@ namespace tailgate::uwp::bg::service
 
 class IService;
 struct EncapsulationContext;
-struct DecapsulationContext;
 
 } // namespace tailgate::uwp::bg::service
 
@@ -33,17 +33,18 @@ public:
 
     virtual void Register(service::IService& service) = 0;
     virtual void Start(SessionGeneration generation) = 0;
-    [[nodiscard]] virtual DataPlaneProbe
-    Probe(const std::string& server, const std::string& host, const std::string& service) = 0;
+    [[nodiscard]] virtual DataPlaneProbe Probe(const std::string& server,
+                                               const std::string& host,
+                                               const std::string& service,
+                                               const std::string& networkInterface,
+                                               std::stop_token cancellation) = 0;
     virtual void RememberProbe(const std::string& server, const DataPlaneProbe& probe) = 0;
     virtual void InvalidateProbe(const std::string& server) = 0;
     virtual void Connect() = 0;
     virtual void Stop() = 0;
     virtual void Reset() = 0;
     virtual void Encapsulate(service::EncapsulationContext& context) = 0;
-    virtual void Decapsulate(service::DecapsulationContext& context) = 0;
-    virtual void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput,
-                            std::vector<std::uint8_t>& remoteOutput) = 0;
+    virtual void FlushLocal(std::vector<std::vector<std::uint8_t>>& localOutput) = 0;
 
     [[nodiscard]] virtual std::size_t ServiceCount() const = 0;
 };

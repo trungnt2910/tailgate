@@ -138,6 +138,14 @@ ServerSessionImpl::Process(const tailgate::hosted::Frame& frame)
         m_networkMap = next;
         result.NetworkMap = std::move(next);
     }
+    else if (frame.Type() == tailgate::hosted::MessageType::Delegation)
+    {
+        result.Delegation = DecodeDelegationRequest(frame);
+        if (!result.Delegation)
+        {
+            throw ServerSessionException(ServerSessionError::UnexpectedFrame);
+        }
+    }
     else if (frame.Type() == tailgate::hosted::MessageType::TailnetDnsQuery)
     {
         const std::optional<tailgate::net::Ipv4Address> expectedSource =

@@ -56,6 +56,10 @@ public:
     {
         SetAuthenticationTailgateServer = tailgateServer;
         SetAuthenticationAuthKey = authKey;
+        if (m_state.ProfileId().empty())
+        {
+            m_state.ProfileId(L"test-profile");
+        }
     }
 
     void SetExitNode(const winrt::hstring& exitNode, bool preserveSelection) override

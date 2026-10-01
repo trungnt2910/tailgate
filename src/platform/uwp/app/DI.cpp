@@ -4,6 +4,7 @@
 
 #include "common/HostInfo.h"
 #include "common/TcpSocketFactory.h"
+#include "common/TimeProvider.h"
 
 #include "app/controller/impl/AuthorizationControllerImpl.h"
 #include "app/controller/impl/ClipboardControllerImpl.h"
@@ -14,6 +15,8 @@
 #include "app/controller/impl/HomePageControllerImpl.h"
 #include "app/controller/impl/InteractiveAuthorizationControllerImpl.h"
 #include "app/controller/impl/MainWindowControllerImpl.h"
+#include "app/controller/impl/ModeControllerImpl.h"
+#include "app/controller/impl/ModeRpcControllerImpl.h"
 #include "app/controller/impl/NavigationControllerImpl.h"
 #include "app/controller/impl/NodeAuthorizationDialogControllerImpl.h"
 #include "app/controller/impl/PackageControllerImpl.h"
@@ -60,6 +63,10 @@ AppInjector& GetDI()
         di::bind<AppResources>.in(di::singleton),
         di::bind<ButtonFactory>.in(di::singleton),
         di::bind<UiFactory>.in(di::singleton),
+
+        di::bind<tailgate::base::TimeProvider>.to<TimeProvider>().in(di::singleton),
+        di::bind<ModeRpcController>.to<ModeRpcControllerImpl>().in(di::singleton),
+        di::bind<ModeController>.to<ModeControllerImpl>().in(di::singleton),
 
         // System Feature Controllers
         di::bind<ClipboardController>.to<ClipboardControllerImpl>().in(di::singleton),

@@ -22,7 +22,7 @@ namespace
 class Given_SettingsPageView : public testing::Test
 {
 protected:
-    xaml::UIElement CreateSubject()
+    xaml::UIElement CreateSubject(bool nativeMode = false)
     {
         m_dependencies.Initialize();
         m_clipboard = std::make_shared<FakeClipboardController>();
@@ -34,7 +34,10 @@ protected:
         m_settings->GetState().AccountDisplayName(L"Example User");
         m_settings->GetState().AccountName(L"user@example.com");
         m_settings->GetState().TailnetDisplayName(L"Example Tailnet");
-        m_settings->GetState().TailgateServer(L"https://example.com");
+        m_settings->GetState().TailgateServer(nativeMode ? L"" : L"https://example.com");
+        const auto mode = nativeMode ? tailgate::ipn::ipnlocal::NodeMode::Native
+                                     : tailgate::ipn::ipnlocal::NodeMode::Hosted;
+        m_settings->GetState().ModeTransition({.Desired = mode, .Effective = mode});
         m_settings->GetState().HasStoredProfile(true);
         m_package->GetState().Major(1);
         m_package->GetState().Minor(2);
@@ -117,6 +120,43 @@ TEST_F(Given_SettingsPageView, When_SignedOut_Then_SettingsPageMatchesGolden)
     TestHost::WaitForIdleAsync().get();
     const auto result = TestHost::CheckGolden(
         L"Given_SettingsPageView/When_SignedOut_Then_SettingsPageMatchesGolden.png");
+
+    EXPECT_TRUE(result);
+}
+
+TEST_F(Given_SettingsPageView, When_NativeProfileIsSignedIn_Then_RelaySectionIsHidden)
+{
+    TestHost::SetTestContentAsync(
+        [this]() -> xaml::UIElement
+        {
+            return CreateSubject(true);
+        })
+        .get();
+
+    const auto result =
+        TestHost::CheckGolden(L"Given_SettingsPageView/"
+                              L"When_NativeProfileIsSignedIn_Then_RelaySectionIsHidden.png");
+
+    EXPECT_TRUE(result);
+}
+
+TEST_F(Given_SettingsPageView, When_HostedProfileBecomesNative_Then_RelaySectionIsHidden)
+{
+    TestHost::SetTestContentAsync(
+        [this]() -> xaml::UIElement
+        {
+            return CreateSubject();
+        })
+        .get();
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_settings->GetState().TailgateServer(L"");
+        });
+    TestHost::WaitForIdleAsync().get();
+    const auto result = TestHost::CheckGolden(
+        L"Given_SettingsPageView/When_NativeProfileIsSignedIn_Then_RelaySectionIsHidden.png");
 
     EXPECT_TRUE(result);
 }

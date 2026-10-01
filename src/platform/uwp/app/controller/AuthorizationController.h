@@ -16,7 +16,7 @@ public:
     virtual void AcceptAuthentication() = 0;
     virtual void ClearPendingAuthentication() = 0;
     virtual void Cache(AuthorizationCache authorization) = 0;
-    virtual void FindCached(const winrt::hstring& tailgateServer,
+    virtual void FindCached(const winrt::hstring& profileId,
                             const winrt::hstring& authKey,
                             const winrt::hstring& hostname) = 0;
     virtual void RequestPrompt(const winrt::hstring& url, bool machineApproval) = 0;

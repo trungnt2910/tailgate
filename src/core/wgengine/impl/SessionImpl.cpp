@@ -7,44 +7,40 @@
 #include <string_view>
 #include <utility>
 
+#include <tailgate/base/Logger.h>
+#include <tailgate/crypto/PrefixedKey.h>
 #include <tailgate/disco/Disco.h>
 #include <tailgate/net/stun/Stun.h>
 
 namespace tailgate::wgengine::impl
 {
 
-namespace
-{
-
-std::optional<tailgate::crypto::Bytes32> ParseKey(std::string_view text, std::string_view prefix)
-{
-    if (!text.starts_with(prefix))
-    {
-        return std::nullopt;
-    }
-    const std::vector<std::uint8_t> bytes =
-        tailgate::crypto::HexToBytes(std::string(text.substr(prefix.size())));
-    if (bytes.size() != tailgate::crypto::Bytes32{}.size())
-    {
-        return std::nullopt;
-    }
-    tailgate::crypto::Bytes32 result{};
-    std::copy(bytes.begin(), bytes.end(), result.begin());
-    return result;
-}
-
-} // namespace
-
 SessionImpl::SessionImpl(tailgate::wgengine::Engine& engine,
                          tailgate::base::TimeProvider& timeProvider,
                          tailgate::crypto::Random& random,
-                         tailgate::wgengine::magicsock::Connection& connection) noexcept
+                         tailgate::wgengine::magicsock::Connection& connection,
+                         PeerProtocol& protocol) noexcept
     : m_engine(engine),
       m_timeProvider(timeProvider),
       m_random(random),
       m_connection(connection),
+      m_protocol(protocol),
       m_nextMaintenance(m_timeProvider.Now() + MaintenanceInterval)
 {
+}
+
+void SessionImpl::Reset() noexcept
+{
+    m_packetPath.reset();
+    m_discovery.reset();
+    m_control.reset();
+    m_derps.clear();
+    m_peers.clear();
+    m_configured = false;
+    m_advertisedEndpoint = {};
+    m_homeDerpRegion = 0;
+    m_nextMaintenance = m_timeProvider.Now() + MaintenanceInterval;
+    m_engine.Reset();
 }
 
 void SessionImpl::SetControlConnection(
@@ -96,31 +92,13 @@ std::optional<tailgate::net::Endpoint>
 SessionImpl::DiscoverEndpoint(const tailgate::net::Endpoint& server,
                               std::chrono::milliseconds timeout)
 {
-    const tailgate::net::stun::TransactionId transaction =
-        tailgate::net::stun::TransactionId::Generate(m_random);
-    const std::optional<tailgate::types::nettype::SocketIoResult> sent =
-        m_connection.TrySendProbe(server, transaction.BuildBindingRequest());
-    if (!sent || *sent != tailgate::types::nettype::SocketIoResult::Complete)
-    {
-        return std::nullopt;
-    }
-    std::unique_ptr<tailgate::base::WaitToken> deadline = m_timeProvider.After(timeout);
+    StartEndpointDiscovery(server, timeout);
     while (true)
     {
-        tailgate::wgengine::EngineWaitResult ready = m_engine.Wait(
-            *deadline, StunMaximumEvents, StunMaximumDatagrams, StunMaximumDatagramSize);
-        for (const tailgate::types::nettype::UdpDatagram& datagram : ready.Datagrams)
+        auto ready = Wait(StunMaximumEvents, StunMaximumDatagrams, StunMaximumDatagramSize);
+        if (ready.EndpointDiscovery)
         {
-            if (std::optional<tailgate::net::Endpoint> endpoint =
-                    transaction.ParseMappedIpv4Endpoint(datagram.Payload))
-            {
-                return endpoint;
-            }
-        }
-        if (ready.Status == tailgate::base::EventWaitStatus::DeadlineReached ||
-            !ready.Failures.empty())
-        {
-            return std::nullopt;
+            return ready.EndpointDiscovery->Endpoint;
         }
     }
 }
@@ -131,8 +109,18 @@ SessionImpl::Wait(std::size_t maximumEvents,
                   std::size_t maximumPacketSize,
                   std::optional<base::TimeProvider::TimePoint> deadline)
 {
-    std::unique_ptr<tailgate::base::WaitToken> maintenance =
-        m_timeProvider.At(deadline ? std::min(*deadline, m_nextMaintenance) : m_nextMaintenance);
+    SessionWaitResult discovery;
+    PollEndpointDiscovery(discovery);
+    auto next = deadline ? std::min(*deadline, m_nextMaintenance) : m_nextMaintenance;
+    if (m_discovery)
+    {
+        next = std::min(next, std::min(m_discovery->Deadline, m_discovery->NextSend));
+    }
+    if (discovery.EndpointDiscovery)
+    {
+        next = m_timeProvider.Now();
+    }
+    std::unique_ptr<tailgate::base::WaitToken> maintenance = m_timeProvider.At(next);
     tailgate::wgengine::EngineWaitResult engineResult =
         m_engine.Wait(*maintenance, maximumEvents, maximumPacketsPerSource, maximumPacketSize);
     tailgate::wgengine::SessionWaitResult result{
@@ -147,26 +135,47 @@ SessionImpl::Wait(std::size_t maximumEvents,
         .PathEvents = {},
         .PlatformEvents = {},
         .MaintenanceDue = false,
+        .EndpointDiscovery = std::move(discovery.EndpointDiscovery),
     };
     ProcessProtocolEvents(std::move(engineResult), result);
+    PollEndpointDiscovery(result);
     if (m_timeProvider.Now() >= m_nextMaintenance)
     {
         Maintain(result);
+    }
+    else if (result.Status == tailgate::base::EventWaitStatus::Woken)
+    {
+        MaintainConnections(result);
+    }
+    // A completion wake can carry packets, configuration or due timers. Only an
+    // empty wake is skippable by callers; otherwise expose the work as events.
+    if (result.Status == base::EventWaitStatus::Woken &&
+        (result.MaintenanceDue || !result.Datagrams.empty() || !result.Packets.empty() ||
+         !result.Failures.empty() || !result.NetworkMaps.empty() || !result.DerpPackets.empty() ||
+         !result.WireGuardEvents.empty() || !result.DiscoEvents.empty() ||
+         !result.PathEvents.empty() || !result.PlatformEvents.empty() || result.EndpointDiscovery))
+    {
+        result.Status = base::EventWaitStatus::Events;
     }
     return result;
 }
 
 void SessionImpl::Configure(tailgate::wgengine::SessionOptions options)
 {
-    if (m_wireGuard)
+    if (m_configured)
     {
         throw std::logic_error("The WireGuard session is already configured.");
     }
     const std::string exitNode = options.ExitNode;
-    m_wireGuard = std::make_unique<tailgate::wgengine::wireguard::WireGuardRouter>(
-        options.NodePrivateKey, options.Peers, exitNode);
-    m_disco =
-        std::make_unique<tailgate::disco::Disco>(options.DiscoPrivateKey, options.NodePublicKey);
+    m_protocol.Initialize(
+        PeerIdentity{
+            .NodePrivateKey = options.NodePrivateKey,
+            .NodePublicKey = options.NodePublicKey,
+            .DiscoPrivateKey = options.DiscoPrivateKey,
+        },
+        options.Peers,
+        exitNode);
+    m_configured = true;
     m_advertisedEndpoint = options.AdvertisedEndpoint;
     m_homeDerpRegion = options.HomeDerpRegion;
     UpdatePeers(options.Peers, exitNode);
@@ -175,9 +184,9 @@ void SessionImpl::Configure(tailgate::wgengine::SessionOptions options)
 void SessionImpl::UpdatePeers(const std::vector<tailgate::types::netmap::PeerConfig>& peers,
                               std::string exitNode)
 {
-    if (m_wireGuard)
+    if (m_configured)
     {
-        m_wireGuard->UpdatePeers(peers, std::move(exitNode));
+        m_protocol.Router().UpdatePeers(peers, std::move(exitNode));
     }
     for (PeerState& peer : m_peers)
     {
@@ -186,7 +195,7 @@ void SessionImpl::UpdatePeers(const std::vector<tailgate::types::netmap::PeerCon
     for (const tailgate::types::netmap::PeerConfig& config : peers)
     {
         const std::optional<tailgate::crypto::Bytes32> publicKey =
-            ParseKey(config.Key(), "nodekey:");
+            tailgate::crypto::PrefixedKey::TryParse(config.Key(), "nodekey:");
         if (!publicKey)
         {
             continue;
@@ -219,7 +228,7 @@ void SessionImpl::UpdatePeers(const std::vector<tailgate::types::netmap::PeerCon
         const bool identityChanged = peer->Config.DiscoKey() != config.DiscoKey();
         const bool endpointsChanged = peer->Config.Endpoints() != config.Endpoints();
         peer->Config = config;
-        peer->DiscoKey = ParseKey(config.DiscoKey(), "discokey:");
+        peer->DiscoKey = tailgate::crypto::PrefixedKey::TryParse(config.DiscoKey(), "discokey:");
         peer->Endpoints.clear();
         for (const std::string& endpoint : config.Endpoints())
         {
@@ -249,28 +258,33 @@ void SessionImpl::UpdatePeers(const std::vector<tailgate::types::netmap::PeerCon
     }
 }
 
+void SessionImpl::SetAdvertisedEndpoint(const tailgate::net::Endpoint& endpoint)
+{
+    m_advertisedEndpoint = endpoint;
+}
+
 void SessionImpl::SendPacket(const std::vector<std::uint8_t>& plaintext)
 {
-    if (m_wireGuard)
+    if (m_configured)
     {
-        Dispatch(m_wireGuard->Send(plaintext));
+        Dispatch(m_protocol.Router().Send(plaintext));
     }
 }
 
 void SessionImpl::SendPacketTo(const tailgate::crypto::Bytes32& peer,
                                const std::vector<std::uint8_t>& plaintext)
 {
-    if (m_wireGuard)
+    if (m_configured)
     {
-        Dispatch(m_wireGuard->SendTo(peer, plaintext));
+        Dispatch(m_protocol.Router().SendTo(peer, plaintext));
     }
 }
 
 void SessionImpl::StartPeer(const tailgate::crypto::Bytes32& peer)
 {
-    if (m_wireGuard)
+    if (m_configured)
     {
-        Dispatch(m_wireGuard->Start(peer));
+        Dispatch(m_protocol.Router().Start(peer));
     }
 }
 
@@ -278,12 +292,13 @@ std::optional<tailgate::disco::Disco::TransactionId>
 SessionImpl::SendDiscoPing(const tailgate::crypto::Bytes32& peerKey)
 {
     PeerState* peer = FindPeer(peerKey);
-    if (!m_disco || peer == nullptr || !peer->DiscoKey)
+    if (!m_configured || peer == nullptr || !peer->DiscoKey)
     {
         return std::nullopt;
     }
-    const tailgate::disco::Disco::TransactionId transaction = m_disco->NewTransactionId();
-    const std::vector<std::uint8_t> ping = m_disco->BuildPing(*peer->DiscoKey, transaction);
+    const tailgate::disco::Disco::TransactionId transaction = m_protocol.Disco().NewTransactionId();
+    const std::vector<std::uint8_t> ping =
+        m_protocol.Disco().BuildPing(*peer->DiscoKey, transaction);
     SendRelay(*peer, ping, tailgate::derp::DerpSendQueue::Priority::Control);
     m_connection.ProbePeer(peerKey, ping);
     for (const tailgate::net::Endpoint& endpoint : peer->Endpoints)
@@ -296,7 +311,7 @@ SessionImpl::SendDiscoPing(const tailgate::crypto::Bytes32& peerKey)
 bool SessionImpl::CanDisco(const tailgate::crypto::Bytes32& peer) const noexcept
 {
     const PeerState* state = FindPeer(peer);
-    return m_disco && state != nullptr && state->DiscoKey.has_value();
+    return m_configured && state != nullptr && state->DiscoKey.has_value();
 }
 
 std::optional<tailgate::wgengine::SessionPeerStats>
@@ -310,7 +325,7 @@ SessionImpl::PeerStats(const tailgate::crypto::Bytes32& peer) const noexcept
     return tailgate::wgengine::SessionPeerStats{
         .TransmittedBytes = state->TransmittedBytes,
         .ReceivedBytes = state->ReceivedBytes,
-        .WireGuardSession = m_wireGuard && m_wireGuard->HasSession(peer),
+        .WireGuardSession = m_configured && m_protocol.Router().HasSession(peer),
         .DirectEndpoint = m_connection.DirectEndpoint(peer),
     };
 }
@@ -400,21 +415,35 @@ void SessionImpl::SendTransport(PeerState& peer,
 
 void SessionImpl::StartDirectProbe(PeerState& peer)
 {
-    if (!m_disco || !peer.DiscoKey || m_connection.HasDirectPath(peer.PublicKey) ||
+    if (!m_configured || !peer.DiscoKey || m_connection.HasDirectPath(peer.PublicKey) ||
         !m_connection.TryBeginProbe(peer.PublicKey))
     {
         return;
     }
-    SendRelay(peer,
-              m_disco->BuildCallMeMaybe(*peer.DiscoKey, {m_advertisedEndpoint}),
-              tailgate::derp::DerpSendQueue::Priority::Control);
-    const tailgate::disco::Disco::TransactionId transaction = m_disco->NewTransactionId();
-    const std::vector<std::uint8_t> ping = m_disco->BuildPing(*peer.DiscoKey, transaction);
+    base::Logger("magicsock")
+        .LogTrace("probing peer={} candidates={} advertised={}",
+                  crypto::BytesToHex(peer.PublicKey.data(), 8),
+                  peer.Endpoints.size(),
+                  m_advertisedEndpoint.Port() != 0);
+    const tailgate::disco::Disco::TransactionId transaction = m_protocol.Disco().NewTransactionId();
+    const std::vector<std::uint8_t> ping =
+        m_protocol.Disco().BuildPing(*peer.DiscoKey, transaction);
     m_connection.ProbePeer(peer.PublicKey, ping);
     for (const tailgate::net::Endpoint& endpoint : peer.Endpoints)
     {
         (void)m_connection.TrySendProbe(endpoint, ping);
     }
+    if (m_advertisedEndpoint.Port() != 0)
+    {
+        SendRelay(peer,
+                  m_protocol.Disco().BuildCallMeMaybe(*peer.DiscoKey, {m_advertisedEndpoint}),
+                  tailgate::derp::DerpSendQueue::Priority::Control);
+    }
+}
+
+void SessionImpl::SetPacketPath(std::optional<std::reference_wrapper<PacketPath>> path)
+{
+    m_packetPath = path;
 }
 
 void SessionImpl::Dispatch(
@@ -422,6 +451,11 @@ void SessionImpl::Dispatch(
 {
     for (const tailgate::wgengine::wireguard::WireGuardRouter::TransportPacket& packet : packets)
     {
+        if (m_packetPath)
+        {
+            m_packetPath->get().Send(packet);
+            continue;
+        }
         PeerState* peer = FindPeer(packet.Peer);
         if (peer == nullptr)
         {
@@ -456,9 +490,15 @@ void SessionImpl::ProcessProtocolEvents(tailgate::wgengine::EngineWaitResult eng
 {
     result.Packets = std::move(engineResult.Packets);
     result.Failures = std::move(engineResult.Failures);
+    if (!result.Failures.empty() && m_discovery)
+    {
+        result.EndpointDiscovery = EndpointDiscoveryResult{};
+        CancelEndpointDiscovery();
+    }
     for (tailgate::types::nettype::UdpDatagram& datagram : engineResult.Datagrams)
     {
-        if (!ProcessDiscoPacket(nullptr, datagram.Source, std::nullopt, datagram.Payload, result) &&
+        if (!ProcessEndpointResponse(datagram, result) &&
+            !ProcessDiscoPacket(nullptr, datagram.Source, std::nullopt, datagram.Payload, result) &&
             !ProcessWireGuardPacket(
                 nullptr, datagram.Source, std::nullopt, datagram.Payload, result))
         {
@@ -518,11 +558,11 @@ bool SessionImpl::ProcessDiscoPacket(
     const std::vector<std::uint8_t>& packet,
     tailgate::wgengine::SessionWaitResult& result)
 {
-    if (!m_disco || !tailgate::disco::Disco::IsDiscoPacket(packet))
+    if (!m_configured || !tailgate::disco::Disco::IsDiscoPacket(packet))
     {
         return false;
     }
-    const std::optional<tailgate::disco::Disco::Message> message = m_disco->Parse(packet);
+    const std::optional<tailgate::disco::Disco::Message> message = m_protocol.Disco().Parse(packet);
     if (!message)
     {
         return true;
@@ -537,8 +577,10 @@ bool SessionImpl::ProcessDiscoPacket(
     {
         if (derpSource != nullptr)
         {
-            const tailgate::disco::Disco::TransactionId transaction = m_disco->NewTransactionId();
-            const std::vector<std::uint8_t> ping = m_disco->BuildPing(*peer->DiscoKey, transaction);
+            const tailgate::disco::Disco::TransactionId transaction =
+                m_protocol.Disco().NewTransactionId();
+            const std::vector<std::uint8_t> ping =
+                m_protocol.Disco().BuildPing(*peer->DiscoKey, transaction);
             for (const tailgate::net::Endpoint& endpoint : message->Endpoints)
             {
                 (void)m_connection.TrySendProbe(endpoint, ping);
@@ -551,8 +593,8 @@ bool SessionImpl::ProcessDiscoPacket(
             directSource ? directSource->Address() : tailgate::disco::Disco::DerpMagicIpv4Address;
         const std::uint16_t sourcePort =
             directSource ? directSource->Port() : static_cast<std::uint16_t>(m_homeDerpRegion);
-        const std::vector<std::uint8_t> pong =
-            m_disco->BuildPong(*peer->DiscoKey, message->Transaction, sourceAddress, sourcePort);
+        const std::vector<std::uint8_t> pong = m_protocol.Disco().BuildPong(
+            *peer->DiscoKey, message->Transaction, sourceAddress, sourcePort);
         if (directSource)
         {
             MarkDirect(*peer, *directSource, result);
@@ -562,6 +604,10 @@ bool SessionImpl::ProcessDiscoPacket(
         {
             m_derps[*derpConnection].Connection->Send(
                 *derpSource, pong, tailgate::derp::DerpSendQueue::Priority::Control);
+            // A CLI Disco ping need not include CallMeMaybe or a WireGuard handshake.
+            // Open the reverse UDP path as well: stateful firewalls/NATs can otherwise
+            // keep this peer on DERP until the local user initiates traffic.
+            StartDirectProbe(*peer);
         }
     }
     else if (message->Type == tailgate::disco::Disco::MessageType::Pong && directSource)
@@ -583,6 +629,8 @@ void SessionImpl::MarkDirect(PeerState& peer,
 {
     if (m_connection.MarkDirect(peer.PublicKey, endpoint))
     {
+        base::Logger("magicsock")
+            .LogDebug("direct path selected peer={}", crypto::BytesToHex(peer.PublicKey.data(), 8));
         result.PathEvents.push_back(tailgate::wgengine::SessionPathEvent{
             .Peer = peer.PublicKey,
             .DirectEndpoint = endpoint,
@@ -597,12 +645,13 @@ bool SessionImpl::ProcessWireGuardPacket(
     const std::vector<std::uint8_t>& packet,
     tailgate::wgengine::SessionWaitResult& result)
 {
-    if (!m_wireGuard || tailgate::disco::Disco::IsDiscoPacket(packet))
+    if (!m_configured || tailgate::disco::Disco::IsDiscoPacket(packet))
     {
         return false;
     }
     tailgate::wgengine::wireguard::WireGuardRouter::ReceiveResult received =
-        source == nullptr ? m_wireGuard->Receive(packet) : m_wireGuard->Receive(*source, packet);
+        source == nullptr ? m_protocol.Router().Receive(packet)
+                          : m_protocol.Router().Receive(*source, packet);
     if (received.Source == tailgate::crypto::Bytes32{})
     {
         return false;
@@ -649,7 +698,7 @@ bool SessionImpl::ProcessWireGuardPacket(
     return true;
 }
 
-void SessionImpl::Maintain(tailgate::wgengine::SessionWaitResult& result)
+void SessionImpl::MaintainConnections(tailgate::wgengine::SessionWaitResult& result)
 {
     if (m_control)
     {
@@ -662,9 +711,14 @@ void SessionImpl::Maintain(tailgate::wgengine::SessionWaitResult& result)
     {
         derp.Connection->Maintain();
     }
-    if (m_wireGuard)
+}
+
+void SessionImpl::Maintain(tailgate::wgengine::SessionWaitResult& result)
+{
+    MaintainConnections(result);
+    if (m_configured)
     {
-        Dispatch(m_wireGuard->UpdateTimers());
+        Dispatch(m_protocol.Router().UpdateTimers());
         for (PeerState& peer : m_peers)
         {
             if (!peer.Active)
@@ -673,12 +727,15 @@ void SessionImpl::Maintain(tailgate::wgengine::SessionWaitResult& result)
             }
             if (m_connection.ExpireDirectPath(peer.PublicKey))
             {
+                base::Logger("magicsock")
+                    .LogDebug("direct path expired peer={}",
+                              crypto::BytesToHex(peer.PublicKey.data(), 8));
                 result.PathEvents.push_back(tailgate::wgengine::SessionPathEvent{
                     .Peer = peer.PublicKey,
                     .DirectEndpoint = std::nullopt,
                 });
             }
-            if (m_wireGuard->HasSession(peer.PublicKey) &&
+            if (m_protocol.Router().HasSession(peer.PublicKey) &&
                 !m_connection.HasDirectPath(peer.PublicKey))
             {
                 StartDirectProbe(peer);

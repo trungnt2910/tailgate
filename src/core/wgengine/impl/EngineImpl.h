@@ -21,6 +21,8 @@ public:
                tailgate::wgengine::magicsock::Connection& connection,
                tailgate::wgengine::tstun::Device& device) noexcept;
 
+    void Reset() noexcept override;
+
     [[nodiscard]] bool
     OpenPacketDevice(const tailgate::wgengine::tstun::DeviceOptions& options) override;
     [[nodiscard]] PacketWriteResult WritePacket(std::vector<std::uint8_t> packet) override;
@@ -33,6 +35,7 @@ public:
                                         std::size_t maximumDatagramsPerSocket,
                                         std::size_t maximumDatagramSize) override;
     void Wake() noexcept override;
+    [[nodiscard]] bool PacketDeviceOpen() const noexcept override;
 
 private:
     [[nodiscard]] bool QueuePacket(std::vector<std::uint8_t> packet);

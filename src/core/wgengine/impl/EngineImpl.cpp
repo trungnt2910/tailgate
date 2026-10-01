@@ -15,6 +15,22 @@ EngineImpl::EngineImpl(tailgate::base::EventLoop& eventLoop,
 {
 }
 
+void EngineImpl::Reset() noexcept
+{
+    m_device.Close();
+    m_connection.Close();
+    m_eventLoop.DiscardPostedEvents(m_deviceToken);
+    m_deviceToken = {};
+    m_deviceOpen = false;
+    m_pendingPackets.clear();
+    m_pendingBytes = 0;
+}
+
+bool EngineImpl::PacketDeviceOpen() const noexcept
+{
+    return m_deviceOpen;
+}
+
 bool EngineImpl::OpenPacketDevice(const tailgate::wgengine::tstun::DeviceOptions& options)
 {
     if (m_deviceOpen || options.ReadinessToken.Value == 0)
@@ -74,6 +90,9 @@ EngineWaitResult EngineImpl::Process(tailgate::base::EventWaitResult ready,
                                      std::size_t maximumDatagramsPerSocket,
                                      std::size_t maximumDatagramSize)
 {
+    constexpr std::size_t MaximumCompletionEvents = 64;
+    auto completions = m_eventLoop.TakePostedEvents(MaximumCompletionEvents);
+    ready.Events.insert(ready.Events.end(), completions.begin(), completions.end());
     EngineWaitResult result{
         .Status = ready.Status,
         .Datagrams = {},

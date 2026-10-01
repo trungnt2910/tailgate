@@ -30,6 +30,7 @@ ConnectionImpl::ConnectionImpl(tailgate::control::client::SessionOptions options
 
 ConnectionImpl::~ConnectionImpl()
 {
+    m_reconnectThread.request_stop();
     if (m_reconnectThread.joinable())
     {
         m_reconnectThread.join();
@@ -80,15 +81,19 @@ void ConnectionImpl::StartReconnect()
     {
         m_reconnectThread.join();
     }
-    const tailgate::control::client::SessionOptions options = m_options;
+    auto options = m_options;
+    const auto generation = m_networkGeneration;
     const std::optional<tailgate::crypto::Bytes32> discoPrivateKey = m_discoPrivateKey;
     const std::optional<std::vector<tailgate::control::client::MapEndpoint>> endpoints =
         m_endpoints;
     m_reconnectInProgress = true;
-    m_reconnectThread = std::thread(
-        [this, options, discoPrivateKey, endpoints]() mutable
+    m_reconnectThread = std::jthread(
+        [this, options, discoPrivateKey, endpoints, generation](
+            std::stop_token cancellation) mutable
         {
             ReconnectResult result;
+            result.Generation = generation;
+            options.Cancellation = cancellation;
             try
             {
                 result.Session = m_sessionFactory.CreateSession(options, m_socketFactory);
@@ -203,7 +208,10 @@ void ConnectionImpl::SetDiscoPrivateKey(const tailgate::crypto::Bytes32& private
 void ConnectionImpl::SetEndpoints(std::vector<tailgate::control::client::MapEndpoint> endpoints)
 {
     m_endpoints = endpoints;
-    ActiveSession().SetEndpoints(std::move(endpoints));
+    if (m_session)
+    {
+        m_session->SetEndpoints(std::move(endpoints));
+    }
 }
 
 void ConnectionImpl::SetPreferredDerp(int region)
@@ -279,13 +287,10 @@ ConnectionImpl::ProcessEvent(const tailgate::base::Event& event)
 
 std::vector<tailgate::types::netmap::NetworkConfig> ConnectionImpl::Maintain()
 {
-    if (m_reconnectRequested.exchange(false))
+    if (!m_reconnectInProgress && m_reconnectRequested.exchange(false))
     {
-        if (!m_reconnectInProgress)
-        {
-            ScheduleReconnect();
-            m_nextReconnect = m_timeProvider.Now();
-        }
+        ScheduleReconnect();
+        m_nextReconnect = m_timeProvider.Now();
     }
     if (m_session)
     {
@@ -296,7 +301,7 @@ std::vector<tailgate::types::netmap::NetworkConfig> ConnectionImpl::Maintain()
         }
         return {};
     }
-    if (m_timeProvider.Now() < m_nextReconnect)
+    if (!m_reconnectInProgress && (!m_networkAvailable || m_timeProvider.Now() < m_nextReconnect))
     {
         return {};
     }
@@ -312,6 +317,15 @@ std::vector<tailgate::types::netmap::NetworkConfig> ConnectionImpl::Maintain()
     }
     m_reconnectThread.join();
     m_reconnectInProgress = false;
+    if (reconnect->Generation != m_networkGeneration)
+    {
+        if (reconnect->Session)
+        {
+            reconnect->Session->Close();
+        }
+        m_nextReconnect = m_timeProvider.Now();
+        return {};
+    }
     if (reconnect->Error)
     {
         try
@@ -345,6 +359,21 @@ std::vector<tailgate::types::netmap::NetworkConfig> ConnectionImpl::Maintain()
         return updates;
     }
     return {};
+}
+
+void ConnectionImpl::ChangeNetwork(std::optional<std::string> networkInterface)
+{
+    ++m_networkGeneration;
+    m_reconnectThread.request_stop();
+    m_networkAvailable = networkInterface.has_value();
+    if (networkInterface)
+    {
+        m_options.NetworkInterface = std::move(*networkInterface);
+    }
+    Disconnect();
+    m_reconnecting = true;
+    m_nextReconnect = m_timeProvider.Now();
+    m_eventLoop.Wake();
 }
 
 void ConnectionImpl::RequestReconnect() noexcept

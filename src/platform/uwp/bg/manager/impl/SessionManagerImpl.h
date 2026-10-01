@@ -21,7 +21,7 @@ public:
     void Report(const SessionEvent& event) override;
     void Notify(SessionGeneration generation,
                 const ForegroundConnectionNotification& notification) override;
-    void StartForegroundMonitor(const std::string& tailgateServer,
+    void StartForegroundMonitor(const std::string& profileId,
                                 ForegroundCancellationHandler cancelled) override;
     void StopForegroundMonitor() override;
     void WriteState(const tailgate::types::netmap::NetworkConfig& config) override;

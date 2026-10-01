@@ -35,12 +35,73 @@ constexpr std::size_t MaximumEvents = 8;
 constexpr std::size_t MaximumPackets = 4;
 constexpr std::size_t MaximumPacketSize = 4096;
 
+TEST(Given_WgengineSession, When_CompletionWakesEarly_Then_PeriodicDeadlineIsPreserved)
+{
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto& events = dynamic_cast<FakeEventLoop&>(injector.create<tailgate::base::EventLoop&>());
+    auto& time = dynamic_cast<FakeTimeProvider&>(injector.create<tailgate::base::TimeProvider&>());
+    auto& session = injector.create<tailgate::wgengine::Session&>();
+    auto connection =
+        std::make_unique<FakeConnection>(DerpToken, tailgate::derp::DerpClient::Packet{});
+    auto& state = *connection;
+    (void)session.AddDerpConnection(1, std::move(connection));
+    events.Next.Status = tailgate::base::EventWaitStatus::Woken;
+
+    const auto completion = session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize);
+    const auto afterCompletion = state.MaintenanceCalls;
+    time.Advance(std::chrono::seconds(1));
+    events.Next.Status = tailgate::base::EventWaitStatus::DeadlineReached;
+    const auto periodic = session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize);
+
+    EXPECT_FALSE(completion.MaintenanceDue);
+    EXPECT_EQ(completion.Status, tailgate::base::EventWaitStatus::Woken);
+    EXPECT_EQ(afterCompletion, 1U);
+    EXPECT_TRUE(periodic.MaintenanceDue);
+    EXPECT_EQ(state.MaintenanceCalls, 2U);
+}
+
+TEST(Given_WgengineSession, When_TransportPostsCompletion_Then_PacketReachesDerpDispatch)
+{
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto& events = dynamic_cast<FakeEventLoop&>(injector.create<tailgate::base::EventLoop&>());
+    auto& session = injector.create<tailgate::wgengine::Session&>();
+    tailgate::derp::DerpClient::Packet packet{.Source = {}, .Payload = {1, 2, 3}};
+    (void)session.AddDerpConnection(1, std::make_unique<FakeConnection>(DerpToken, packet));
+    events.Next.Status = tailgate::base::EventWaitStatus::Woken;
+
+    events.Post({.Token = DerpToken, .Readiness = tailgate::base::EventReadiness::Readable});
+    const auto result = session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize);
+    ASSERT_EQ(result.DerpPackets.size(), 1U);
+
+    EXPECT_EQ(result.DerpPackets.front().Packet.Payload, packet.Payload);
+    EXPECT_EQ(result.Status, tailgate::base::EventWaitStatus::Events);
+}
+
+TEST(Given_WgengineSession, When_CompletionWakeReachesTimerDeadline_Then_MaintenanceIsDispatchable)
+{
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto& events = dynamic_cast<FakeEventLoop&>(injector.create<tailgate::base::EventLoop&>());
+    auto& time = dynamic_cast<FakeTimeProvider&>(injector.create<tailgate::base::TimeProvider&>());
+    auto& session = injector.create<tailgate::wgengine::Session&>();
+    events.Next.Status = tailgate::base::EventWaitStatus::Woken;
+    time.Advance(std::chrono::seconds(1));
+
+    const auto result = session.Wait(MaximumEvents, MaximumPackets, MaximumPacketSize);
+
+    EXPECT_TRUE(result.MaintenanceDue);
+    EXPECT_EQ(result.Status, tailgate::base::EventWaitStatus::Events);
+}
+
 TEST(Given_WgengineSession, When_PlatformEventIsUnhandled_Then_EventIsPreserved)
 {
     tailgate::di::Injector injector;
     tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
     auto* eventLoop = &dynamic_cast<FakeEventLoop&>(injector.create<tailgate::base::EventLoop&>());
     tailgate::wgengine::Session& session = injector.create<tailgate::wgengine::Session&>();
+    eventLoop->Next.Status = tailgate::base::EventWaitStatus::Woken;
     eventLoop->Next.Events.push_back(tailgate::base::Event{
         .Token = PlatformToken,
         .Readiness = tailgate::base::EventReadiness::Readable,
@@ -52,6 +113,7 @@ TEST(Given_WgengineSession, When_PlatformEventIsUnhandled_Then_EventIsPreserved)
 
     EXPECT_EQ(eventLoop->TimedWaitCalls, 1U);
     EXPECT_EQ(result.PlatformEvents.size(), 1U);
+    EXPECT_EQ(result.Status, tailgate::base::EventWaitStatus::Events);
     EXPECT_EQ(result.PlatformEvents.front().Token, PlatformToken);
     EXPECT_FALSE(result.MaintenanceDue);
 }

@@ -87,14 +87,14 @@ void MainWindowControllerImpl::RunCommand(const tailgate::cli::Arguments& argume
         }
         const winrt::hstring authKey = winrt::to_hstring(arguments.Up.AuthKey);
         winrt::hstring server = winrt::to_hstring(arguments.Up.TailgateUrl);
-        if (server.empty())
+        if (server.empty() && !arguments.Up.TailgateUrlSet)
         {
             m_settingsController.Reload();
             server = m_settingsController.GetState().TailgateServer();
         }
         m_authorizationController.SetPendingAuthentication(server, authKey);
-        if (!server.empty() &&
-            (!authKey.empty() || m_settingsController.GetState().HasStoredProfile()))
+        if (!authKey.empty() || m_settingsController.GetState().HasStoredProfile() ||
+            arguments.Up.TailgateUrlSet)
         {
             m_sessionController.Connect(server, authKey, true);
             return;
@@ -198,9 +198,8 @@ void MainWindowControllerImpl::OnSignInChanged()
 void MainWindowControllerImpl::ShowSignInDialog(std::optional<UwpError::Code> error)
 {
     const AuthorizationControllerState& authorization = m_authorizationController.GetState();
-    const winrt::hstring tailgateServer = authorization.PendingTailgateServer().empty()
-                                              ? m_settingsController.GetState().TailgateServer()
-                                              : authorization.PendingTailgateServer();
+    const winrt::hstring tailgateServer = authorization.PendingTailgateServer().value_or(
+        m_settingsController.GetState().TailgateServer());
     const winrt::hstring hostname = authorization.PendingHostname()
                                         ? *authorization.PendingHostname()
                                         : m_settingsController.GetState().Hostname();

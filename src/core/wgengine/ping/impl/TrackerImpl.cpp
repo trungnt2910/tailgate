@@ -10,6 +10,7 @@
 #include <utility>
 
 #include <tailgate/crypto/Crypto.h>
+#include <tailgate/crypto/PrefixedKey.h>
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 #include <tailgate/net/packet/Tsmp.h>
@@ -19,31 +20,9 @@ namespace tailgate::wgengine::ping::impl
 namespace
 {
 
+constexpr auto RetryInterval = std::chrono::seconds(1);
 constexpr std::string_view NodeKeyPrefix = "nodekey:";
 constexpr std::string_view DiscoKeyPrefix = "discokey:";
-
-std::optional<tailgate::crypto::Bytes32> ParseKey(const std::string& value, std::string_view prefix)
-{
-    if (!value.starts_with(prefix))
-    {
-        return std::nullopt;
-    }
-    const std::string_view encoded(value.data() + prefix.size(), value.size() - prefix.size());
-    constexpr std::size_t EncodedKeySize = tailgate::crypto::Bytes32{}.size() * 2;
-    if (encoded.size() != EncodedKeySize ||
-        !std::ranges::all_of(encoded,
-                             [](unsigned char character)
-                             {
-                                 return std::isxdigit(character) != 0;
-                             }))
-    {
-        return std::nullopt;
-    }
-    const std::vector<std::uint8_t> bytes = tailgate::crypto::HexToBytes(std::string(encoded));
-    tailgate::crypto::Bytes32 result{};
-    std::copy(bytes.begin(), bytes.end(), result.begin());
-    return result;
-}
 
 std::string RelayLabel(const tailgate::types::netmap::PeerConfig& peer,
                        const std::string& requested)
@@ -59,7 +38,7 @@ std::string RelayLabel(const tailgate::types::netmap::PeerConfig& peer,
 
 StartResult TrackerImpl::Start(const Request& request,
                                const tailgate::types::netmap::NetworkConfig& network,
-                               tailgate::disco::Disco& disco,
+                               const CreateDiscoProbe& createDisco,
                                TimePoint now)
 {
     if (std::ranges::any_of(m_pending,
@@ -76,7 +55,8 @@ StartResult TrackerImpl::Start(const Request& request,
         return {.Status = StartStatus::NoMatchingPeer, .Outbound = std::nullopt};
     }
     const tailgate::types::netmap::PeerConfig& peer = network.Peers()[*selected];
-    const std::optional<tailgate::crypto::Bytes32> nodeKey = ParseKey(peer.Key(), NodeKeyPrefix);
+    const std::optional<tailgate::crypto::Bytes32> nodeKey =
+        tailgate::crypto::PrefixedKey::TryParse(peer.Key(), NodeKeyPrefix);
     if (!nodeKey)
     {
         return {.Status = StartStatus::NoNodeKey, .Outbound = std::nullopt};
@@ -88,6 +68,8 @@ StartResult TrackerImpl::Start(const Request& request,
         .DiscoTransaction = {},
         .TsmpToken = {},
         .Started = now,
+        .LastSent = now,
+        .DiscoKey = {},
         .PeerName = peer.Name(),
         .PeerAddress = peer.Address(),
         .Relay = RelayLabel(peer, request.Relay),
@@ -96,13 +78,19 @@ StartResult TrackerImpl::Start(const Request& request,
     if (request.PingMode == Mode::Disco)
     {
         const std::optional<tailgate::crypto::Bytes32> discoKey =
-            ParseKey(peer.DiscoKey(), DiscoKeyPrefix);
+            tailgate::crypto::PrefixedKey::TryParse(peer.DiscoKey(), DiscoKeyPrefix);
         if (!discoKey)
         {
             return {.Status = StartStatus::NoDiscoKey, .Outbound = std::nullopt};
         }
-        pending.DiscoTransaction = disco.NewTransactionId();
-        probe.Payload = disco.BuildPing(*discoKey, pending.DiscoTransaction);
+        const auto built = createDisco(*nodeKey, *discoKey);
+        if (!built)
+        {
+            return {.Status = StartStatus::NoDiscoKey, .Outbound = std::nullopt};
+        }
+        pending.DiscoKey = *discoKey;
+        pending.DiscoTransaction = built->Transaction;
+        probe.Payload = built->Payload;
         probe.Disco = true;
     }
     else
@@ -182,6 +170,46 @@ std::vector<Result> TrackerImpl::Expire(TimePoint now)
                       return now - pending.Started >= pending.RequestState.Timeout;
                   });
     return results;
+}
+
+std::vector<Probe> TrackerImpl::RetryDisco(TimePoint now, const CreateDiscoProbe& createDisco)
+{
+    std::vector<Probe> probes;
+    for (auto& pending : m_pending)
+    {
+        if (pending.RequestState.PingMode != Mode::Disco ||
+            now - pending.Started >= pending.RequestState.Timeout ||
+            now - pending.LastSent < RetryInterval)
+        {
+            continue;
+        }
+        pending.LastSent = now;
+        const auto built = createDisco(pending.Peer, pending.DiscoKey);
+        if (built)
+        {
+            pending.DiscoTransaction = built->Transaction;
+            probes.push_back(Probe{.RequestId = pending.RequestState.Id,
+                                   .Peer = pending.Peer,
+                                   .Payload = built->Payload,
+                                   .Disco = true});
+        }
+    }
+    return probes;
+}
+
+std::optional<Tracker::TimePoint> TrackerImpl::NextDeadline() const
+{
+    std::optional<TimePoint> next;
+    for (const auto& pending : m_pending)
+    {
+        auto deadline = pending.Started + pending.RequestState.Timeout;
+        if (pending.RequestState.PingMode == Mode::Disco)
+        {
+            deadline = std::min(deadline, pending.LastSent + RetryInterval);
+        }
+        next = next ? std::min(*next, deadline) : deadline;
+    }
+    return next;
 }
 
 void TrackerImpl::Reset() noexcept

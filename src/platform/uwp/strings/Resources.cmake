@@ -51,11 +51,11 @@ tailgate_resource_string(Settings_Server VALUE [[Tailgate server]])
 tailgate_resource_format_string(Settings_Version ARITY 1 VALUE [[Version {0}]])
 
 tailgate_resource_string(SignIn_Advanced VALUE [[Advanced]])
-tailgate_resource_string(SignIn_AuthKeyHeader VALUE [[Auth Key (optional)]])
+tailgate_resource_string(SignIn_AuthKeyHeader VALUE [[Auth Key]])
 tailgate_resource_string(SignIn_AuthKeyPlaceholder VALUE [[tskey-auth-...]])
-tailgate_resource_string(SignIn_HostnameHeader VALUE [[Hostname (optional)]])
+tailgate_resource_string(SignIn_HostnameHeader VALUE [[Hostname]])
+tailgate_resource_string(SignIn_RelayHeader VALUE [[Tailgate relay]])
 tailgate_resource_string(SignIn_ServerExample VALUE [[relay.example.ts.net:10000]])
-tailgate_resource_string(SignIn_ServerRequired VALUE [[A Tailgate server is required.]])
 tailgate_resource_string(SignIn_Title VALUE [[Sign in]])
 
 tailgate_resource_string(
@@ -165,4 +165,3 @@ tailgate_resource_string(
     Error_VpnServerInvalid
     VALUE [[Tailgate server must be an HTTPS URL.]]
 )
-tailgate_resource_string(Error_VpnServerRequired VALUE [[Tailgate server is required.]])

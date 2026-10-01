@@ -20,7 +20,6 @@ public:
     TAILGATE_PROPERTY(Error, std::optional<UwpError::Code>);
     TAILGATE_PROPERTY(AdvancedExpanded, bool);
     TAILGATE_PROPERTY(AdvancedHovered, bool);
-    TAILGATE_PROPERTY(ValidationErrorVisible, bool);
     TAILGATE_PROPERTY(Accepted, bool);
 };
 

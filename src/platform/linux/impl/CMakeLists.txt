@@ -1,8 +1,10 @@
 tailgate_add_library(
     tailgate_linux_impl
     STATIC
+    CancellableWait.cpp
     EventLoop.cpp
     HostInfoProvider.cpp
+    ResolveTcp.cpp
     TcpPortReservationFactory.cpp
     TcpSocketFactory.cpp
     TcpStream.cpp
@@ -20,4 +22,6 @@ target_link_libraries(
     PUBLIC
         tailgate_core
         tailgate_linux_event
+    PRIVATE
+        c-ares::cares
 )

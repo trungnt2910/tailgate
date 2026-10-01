@@ -45,6 +45,10 @@ public:
     Connection& operator=(const Connection&) = delete;
 
     [[nodiscard]] virtual bool Open(const tailgate::types::nettype::UdpSocketOptions& options) = 0;
+    // Replace only the UDP socket. Peer registrations survive, but direct paths and
+    // datagrams queued for the previous binding must be rediscovered/retransmitted.
+    [[nodiscard]] virtual bool
+    Rebind(const tailgate::types::nettype::UdpSocketOptions& options) = 0;
     [[nodiscard]] virtual bool AddPeer(const tailgate::crypto::Bytes32& peer) = 0;
     [[nodiscard]] virtual bool RemovePeer(const tailgate::crypto::Bytes32& peer) = 0;
     [[nodiscard]] virtual bool HasPeer(const tailgate::crypto::Bytes32& peer) const noexcept = 0;

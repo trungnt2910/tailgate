@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include <tailgate/base/Logger.h>
@@ -71,22 +72,31 @@ ClientError ClientException::Error() const noexcept
 class Client::Impl final
 {
 public:
+    explicit Impl(wgengine::PeerProtocol& protocol) : Protocol(protocol)
+    {
+    }
+
     [[nodiscard]] std::vector<std::uint8_t> Start(ClientConfig config)
     {
+        Protocol.Initialize(
+            wgengine::PeerIdentity{
+                .NodePrivateKey = config.NodePrivateKey,
+                .NodePublicKey = config.NodePublicKey,
+                .DiscoPrivateKey = config.DiscoPrivateKey,
+            },
+            config.Network.Peers(),
+            config.ExitNode);
         Config = std::move(config);
         ServerCandidates.clear();
         DirectEndpoints.clear();
-        Router = std::make_unique<tailgate::wgengine::wireguard::WireGuardRouter>(
-            Config.NodePrivateKey, Config.Network.Peers(), Config.ExitNode);
-        DiscoState =
-            std::make_unique<tailgate::disco::Disco>(Config.DiscoPrivateKey, Config.NodePublicKey);
+        Active = true;
+        MapRevision = 1;
         return EncodeNetworkMapFrame(Config.Network);
     }
 
     void Stop() noexcept
     {
-        Router.reset();
-        DiscoState.reset();
+        Active = false;
         ServerCandidates.clear();
         DirectEndpoints.clear();
         Config = {};
@@ -96,9 +106,9 @@ public:
                                                           const std::vector<std::uint8_t>& packet)
     {
         std::vector<std::uint8_t> output;
-        if (Router)
+        if (Active)
         {
-            AppendTransportPackets(output, Router->SendTo(peer, packet));
+            AppendTransportPackets(output, Protocol.Router().SendTo(peer, packet));
         }
         return output;
     }
@@ -106,9 +116,9 @@ public:
     [[nodiscard]] std::vector<std::uint8_t> Encapsulate(const std::vector<std::uint8_t>& packet)
     {
         std::vector<std::uint8_t> output;
-        if (Router)
+        if (Active)
         {
-            AppendTransportPackets(output, Router->Send(packet));
+            AppendTransportPackets(output, Protocol.Router().Send(packet));
         }
         return output;
     }
@@ -122,8 +132,8 @@ public:
             ProcessServerPacket(ProtocolCodec::DecodePeerPacket(frame.Payload()), result);
             break;
         case MessageType::NetworkMap:
-            (void)UpdateNetworkMap(ProtocolCodec::DecodeNetworkConfig(frame.Payload()),
-                                   std::nullopt);
+            (void)UpdateNetworkMap(
+                ProtocolCodec::DecodeNetworkConfig(frame.Payload()), std::nullopt, false);
             result.NetworkMapChanged = true;
             break;
         case MessageType::Heartbeat:
@@ -134,6 +144,20 @@ public:
             if (!result.PumpReply)
             {
                 throw PumpException(PumpError::InvalidMessage);
+            }
+            break;
+        case MessageType::DelegationReply:
+            result.Delegation = DecodeDelegationReply(frame);
+            if (!result.Delegation)
+            {
+                throw std::system_error(std::make_error_code(std::errc::protocol_error));
+            }
+            break;
+        case MessageType::NetworkMapAck:
+            result.AppliedMapRevision = DecodeMapAcknowledgement(frame);
+            if (!result.AppliedMapRevision || *result.AppliedMapRevision > MapRevision)
+            {
+                throw std::system_error(std::make_error_code(std::errc::protocol_error));
             }
             break;
         case MessageType::DerpChallenge:
@@ -154,16 +178,16 @@ public:
     [[nodiscard]] std::vector<std::uint8_t> UpdateTimers()
     {
         std::vector<std::uint8_t> output;
-        if (Router)
+        if (Active)
         {
-            AppendTransportPackets(output, Router->UpdateTimers());
+            AppendTransportPackets(output, Protocol.Router().UpdateTimers());
         }
         return output;
     }
 
     [[nodiscard]] std::vector<std::uint8_t> BuildKeepAlive()
     {
-        if (!Router)
+        if (!Active)
         {
             return {};
         }
@@ -174,9 +198,10 @@ public:
 
     [[nodiscard]] std::vector<std::uint8_t>
     UpdateNetworkMap(tailgate::types::netmap::NetworkConfig config,
-                     std::optional<std::string> exitNode)
+                     std::optional<std::string> exitNode,
+                     bool outbound = true)
     {
-        if (!Router || config.Domain() != Config.Network.Domain() ||
+        if (!Active || config.Domain() != Config.Network.Domain() ||
             config.SelfNodeId() != Config.Network.SelfNodeId() ||
             config.SelfKey() != Config.Network.SelfKey())
         {
@@ -189,13 +214,18 @@ public:
         Config.Network = std::move(config);
         // The relay refreshes its path state on network-map changes as well.
         DirectEndpoints.clear();
-        Router->UpdatePeers(Config.Network.Peers(), Config.ExitNode);
+        Protocol.Router().UpdatePeers(Config.Network.Peers(), Config.ExitNode);
+        if (!outbound)
+        {
+            return {};
+        }
+        ++MapRevision;
         return EncodeNetworkMapFrame(Config.Network);
     }
 
     void ProcessServerPacket(const PeerPacket& packet, ClientProcessResult& result)
     {
-        if (!Router)
+        if (!Active)
         {
             return;
         }
@@ -206,8 +236,8 @@ public:
         }
         const bool hasDirectSource = packet.EndpointAddress() != 0 && packet.EndpointPort() != 0;
         tailgate::wgengine::wireguard::WireGuardRouter::ReceiveResult received =
-            hasDirectSource ? Router->Receive(packet.Payload())
-                            : Router->Receive(packet.Peer(), packet.Payload());
+            hasDirectSource ? Protocol.Router().Receive(packet.Payload())
+                            : Protocol.Router().Receive(packet.Peer(), packet.Payload());
         if (hasDirectSource && received.Accepted)
         {
             RecordDirectEndpoint(
@@ -221,7 +251,7 @@ public:
             {
                 Logger.LogDebug("answering TSMP ping from peer={}",
                                 tailgate::crypto::BytesToHex(packet.Peer().data(), 8));
-                AppendTransportPackets(result.RemoteOutput, Router->Send(*pong));
+                AppendTransportPackets(result.RemoteOutput, Protocol.Router().Send(*pong));
                 continue;
             }
             result.LocalPackets.push_back({.Peer = received.Source, .Bytes = std::move(plaintext)});
@@ -230,7 +260,7 @@ public:
 
     void ProcessDiscoPacket(const PeerPacket& packet, ClientProcessResult& result)
     {
-        if (!DiscoState)
+        if (!Active)
         {
             Logger.LogDebug("disco packet dropped: no disco state");
             return;
@@ -259,7 +289,7 @@ public:
         tailgate::crypto::Bytes32 discoKey{};
         std::copy(keyBytes.begin(), keyBytes.end(), discoKey.begin());
         const std::optional<tailgate::disco::Disco::Message> message =
-            DiscoState->Parse(packet.Payload());
+            Protocol.Disco().Parse(packet.Payload());
         if (message && message->Sender == discoKey &&
             message->Type == tailgate::disco::Disco::MessageType::Pong)
         {
@@ -275,8 +305,9 @@ public:
             message->Type == tailgate::disco::Disco::MessageType::CallMeMaybe)
         {
             const tailgate::disco::Disco::TransactionId transaction =
-                DiscoState->NewTransactionId();
-            const std::vector<std::uint8_t> ping = DiscoState->BuildPing(discoKey, transaction);
+                Protocol.Disco().NewTransactionId();
+            const std::vector<std::uint8_t> ping =
+                Protocol.Disco().BuildPing(discoKey, transaction);
             for (const tailgate::net::Endpoint& endpoint : message->Endpoints)
             {
                 AppendFrame(
@@ -311,7 +342,7 @@ public:
                                       : packet.EndpointPort();
         const PeerPacket response(
             packet.Peer(),
-            DiscoState->BuildPong(discoKey, message->Transaction, pongAddress, pongPort),
+            Protocol.Disco().BuildPong(discoKey, message->Transaction, pongAddress, pongPort),
             false,
             true,
             packet.EndpointAddress(),
@@ -322,7 +353,7 @@ public:
         if (viaDerp)
         {
             AppendPeerPackets(result.RemoteOutput,
-                              BuildDiscoEndpointProbes(*DiscoState, *peer, ServerCandidates));
+                              BuildDiscoEndpointProbes(Protocol.Disco(), *peer, ServerCandidates));
         }
     }
 
@@ -353,9 +384,9 @@ public:
     void ProcessHeartbeat(std::vector<std::uint8_t>& output)
     {
         AppendFrame(output, Frame(MessageType::Heartbeat, {}));
-        if (Router)
+        if (Active)
         {
-            AppendTransportPackets(output, Router->UpdateTimers());
+            AppendTransportPackets(output, Protocol.Router().UpdateTimers());
         }
         std::vector<std::uint8_t> probes = ProbePeers();
         output.insert(output.end(), probes.begin(), probes.end());
@@ -364,10 +395,11 @@ public:
     [[nodiscard]] std::vector<std::uint8_t> ProbePeers()
     {
         std::vector<std::uint8_t> output;
-        if (DiscoState)
+        if (Active)
         {
             AppendPeerPackets(
-                output, BuildDiscoProbes(*DiscoState, Config.Network.Peers(), ServerCandidates));
+                output,
+                BuildDiscoProbes(Protocol.Disco(), Config.Network.Peers(), ServerCandidates));
         }
         return output;
     }
@@ -404,14 +436,15 @@ public:
     }
 
     ClientConfig Config;
-    std::unique_ptr<tailgate::wgengine::wireguard::WireGuardRouter> Router;
-    std::unique_ptr<tailgate::disco::Disco> DiscoState;
+    wgengine::PeerProtocol& Protocol;
+    bool Active = false;
+    std::uint64_t MapRevision = 0;
     std::vector<tailgate::net::Endpoint> ServerCandidates;
     std::map<tailgate::crypto::Bytes32, tailgate::net::Endpoint> DirectEndpoints;
     tailgate::base::Logger Logger{"hosted-client"};
 };
 
-Client::Client() : m_impl(std::make_unique<Impl>())
+Client::Client(wgengine::PeerProtocol& protocol) : m_impl(std::make_unique<Impl>(protocol))
 {
 }
 
@@ -431,7 +464,12 @@ void Client::Stop() noexcept
 
 bool Client::Active() const noexcept
 {
-    return m_impl->Router != nullptr;
+    return m_impl->Active;
+}
+
+std::uint64_t Client::MapRevision() const noexcept
+{
+    return m_impl->MapRevision;
 }
 
 const tailgate::types::netmap::NetworkConfig& Client::Network() const
@@ -441,11 +479,11 @@ const tailgate::types::netmap::NetworkConfig& Client::Network() const
 
 tailgate::disco::Disco& Client::Disco()
 {
-    if (!m_impl->DiscoState)
+    if (!m_impl->Active)
     {
         throw ClientException(ClientError::NotActive);
     }
-    return *m_impl->DiscoState;
+    return m_impl->Protocol.Disco();
 }
 
 const std::string& Client::ExitNode() const noexcept

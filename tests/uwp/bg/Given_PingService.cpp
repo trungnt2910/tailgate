@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -7,17 +8,18 @@
 #include <gtest/gtest.h>
 
 #include <tailgate/crypto/Crypto.h>
-#include <tailgate/di/Bindings.h>
-#include <tailgate/disco/Disco.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/net/Ipv4Address.h>
 #include <tailgate/net/packet/Ipv4.h>
 
 #include "common/UwpAppServiceProtocol.h"
+#include "common/VpnConstants.h"
 
 #include "service/PingService.h"
 
 #include "fakes/bg/manager/FakeDataPlaneManager.h"
+#include "fakes/di/FakeNetworkBindings.h"
+#include "fakes/ipn/ipnlocal/FakeNodeBackend.h"
 
 namespace tailgate::uwp::tests
 {
@@ -25,7 +27,7 @@ namespace
 {
 
 constexpr std::uint32_t AppAddress =
-    tailgate::net::Ipv4Address::FromOctets(100, 64, 0, 1).HostOrder();
+    tailgate::net::Ipv4Address::FromOctets(192, 0, 2, 1).HostOrder();
 constexpr std::uint16_t AppPort = 49152;
 constexpr std::uint64_t RequestSequence = 42;
 
@@ -50,120 +52,241 @@ class Given_PingService : public testing::Test
 protected:
     void SetUp() override
     {
-        m_injector = std::make_unique<tailgate::di::Injector>();
-        m_injector->InstallSingleton<FakeDataPlaneManager, bg::manager::DataPlaneManager>();
-        tailgate::di::InstallCoreBindings(*m_injector);
-        m_dataPlane = &m_injector->create<FakeDataPlaneManager&>();
-        m_subject = m_injector->create<std::unique_ptr<bg::service::PingService>>();
+        tailgate::tests::fakes::InstallFakeNetworkBindings(Injector);
+        Injector.InstallSingleton<FakeDataPlaneManager, bg::manager::DataPlaneManager>();
+        Subject = Injector.create<std::unique_ptr<bg::service::PingService>>();
+        Network.SelfAddress("192.0.2.1");
     }
 
-    FakeDataPlaneManager* m_dataPlane = nullptr;
-    std::unique_ptr<tailgate::di::Injector> m_injector;
-    std::unique_ptr<bg::service::PingService> m_subject;
+    tailgate::types::netmap::PeerConfig Peer()
+    {
+        tailgate::types::netmap::PeerConfig peer;
+        peer.Name("peer.example.ts.net");
+        peer.Address("192.0.2.2");
+        peer.Key("nodekey:" +
+                 tailgate::crypto::BytesToHex(RemoteNodeKey.data(), RemoteNodeKey.size()));
+        peer.DiscoKey("discokey:" + tailgate::crypto::BytesToHex(RemoteDisco.PublicKey().data(),
+                                                                 RemoteDisco.PublicKey().size()));
+        return peer;
+    }
+
+    std::vector<std::uint8_t> Packet(std::uint32_t source = AppAddress)
+    {
+        return tailgate::net::packet::Ipv4UdpDatagram::Build(
+            source,
+            VpnConstants::Network::ServiceIpv4Address,
+            AppPort,
+            VpnConstants::AppService::Port,
+            app_service::EncodePingRequest(
+                {.Sequence = RequestSequence, .Target = "peer.example.ts.net"}));
+    }
+
+    void StartHosted()
+    {
+        Node.Config = Network;
+        const auto packet = Packet();
+        const std::string relay = "Relay-Node";
+        const std::string exit;
+        bg::service::EncapsulationContext context{
+            .Original = packet, .Node = Node, .RelayName = relay, .ExitNode = exit};
+        Subject->Encapsulate(context);
+    }
+
+    tailgate::tests::fakes::FakeNodeBackend Node;
+
+    tailgate::tests::fakes::FakeTimeProvider& Clock()
+    {
+        return dynamic_cast<tailgate::tests::fakes::FakeTimeProvider&>(
+            Injector.create<tailgate::base::TimeProvider&>());
+    }
+
+    tailgate::di::Injector Injector;
+    tailgate::types::netmap::NetworkConfig Network;
+    std::unique_ptr<bg::service::PingService> Subject;
+    const tailgate::crypto::Bytes32 RemoteNodeKey = tailgate::crypto::GeneratePrivateKey();
+    tailgate::disco::Disco RemoteDisco{tailgate::crypto::GeneratePrivateKey(), RemoteNodeKey};
 };
 
 TEST_F(Given_PingService, When_PeerDoesNotExist_Then_TypedErrorIsReturned)
 {
-    tailgate::disco::Disco disco(tailgate::crypto::GeneratePrivateKey(),
-                                 tailgate::crypto::GeneratePrivateKey());
-    const tailgate::net::packet::Ipv4UdpDatagram datagram(AppAddress, 0, AppPort, 0, {});
-    const app_service::PingRequest request{
-        .Sequence = RequestSequence,
-        .Target = "missing.example.ts.net",
-    };
-    const tailgate::types::netmap::NetworkConfig config;
-    std::vector<std::uint8_t> relayOutput;
-    std::vector<std::vector<std::uint8_t>> appResponses;
+    std::vector<std::vector<std::uint8_t>> responses;
+    Node.PingStatus = tailgate::wgengine::ping::StartStatus::NoMatchingPeer;
 
-    m_subject->Handle(datagram, request, config, disco, "DERP-1", relayOutput, appResponses);
-    const auto response = DecodeResponse(appResponses);
+    StartHosted();
+    Subject->FlushLocal(responses);
+    const auto response = DecodeResponse(responses);
+    ASSERT_TRUE(response);
 
-    EXPECT_EQ(m_dataPlane->ServiceCount(), 1U);
-    EXPECT_EQ(appResponses.size(), 1U);
-    EXPECT_TRUE(relayOutput.empty());
-    EXPECT_TRUE(response.has_value());
-    EXPECT_EQ(response.value_or(app_service::PingResponse{}).Result,
-              app_service::Status::NoMatchingPeer);
-    EXPECT_EQ(response.value_or(app_service::PingResponse{}).Sequence, RequestSequence);
+    EXPECT_EQ(Node.Requests.size(), 1U);
+    EXPECT_EQ(response->Result, app_service::Status::NoMatchingPeer);
+    EXPECT_EQ(response->Sequence, RequestSequence);
 }
 
 TEST_F(Given_PingService, When_PeerHasNoUsableDiscoState_Then_TypedErrorIsReturned)
 {
-    tailgate::disco::Disco disco(tailgate::crypto::GeneratePrivateKey(),
-                                 tailgate::crypto::GeneratePrivateKey());
-    const tailgate::net::packet::Ipv4UdpDatagram datagram(AppAddress, 0, AppPort, 0, {});
-    const app_service::PingRequest request{
-        .Sequence = RequestSequence,
-        .Target = "peer.example.ts.net",
-    };
-    tailgate::types::netmap::PeerConfig peer;
-    peer.Name("peer.example.ts.net");
-    peer.Address("100.64.0.2");
-    tailgate::types::netmap::NetworkConfig config;
-    config.Peers({peer});
-    std::vector<std::uint8_t> relayOutput;
-    std::vector<std::vector<std::uint8_t>> appResponses;
+    auto peer = Peer();
+    peer.DiscoKey({});
+    Network.Peers({peer});
+    std::vector<std::vector<std::uint8_t>> responses;
+    Node.PingStatus = tailgate::wgengine::ping::StartStatus::NoDiscoKey;
 
-    m_subject->Handle(datagram, request, config, disco, "DERP-1", relayOutput, appResponses);
-    const auto response = DecodeResponse(appResponses);
+    StartHosted();
+    Subject->FlushLocal(responses);
+    const auto response = DecodeResponse(responses);
+    ASSERT_TRUE(response);
 
-    ASSERT_TRUE(response.has_value());
-    EXPECT_TRUE(relayOutput.empty());
+    EXPECT_EQ(Node.Requests.size(), 1U);
     EXPECT_EQ(response->Result, app_service::Status::NoDiscoKey);
-    EXPECT_EQ(response->Sequence, RequestSequence);
 }
 
-TEST_F(Given_PingService, When_PeerReturnsPong_Then_SuccessfulResponseIsFlushed)
+TEST_F(Given_PingService, When_HostedPingCompletes_Then_ReportsCoreLatencyAndRelay)
 {
-    const tailgate::crypto::Bytes32 localNodeKey = tailgate::crypto::GeneratePrivateKey();
-    const tailgate::crypto::Bytes32 remoteNodeKey = tailgate::crypto::GeneratePrivateKey();
-    const tailgate::crypto::Bytes32 localDiscoPrivate = tailgate::crypto::GeneratePrivateKey();
-    const tailgate::crypto::Bytes32 remoteDiscoPrivate = tailgate::crypto::GeneratePrivateKey();
-    tailgate::disco::Disco localDisco(localDiscoPrivate, localNodeKey);
-    tailgate::disco::Disco remoteDisco(remoteDiscoPrivate, remoteNodeKey);
-    const tailgate::net::packet::Ipv4UdpDatagram datagram(AppAddress, 0, AppPort, 0, {});
-    const app_service::PingRequest request{
-        .Sequence = RequestSequence,
-        .Target = "peer.example.ts.net",
-    };
-    tailgate::types::netmap::PeerConfig peer;
-    peer.Name("peer.example.ts.net");
-    peer.Address("100.64.0.2");
-    peer.Key("nodekey:" + tailgate::crypto::BytesToHex(remoteNodeKey.data(), remoteNodeKey.size()));
-    peer.DiscoKey("discokey:" + tailgate::crypto::BytesToHex(remoteDisco.PublicKey().data(),
-                                                             remoteDisco.PublicKey().size()));
-    tailgate::types::netmap::NetworkConfig config;
-    config.Peers({peer});
-    std::vector<std::uint8_t> relayOutput;
-    std::vector<std::vector<std::uint8_t>> immediateResponses;
-    m_subject->Handle(
-        datagram, request, config, localDisco, "Relay-Node", relayOutput, immediateResponses);
-    tailgate::hosted::Decoder decoder;
-    decoder.Feed(relayOutput);
-    const auto frame = decoder.Next();
-    ASSERT_TRUE(frame.has_value());
-    const tailgate::hosted::PeerPacket sentPacket =
-        tailgate::hosted::ProtocolCodec::DecodePeerPacket(frame->Payload());
-    const auto ping = remoteDisco.Parse(sentPacket.Payload());
-    ASSERT_TRUE(ping.has_value());
-    const tailgate::crypto::Bytes32 localDiscoPublic = localDisco.PublicKey();
-    const std::vector<std::uint8_t> pongPayload =
-        remoteDisco.BuildPong(localDiscoPublic, ping->Transaction, tailgate::net::Ipv4Address{}, 0);
-    const auto pong = localDisco.Parse(pongPayload);
-    ASSERT_TRUE(pong.has_value());
-    const tailgate::hosted::PeerPacket receivedPacket(remoteNodeKey, pongPayload, false, true);
-    std::vector<std::vector<std::uint8_t>> appResponses;
+    StartHosted();
+    ASSERT_EQ(Node.Requests.size(), 1U);
+    std::vector<std::vector<std::uint8_t>> responses;
 
-    m_subject->Complete(*pong, receivedPacket);
-    m_subject->FlushLocal(appResponses);
-    const auto response = DecodeResponse(appResponses);
+    Subject->Complete({.RequestId = Node.Requests.front().Id,
+                       .Responded = true,
+                       .Latency = std::chrono::milliseconds(12),
+                       .PeerName = "peer.example.ts.net",
+                       .PeerAddress = "192.0.2.2",
+                       .Relay = Node.Requests.front().Relay},
+                      false,
+                      {});
+    Subject->FlushLocal(responses);
+    const auto response = DecodeResponse(responses);
+    ASSERT_TRUE(response);
 
-    ASSERT_TRUE(response.has_value());
-    EXPECT_TRUE(immediateResponses.empty());
     EXPECT_EQ(response->Result, app_service::Status::Ok);
     EXPECT_EQ(response->Sequence, RequestSequence);
+    EXPECT_EQ(response->LatencyMicroseconds, 12000U);
     EXPECT_EQ(response->Relay, "relay-node");
     EXPECT_FALSE(response->Direct);
+}
+
+TEST_F(Given_PingService, When_HostedPingExpires_Then_ExplicitTimeoutIsReturned)
+{
+    Network.Peers({Peer()});
+    StartHosted();
+    ASSERT_EQ(Node.Requests.size(), 1U);
+    std::vector<std::vector<std::uint8_t>> responses;
+
+    Clock().Advance(std::chrono::seconds(11));
+    Subject->Complete({.RequestId = Node.Requests.front().Id,
+                       .Responded = false,
+                       .Latency = {},
+                       .PeerName = "peer.example.ts.net",
+                       .PeerAddress = "192.0.2.2",
+                       .Relay = "relay-node"},
+                      false,
+                      {});
+    Subject->FlushLocal(responses);
+    const auto response = DecodeResponse(responses);
+    ASSERT_TRUE(response);
+
+    EXPECT_EQ(response->Result, app_service::Status::Timeout);
+    EXPECT_EQ(response->Sequence, RequestSequence);
+    EXPECT_FALSE(Subject->NextDeadline());
+}
+
+TEST_F(Given_PingService, When_RetryIntervalPasses_Then_HostedDeadlineRemainsExpiration)
+{
+    Network.Peers({Peer()});
+    const auto started = Clock().Now();
+    StartHosted();
+    ASSERT_EQ(Node.Requests.size(), 1U);
+    std::vector<std::vector<std::uint8_t>> responses;
+
+    Clock().Advance(std::chrono::seconds(2));
+    Subject->FlushLocal(responses);
+    const auto deadline = Subject->NextDeadline();
+
+    EXPECT_TRUE(responses.empty());
+    EXPECT_EQ(deadline, started + std::chrono::seconds(10));
+}
+
+TEST_F(Given_PingService, When_NativePingCompletes_Then_ReportsDirectEndpoint)
+{
+    Node.Config = Network;
+    const auto packet = Packet();
+    const std::string relay;
+    const std::string exit;
+    bg::service::EncapsulationContext context{
+        .Original = packet, .Node = Node, .RelayName = relay, .ExitNode = exit};
+    Subject->Encapsulate(context);
+    ASSERT_TRUE(context.Handled);
+    ASSERT_EQ(Node.Requests.size(), 1U);
+    const auto started = Node.Requests.front();
+    std::vector<std::vector<std::uint8_t>> responses;
+
+    Subject->Complete({.RequestId = started.Id,
+                       .Responded = true,
+                       .Latency = std::chrono::milliseconds(4),
+                       .PeerName = "peer.example.ts.net",
+                       .PeerAddress = "192.0.2.2",
+                       .Relay = "derp-1"},
+                      true,
+                      "192.0.2.2:1234");
+    Subject->FlushLocal(responses);
+    const auto response = DecodeResponse(responses);
+    ASSERT_TRUE(response);
+
+    EXPECT_EQ(started.Target, "peer.example.ts.net");
+    EXPECT_EQ(response->Sequence, RequestSequence);
+    EXPECT_EQ(response->LatencyMicroseconds, 4000U);
+    EXPECT_TRUE(response->Direct);
+    EXPECT_TRUE(response->Relay.empty());
+    EXPECT_EQ(response->Endpoint, "192.0.2.2:1234");
+}
+
+TEST_F(Given_PingService, When_NativePingUsesDerp_Then_RegionLabelIsUppercase)
+{
+    Node.Config = Network;
+    const auto packet = Packet();
+    const std::string relay;
+    const std::string exit;
+    bg::service::EncapsulationContext context{
+        .Original = packet, .Node = Node, .RelayName = relay, .ExitNode = exit};
+    Subject->Encapsulate(context);
+    ASSERT_TRUE(context.Handled);
+    ASSERT_EQ(Node.Requests.size(), 1U);
+    const auto started = Node.Requests.front();
+    std::vector<std::vector<std::uint8_t>> responses;
+
+    Subject->Complete({.RequestId = started.Id,
+                       .Responded = true,
+                       .Latency = std::chrono::milliseconds(4),
+                       .PeerName = "peer.example.ts.net",
+                       .PeerAddress = "192.0.2.2",
+                       .Relay = "syd"},
+                      false,
+                      "");
+    Subject->FlushLocal(responses);
+    const auto response = DecodeResponse(responses);
+    ASSERT_TRUE(response);
+
+    EXPECT_EQ(started.Target, "peer.example.ts.net");
+    EXPECT_EQ(response->Sequence, RequestSequence);
+    EXPECT_EQ(response->LatencyMicroseconds, 4000U);
+    EXPECT_FALSE(response->Direct);
+    EXPECT_EQ(response->Relay, "SYD");
+    EXPECT_TRUE(response->Endpoint.empty());
+}
+
+TEST_F(Given_PingService, When_RequestSourceIsNotTheHost_Then_DoesNotSendProbe)
+{
+    Node.Config = Network;
+    const auto packet = Packet(tailgate::net::Ipv4Address::FromOctets(192, 0, 2, 3).HostOrder());
+    const std::string relay;
+    const std::string exit;
+    bg::service::EncapsulationContext context{
+        .Original = packet, .Node = Node, .RelayName = relay, .ExitNode = exit};
+
+    Subject->Encapsulate(context);
+
+    EXPECT_TRUE(context.Handled);
+    EXPECT_TRUE(Node.Requests.empty());
+    EXPECT_FALSE(Subject->HasLocalOutput());
 }
 
 } // namespace

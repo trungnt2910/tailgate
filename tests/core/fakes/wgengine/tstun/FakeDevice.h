@@ -6,7 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include <tailgate/types/nettype/TcpSocket.h>
 #include <tailgate/wgengine/tstun/Device.h>
 
 namespace tailgate::tests::fakes
@@ -15,11 +14,6 @@ namespace tailgate::tests::fakes
 class FakeDevice final : public tailgate::wgengine::tstun::Device
 {
 public:
-    explicit FakeDevice(tailgate::types::nettype::TcpSocketFactory& socketFactory) noexcept
-        : m_socketFactory(socketFactory)
-    {
-    }
-
     bool Open(const tailgate::wgengine::tstun::DeviceOptions& options) override
     {
         if (Opened || !OpenResult)
@@ -28,6 +22,7 @@ public:
         }
         Options = options;
         Opened = true;
+        Closed = false;
         return true;
     }
 
@@ -70,13 +65,8 @@ public:
 
     void Close() noexcept override
     {
+        Opened = false;
         Closed = true;
-    }
-
-    std::unique_ptr<tailgate::types::nettype::TcpSocket>
-    OpenTransportSocket(const tailgate::types::nettype::TcpSocketOptions& options) override
-    {
-        return m_socketFactory.OpenTcpSocket(options);
     }
 
     tailgate::wgengine::tstun::DeviceOptions Options;
@@ -88,9 +78,6 @@ public:
     bool Opened = false;
     bool Closed = false;
     bool WriteInterest = false;
-
-private:
-    tailgate::types::nettype::TcpSocketFactory& m_socketFactory;
 };
 
 } // namespace tailgate::tests::fakes

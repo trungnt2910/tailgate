@@ -10,6 +10,7 @@ namespace tailgate::uwp
 {
 
 class ExitNodeController;
+class ModeController;
 class SessionController;
 class SettingsController;
 
@@ -18,7 +19,8 @@ class SetOptionsControllerImpl final : public SetOptionsController
 public:
     SetOptionsControllerImpl(ExitNodeController& exitNodeController,
                              SessionController& sessionController,
-                             SettingsController& settingsController);
+                             SettingsController& settingsController,
+                             ModeController& modeController);
 
     [[nodiscard]] const SetOptionsState& GetState() const noexcept override;
     void Apply(const tailgate::cli::SetOptions& options) override;
@@ -27,6 +29,7 @@ private:
     ExitNodeController& m_exitNodeController;
     SessionController& m_sessionController;
     SettingsController& m_settingsController;
+    ModeController& m_modeController;
     SetOptionsState m_state;
     tailgate::base::Logger m_logger{"uwp-set-options-ctrl"};
 };

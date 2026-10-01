@@ -1,14 +1,14 @@
 #include "PacketDevice.h"
 
-#include <stdexcept>
+#include <system_error>
 #include <utility>
-
-#include <winrt/Windows.Foundation.h>
-
-#include "common/TcpSocketFactory.h"
 
 namespace tailgate::uwp::bg
 {
+
+PacketDevice::PacketDevice(tailgate::base::EventLoop& events) noexcept : m_events(events)
+{
+}
 
 bool PacketDevice::Open(const tailgate::wgengine::tstun::DeviceOptions& options)
 {
@@ -18,10 +18,11 @@ bool PacketDevice::Open(const tailgate::wgengine::tstun::DeviceOptions& options)
         return false;
     }
     m_open = true;
+    m_token = options.ReadinessToken;
     return true;
 }
 
-tailgate::wgengine::tstun::DeviceReadResult PacketDevice::TryRead(std::size_t)
+tailgate::wgengine::tstun::DeviceReadResult PacketDevice::TryRead(std::size_t maximumPacketSize)
 {
     std::lock_guard lock(m_mutex);
     if (!m_open)
@@ -38,6 +39,14 @@ tailgate::wgengine::tstun::DeviceReadResult PacketDevice::TryRead(std::size_t)
     std::vector<std::uint8_t> packet = std::move(m_input.front());
     m_input.pop_front();
     m_inputBytes -= packet.size();
+    if (!m_input.empty())
+    {
+        m_events.Post({.Token = m_token, .Readiness = tailgate::base::EventReadiness::Readable});
+    }
+    if (packet.size() > maximumPacketSize)
+    {
+        throw std::system_error(std::make_error_code(std::errc::message_size));
+    }
     return tailgate::wgengine::tstun::DeviceReadResult{
         .Result = tailgate::wgengine::tstun::DeviceIoResult::Complete,
         .Packet = std::move(packet),
@@ -64,6 +73,11 @@ PacketDevice::TryWrite(const std::vector<std::uint8_t>& packet)
 void PacketDevice::SetWriteInterest(bool enabled)
 {
     std::lock_guard lock(m_mutex);
+    if (m_open && enabled && !m_writeInterest && m_output.size() < MaximumPackets &&
+        m_outputBytes < MaximumBytes)
+    {
+        m_events.Post({.Token = m_token, .Readiness = tailgate::base::EventReadiness::Writable});
+    }
     m_writeInterest = enabled;
 }
 
@@ -76,23 +90,6 @@ void PacketDevice::Close() noexcept
     m_outputBytes = 0;
     m_open = false;
     m_writeInterest = false;
-}
-
-std::unique_ptr<tailgate::types::nettype::TcpSocket>
-PacketDevice::OpenTransportSocket(const tailgate::types::nettype::TcpSocketOptions& options)
-{
-    winrt::Windows::Networking::Sockets::StreamSocket socket;
-    {
-        std::lock_guard lock(m_mutex);
-        if (!m_channel)
-        {
-            throw std::logic_error("The VPN packet device is not prepared for transport.");
-        }
-        m_transportSocket = winrt::Windows::Networking::Sockets::StreamSocket();
-        m_channel.AssociateTransport(m_transportSocket, nullptr);
-        socket = m_transportSocket;
-    }
-    return tailgate::uwp::TcpSocketFactory::ConnectTcpSocket(std::move(socket), options);
 }
 
 PacketQueueResult PacketDevice::QueueInput(std::vector<std::uint8_t> packet)
@@ -108,6 +105,7 @@ PacketQueueResult PacketDevice::QueueInput(std::vector<std::uint8_t> packet)
     }
     m_inputBytes += packet.size();
     m_input.push_back(std::move(packet));
+    m_events.Post({.Token = m_token, .Readiness = tailgate::base::EventReadiness::Readable});
     return PacketQueueResult::Complete;
 }
 
@@ -122,6 +120,10 @@ std::vector<std::vector<std::uint8_t>> PacketDevice::DrainOutput()
         m_output.pop_front();
     }
     m_outputBytes = 0;
+    if (m_open && m_writeInterest && !result.empty())
+    {
+        m_events.Post({.Token = m_token, .Readiness = tailgate::base::EventReadiness::Writable});
+    }
     return result;
 }
 
@@ -135,41 +137,6 @@ bool PacketDevice::HasOutput() const noexcept
 {
     std::lock_guard lock(m_mutex);
     return !m_output.empty();
-}
-
-void PacketDevice::PrepareTransport(const winrt::Windows::Networking::Vpn::VpnChannel& channel)
-{
-    std::lock_guard lock(m_mutex);
-    m_channel = channel;
-    m_transportSocket = nullptr;
-}
-
-bool PacketDevice::HasTransportSocket() const
-{
-    std::lock_guard lock(m_mutex);
-    return m_transportSocket != nullptr;
-}
-
-winrt::Windows::Networking::Sockets::StreamSocket PacketDevice::TransportSocket() const
-{
-    std::lock_guard lock(m_mutex);
-    return m_transportSocket;
-}
-
-void PacketDevice::CloseTransport()
-{
-    std::lock_guard lock(m_mutex);
-    if (m_transportSocket)
-    {
-        m_transportSocket.Close();
-    }
-}
-
-void PacketDevice::ResetTransport() noexcept
-{
-    std::lock_guard lock(m_mutex);
-    m_transportSocket = nullptr;
-    m_channel = nullptr;
 }
 
 } // namespace tailgate::uwp::bg

@@ -2,6 +2,7 @@ tailgate_add_library(
     tailgate_core_wgengine_impl
     STATIC
     EngineImpl.cpp
+    SessionDiscovery.cpp
     SessionImpl.cpp
 )
 target_link_libraries(

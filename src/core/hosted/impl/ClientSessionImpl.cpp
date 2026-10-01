@@ -9,7 +9,10 @@ ClientSessionImpl::ClientSessionImpl(
     tailgate::hosted::Client& client,
     tailgate::wgengine::tstun::Device& device,
     std::shared_ptr<tailgate::ipn::ipnlocal::LocalServices> localServices) noexcept
-    : m_client(client), m_device(device), m_localServices(std::move(localServices))
+    : m_client(client),
+      m_device(device),
+      m_localServices(std::move(localServices)),
+      m_dispatch(*m_localServices)
 {
 }
 
@@ -45,7 +48,7 @@ ClientSessionImpl::ProcessPacketDevice(std::size_t maximumPackets, std::size_t m
             result.DeviceStatus = tailgate::hosted::PacketDeviceStatus::Closed;
             break;
         }
-        if (m_localServices->HandleHostPacket(packet.Packet))
+        if (m_dispatch.HandleHostPacket(packet.Packet))
         {
             continue;
         }
@@ -74,7 +77,7 @@ ClientSessionImpl::ProcessFrame(const tailgate::hosted::Frame& frame)
     }
     for (auto& packet : processed.LocalPackets)
     {
-        if (m_localServices->HandlePeerPacket(packet.Peer, packet.Bytes))
+        if (m_dispatch.HandlePeerPacket(packet.Peer, packet.Bytes))
         {
             continue;
         }
@@ -114,7 +117,8 @@ tailgate::hosted::PacketDeviceStatus ClientSessionImpl::FlushPacketDevice()
 
 void ClientSessionImpl::ClosePacketDevice() noexcept
 {
-    m_localServices->Stop();
+    // Local services belong to the node, not to this packet path. A replacement
+    // path must be able to continue the same TCP streams and pending responses.
     m_pendingPackets.clear();
     m_pendingBytes = 0;
     m_open = false;
@@ -178,11 +182,7 @@ void ClientSessionImpl::RefreshNetworkConfig()
 {
     if (m_open && m_client.Active())
     {
-        m_localServices->SetNetworkConfig(m_client.Network());
-    }
-    else
-    {
-        m_localServices->Stop();
+        m_dispatch.SetNetworkConfig(m_client.Network());
     }
 }
 
@@ -205,31 +205,34 @@ void ClientSessionImpl::PollLocalServices(ClientSessionProcessResult& result)
         return;
     }
     constexpr std::size_t MaximumPacketsPerCycle = 64;
-    m_localServices->Poll();
-    for (auto& packet : m_localServices->TakeOutput(MaximumPacketsPerCycle))
-    {
-        if (packet.ForwardFromHost || packet.Peer)
-        {
-            const auto encoded = packet.ForwardFromHost
-                                     ? m_client.Encapsulate(packet.Bytes)
-                                     : m_client.EncapsulateTo(*packet.Peer, packet.Bytes);
-            result.RemoteOutput.insert(result.RemoteOutput.end(), encoded.begin(), encoded.end());
-        }
-        else
-        {
-            const auto written = WritePacketDevice(std::move(packet.Bytes));
-            if (written != PacketDeviceStatus::Ready)
-            {
-                result.DeviceStatus = written;
-                break;
-            }
-        }
-    }
+    m_dispatch.Poll(MaximumPacketsPerCycle,
+                    ipn::ipnlocal::PacketDelivery{
+                        .Host =
+                            [&](std::vector<std::uint8_t> bytes)
+                        {
+                            result.DeviceStatus = WritePacketDevice(std::move(bytes));
+                            return result.DeviceStatus == PacketDeviceStatus::Ready;
+                        },
+                        .Network =
+                            [&](const std::vector<std::uint8_t>& bytes)
+                        {
+                            const auto encoded = m_client.Encapsulate(bytes);
+                            result.RemoteOutput.insert(
+                                result.RemoteOutput.end(), encoded.begin(), encoded.end());
+                        },
+                        .Peer =
+                            [&](const crypto::Bytes32& peer, const std::vector<std::uint8_t>& bytes)
+                        {
+                            const auto encoded = m_client.EncapsulateTo(peer, bytes);
+                            result.RemoteOutput.insert(
+                                result.RemoteOutput.end(), encoded.begin(), encoded.end());
+                        },
+                    });
 }
 
 std::optional<base::TimeProvider::TimePoint> ClientSessionImpl::NextDeadline() const
 {
-    return m_open ? m_localServices->NextDeadline() : std::nullopt;
+    return m_open ? m_dispatch.NextDeadline() : std::nullopt;
 }
 
 } // namespace tailgate::hosted::impl

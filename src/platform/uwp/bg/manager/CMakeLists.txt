@@ -11,12 +11,9 @@ tailgate_uwp_add_library(
     impl/ControlPlaneManagerImpl.h
     impl/DataPlaneManagerImpl.cpp
     impl/DataPlaneManagerImpl.h
-    impl/Rs2TransportManagerImpl.cpp
-    impl/Rs2TransportManagerImpl.h
     impl/SessionManagerImpl.cpp
     impl/SessionManagerImpl.h
     SessionManager.h
-    TransportManager.h
 )
 target_include_directories(
     Tailgate.Uwp.Background.Manager

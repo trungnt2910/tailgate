@@ -23,7 +23,7 @@ struct ForegroundConnectionNotification
 {
     ForegroundConnectionKind Kind = ForegroundConnectionKind::LoginRequired;
     std::string Url;
-    std::string TailgateServer;
+    std::string ProfileId;
     std::uint32_t ErrorCode = 0;
 };
 
@@ -79,7 +79,7 @@ public:
     virtual void Report(const SessionEvent& event) = 0;
     virtual void Notify(SessionGeneration generation,
                         const ForegroundConnectionNotification& notification) = 0;
-    virtual void StartForegroundMonitor(const std::string& tailgateServer,
+    virtual void StartForegroundMonitor(const std::string& profileId,
                                         ForegroundCancellationHandler cancelled) = 0;
     virtual void StopForegroundMonitor() = 0;
     virtual void WriteState(const tailgate::types::netmap::NetworkConfig& config) = 0;

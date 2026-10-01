@@ -87,7 +87,7 @@ nlohmann::json ParseJson(const std::vector<std::uint8_t>& payload)
 bool IsKnownType(std::uint16_t value)
 {
     return value >= static_cast<std::uint16_t>(MessageType::Authenticate) &&
-           value <= static_cast<std::uint16_t>(MessageType::Fragment);
+           value <= static_cast<std::uint16_t>(MessageType::NetworkMapAck);
 }
 
 tailgate::crypto::Bytes32

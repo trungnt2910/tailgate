@@ -61,6 +61,10 @@ ChannelPolicy ChannelPolicy::Build(const tailgate::types::netmap::NetworkConfig&
 {
     ChannelPolicy result;
     result.Ipv4Address = config.SelfAddress();
+    // Unlike the associated transport, its local sending socket is ordinary application I/O.
+    // Keep loopback outside VPN capture even when exit-node /1 routes cover all IPv4 traffic.
+    result.ExcludedRoutes.emplace_back(
+        tailgate::net::Ipv4Address::FromOctets(127, 0, 0, 0).HostOrder(), 8);
     for (const auto& address : config.SelfAddresses())
     {
         if (address.find(':') != std::string::npos)

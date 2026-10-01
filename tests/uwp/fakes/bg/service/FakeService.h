@@ -31,11 +31,6 @@ public:
         ++EncapsulateCount;
     }
 
-    void Decapsulate(bg::service::DecapsulationContext&) override
-    {
-        ++DecapsulateCount;
-    }
-
     void FlushLocal(std::vector<std::vector<std::uint8_t>>&) override
     {
         ++FlushLocalCount;

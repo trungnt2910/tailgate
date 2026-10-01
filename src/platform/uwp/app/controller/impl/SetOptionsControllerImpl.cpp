@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "app/controller/ExitNodeController.h"
+#include "app/controller/ModeController.h"
 #include "app/controller/SessionController.h"
 #include "app/controller/SettingsController.h"
 
@@ -11,10 +12,12 @@ namespace tailgate::uwp
 
 SetOptionsControllerImpl::SetOptionsControllerImpl(ExitNodeController& exitNodeController,
                                                    SessionController& sessionController,
-                                                   SettingsController& settingsController)
+                                                   SettingsController& settingsController,
+                                                   ModeController& modeController)
     : m_exitNodeController(exitNodeController),
       m_sessionController(sessionController),
-      m_settingsController(settingsController)
+      m_settingsController(settingsController),
+      m_modeController(modeController)
 {
 }
 
@@ -38,6 +41,11 @@ void SetOptionsControllerImpl::Apply(const tailgate::cli::SetOptions& options)
     bool restartConnectedProfile = false;
     if (options.TailgateUrl)
     {
+        if (session.Connected() && !options.ExitNode && !options.Hostname)
+        {
+            m_modeController.SetRelay(winrt::to_hstring(*options.TailgateUrl));
+            return;
+        }
         m_settingsController.SetTailgateServer(winrt::to_hstring(*options.TailgateUrl));
         restartConnectedProfile = true;
     }

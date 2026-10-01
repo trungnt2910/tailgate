@@ -239,4 +239,34 @@ TEST(Given_WgengineEngine, When_CoreSocketCloses_Then_TypedFailureIsReturned)
     EXPECT_EQ(result.Failures.front().Status, magicsock::Connection::EventStatus::Closed);
 }
 
+TEST(Given_WgengineEngine, When_Reset_Then_ReopensWithoutQueuedPacketsOrPeerPaths)
+{
+    tailgate::di::Injector injector;
+    tailgate::tests::fakes::InstallFakeNetworkBindings(injector);
+    auto& engine = injector.create<tailgate::wgengine::Engine&>();
+    auto& device = dynamic_cast<FakeDevice&>(injector.create<tailgate::wgengine::tstun::Device&>());
+    auto& events = injector.create<tailgate::base::EventLoop&>();
+    auto& connection = injector.create<magicsock::Connection&>();
+    ASSERT_TRUE(connection.Open(Options(SharedToken)));
+    ASSERT_TRUE(connection.AddPeer(Peer()));
+    ASSERT_TRUE(engine.OpenPacketDevice({.Name = {}, .ReadinessToken = DeviceToken}));
+    device.WriteResult = tailgate::wgengine::tstun::DeviceIoResult::WouldBlock;
+    ASSERT_EQ(engine.WritePacket({1, 2, 3}), tailgate::wgengine::PacketWriteResult::Queued);
+    events.Post({.Token = DeviceToken, .Readiness = tailgate::base::EventReadiness::Writable});
+
+    engine.Reset();
+    const auto closed = !engine.PacketDeviceOpen() && !connection.LocalEndpoint();
+    const auto pending = events.TakePostedEvents(MaximumEvents);
+    const auto reopened = engine.OpenPacketDevice({.Name = {}, .ReadinessToken = DeviceToken});
+    device.WriteResult = tailgate::wgengine::tstun::DeviceIoResult::Complete;
+    const auto written = engine.WritePacket({4, 5, 6});
+
+    EXPECT_TRUE(closed);
+    EXPECT_FALSE(connection.HasPeer(Peer()));
+    EXPECT_TRUE(pending.empty());
+    EXPECT_TRUE(reopened);
+    EXPECT_EQ(written, tailgate::wgengine::PacketWriteResult::Written);
+    EXPECT_EQ(device.Written, (std::vector<std::vector<std::uint8_t>>{{4, 5, 6}}));
+}
+
 } // namespace

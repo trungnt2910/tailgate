@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -47,6 +48,18 @@ struct Probe
     bool Disco = false;
 };
 
+struct DiscoProbe
+{
+    [[nodiscard]] static DiscoProbe Build(disco::Disco& owner, const crypto::Bytes32& discoKey);
+    disco::Disco::TransactionId Transaction{};
+    std::vector<std::uint8_t> Payload;
+};
+
+// Native sessions send through their existing disco owner; hosted paths return
+// encoded bytes for relay delivery. The tracker owns neither transport nor disco.
+using CreateDiscoProbe = std::function<std::optional<DiscoProbe>(const crypto::Bytes32& peer,
+                                                                 const crypto::Bytes32& discoKey)>;
+
 struct StartResult
 {
     StartStatus Status = StartStatus::NoMatchingPeer;
@@ -73,7 +86,7 @@ public:
 
     [[nodiscard]] virtual StartResult Start(const Request& request,
                                             const tailgate::types::netmap::NetworkConfig& network,
-                                            tailgate::disco::Disco& disco,
+                                            const CreateDiscoProbe& createDisco,
                                             TimePoint now) = 0;
     [[nodiscard]] virtual std::optional<Result>
     CompleteDisco(const tailgate::crypto::Bytes32& peer,
@@ -85,6 +98,9 @@ public:
                  std::uint16_t peerApiPort,
                  TimePoint now) = 0;
     [[nodiscard]] virtual std::vector<Result> Expire(TimePoint now) = 0;
+    [[nodiscard]] virtual std::vector<Probe> RetryDisco(TimePoint now,
+                                                        const CreateDiscoProbe& createDisco) = 0;
+    [[nodiscard]] virtual std::optional<TimePoint> NextDeadline() const = 0;
     virtual void Reset() noexcept = 0;
 
 protected:

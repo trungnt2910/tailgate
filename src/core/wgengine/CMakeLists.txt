@@ -9,6 +9,7 @@ tailgate_add_library(
     tailgate_core_wgengine
     STATIC
     Engine.cpp
+    PeerProtocol.cpp
     Session.cpp
 )
 target_link_libraries(

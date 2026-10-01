@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <tailgate/cli/Arguments.h>
+
 #include "common/Arguments.h"
 
 namespace tailgate::uwp::tests
@@ -42,6 +44,17 @@ TEST(Given_Arguments, When_ValueContainsEscapedPercent_Then_PercentIsPreserved)
     const std::vector<std::string> arguments = Arguments::FromUri(uri);
 
     EXPECT_EQ(arguments, (std::vector<std::string>{"run", "--gtest_filter=Given_%GG"}));
+}
+
+TEST(Given_Arguments, When_UpUriExplicitlyClearsRelay_Then_CliRetainsNativeSelection)
+{
+    const winrt::Windows::Foundation::Uri uri(L"tailgate://up?tailgate=");
+
+    const auto arguments = tailgate::cli::Arguments::Parse(Arguments::FromUri(uri));
+
+    EXPECT_EQ(arguments.SelectedCommand, tailgate::cli::Command::Up);
+    EXPECT_TRUE(arguments.Up.TailgateUrlSet);
+    EXPECT_TRUE(arguments.Up.TailgateUrl.empty());
 }
 
 } // namespace tailgate::uwp::tests

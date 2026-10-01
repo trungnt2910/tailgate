@@ -16,7 +16,7 @@
 
 TEST(Given_UwpBackgroundBindings, When_ResolvingTimeProvider_Then_ProductionGraphProvidesClock)
 {
-    auto injector = tailgate::uwp::bg::CreateRs2PluginInjector();
+    auto injector = tailgate::uwp::bg::CreatePluginInjector();
 
     const auto clock = injector->create<std::shared_ptr<tailgate::base::TimeProvider>>();
 
@@ -25,10 +25,10 @@ TEST(Given_UwpBackgroundBindings, When_ResolvingTimeProvider_Then_ProductionGrap
 
 TEST(Given_UwpBackgroundBindings, When_ResolvingServiceTwice_Then_ProductionGraphIsScoped)
 {
-    auto injector = tailgate::uwp::bg::CreateRs2PluginInjector();
+    auto injector = tailgate::uwp::bg::CreatePluginInjector();
 
-    const auto* first = &injector->create<tailgate::uwp::bg::NetworkService&>();
-    const auto* second = &injector->create<tailgate::uwp::bg::NetworkService&>();
+    const auto* first = &injector->create<tailgate::uwp::bg::PingService&>();
+    const auto* second = &injector->create<tailgate::uwp::bg::PingService&>();
     const auto* firstCore = &injector->create<tailgate::hosted::Client&>();
     const auto* secondCore = &injector->create<tailgate::hosted::Client&>();
     const auto* firstSession = &injector->create<tailgate::hosted::ClientSession&>();
@@ -44,7 +44,7 @@ TEST(Given_UwpBackgroundBindings, When_ResolvingServiceTwice_Then_ProductionGrap
 
 TEST(Given_UwpBackgroundBindings, When_ResolvingTcpFactory_Then_GenericSocketsUseThePlatformDefault)
 {
-    auto injector = tailgate::uwp::bg::CreateRs2PluginInjector();
+    auto injector = tailgate::uwp::bg::CreatePluginInjector();
 
     auto* abstractFactory = &injector->create<tailgate::types::nettype::TcpSocketFactory&>();
     auto* concreteFactory = &injector->create<tailgate::uwp::TcpSocketFactory&>();
@@ -55,7 +55,7 @@ TEST(Given_UwpBackgroundBindings, When_ResolvingTcpFactory_Then_GenericSocketsUs
 
 TEST(Given_UwpBackgroundBindings, When_ResolvingPortReservations_Then_CoreUsesThePlatformFactory)
 {
-    auto injector = tailgate::uwp::bg::CreateRs2PluginInjector();
+    auto injector = tailgate::uwp::bg::CreatePluginInjector();
 
     auto* abstractFactory =
         &injector->create<tailgate::types::nettype::TcpPortReservationFactory&>();

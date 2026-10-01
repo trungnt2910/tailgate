@@ -1,9 +1,38 @@
-tailgate_add_library(tailgate_core_ipn_ipnlocal STATIC LocalServices.cpp)
+tailgate_add_library(
+    tailgate_core_ipn_ipnlocal
+    STATIC
+    DelegatedNode.cpp
+    DelegationLease.cpp
+    DerpConnections.cpp
+    DnsForwarder.cpp
+    HostedNode.cpp
+    LocalServices.cpp
+    NativeNode.cpp
+    NetworkPolicy.cpp
+    NodeBootstrap.cpp
+    NodeError.cpp
+    NodeRuntime.cpp
+    NodeStatus.cpp
+    PacketDispatch.cpp
+    PeerTable.cpp
+    SwitchingNode.cpp
+    TransitionCoordinator.cpp
+    UnderlayResolver.cpp
+    UnderlaySelection.cpp
+)
 target_link_libraries(
     tailgate_core_ipn_ipnlocal
     PUBLIC
         tailgate_core_base
         tailgate_core_crypto
+        tailgate_core_hosted
+        tailgate_core_net_dns
+        tailgate_core_net_http
+        tailgate_core_net_packet
+        tailgate_core_serve
+        tailgate_core_serve_acme
         tailgate_core_types_netmap
+        tailgate_core_wgengine
+        tailgate_core_wgengine_router
 )
 add_subdirectory(impl)

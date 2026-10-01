@@ -45,7 +45,7 @@ TEST(Given_State, When_PersistedProfileAndRemovingProfile_Then_IdentityBoundStat
     identity.Hostname = "host";
     tailgate::linux_frontend::SettingsState settings;
     settings.Hostname = "host";
-    tailgate::linux_frontend::AcmeState acme;
+    tailgate::serve::acme::CertificateState acme;
     acme.Domain = "host.example.ts.net";
     tailgate::linux_frontend::RelaySessionState relay;
     relay.ServerUrl = "https://relay.example.ts.net:10000";

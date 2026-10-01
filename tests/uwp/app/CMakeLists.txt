@@ -9,6 +9,7 @@ tailgate_uwp_add_test_library(
     Given_ExitNodeControlView.cpp
     Given_HomePageView.cpp
     Given_MainWindowController.cpp
+    Given_ModeController.cpp
     Given_NavigationController.cpp
     Given_NodeAuthorizationDialogView.cpp
     Given_PingDialogController.cpp

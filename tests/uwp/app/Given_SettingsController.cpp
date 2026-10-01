@@ -1,5 +1,7 @@
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <string>
 
@@ -49,6 +51,42 @@ protected:
 
     std::unique_ptr<SettingsControllerImpl> m_subject;
 };
+
+TEST_F(Given_SettingsController, When_BackgroundSignalsPolicyChange_Then_StateReloadsAutomatically)
+{
+    std::promise<void> notified;
+    auto completed = notified.get_future();
+    StateEventRegistration registration;
+    bool delivered = false;
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            m_subject->Reload();
+            registration = m_subject->GetState().Subscribe(
+                [&](const auto&, const auto&)
+                {
+                    if (!delivered && m_subject->GetState().PolicyRestartRequired())
+                    {
+                        delivered = true;
+                        notified.set_value();
+                    }
+                });
+        });
+    constexpr auto TestWaitLimit = std::chrono::seconds(2);
+
+    storage::ApplicationData::Current().LocalSettings().Values().Insert(
+        L"NetworkPolicyRestartRequired", winrt::box_value(L"true"));
+    storage::ApplicationData::Current().SignalDataChanged();
+    const auto status = completed.wait_for(TestWaitLimit);
+    TestHost::RunOnUiThread(
+        [&]
+        {
+            registration.revoke();
+        });
+
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_TRUE(delivered);
+}
 
 TEST_F(Given_SettingsController, When_ConnectionValuesAreSet_Then_StateAndSnapshotAreUpdated)
 {
@@ -232,6 +270,71 @@ TEST_F(Given_SettingsController, When_Cleared_Then_PersistedConnectionAndStateFi
     EXPECT_TRUE(m_subject->GetState().Hostname().empty());
     EXPECT_FALSE(m_subject->GetState().Loaded());
     EXPECT_FALSE(std::filesystem::exists(StatePath()));
+}
+
+TEST_F(Given_SettingsController, When_NativeProfileIsConfigured_Then_HasStableIdentityWithoutRelay)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->SetAuthentication(L"", L"test-auth-key");
+            storage::ApplicationData::Current().LocalSettings().Values().Insert(
+                L"ProfileValidated", winrt::box_value(L"true"));
+        });
+    const auto identity = m_subject->GetState().ProfileId();
+    ASSERT_FALSE(identity.empty());
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->Reload();
+        });
+
+    EXPECT_TRUE(m_subject->GetState().HasStoredProfile());
+    EXPECT_TRUE(m_subject->GetState().TailgateServer().empty());
+    EXPECT_EQ(m_subject->GetState().ProfileId(), identity);
+}
+
+TEST_F(Given_SettingsController, When_RelayChanges_Then_ProfileIdentityIsPreserved)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->SetAuthentication(L"https://example.com", L"");
+        });
+    const auto identity = m_subject->GetState().ProfileId();
+    ASSERT_FALSE(identity.empty());
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->SetAuthentication(L"", L"");
+        });
+
+    EXPECT_EQ(m_subject->GetState().ProfileId(), identity);
+    EXPECT_TRUE(m_subject->GetState().TailgateServer().empty());
+}
+
+TEST_F(Given_SettingsController, When_AccountIsClearedAndRecreated_Then_ProfileIdentityChanges)
+{
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->SetAuthentication(L"", L"");
+        });
+    const auto previous = m_subject->GetState().ProfileId();
+    ASSERT_FALSE(previous.empty());
+
+    TestHost::RunOnUiThread(
+        [this]
+        {
+            m_subject->Clear();
+            m_subject->SetAuthentication(L"", L"");
+        });
+
+    EXPECT_FALSE(m_subject->GetState().ProfileId().empty());
+    EXPECT_NE(m_subject->GetState().ProfileId(), previous);
+    EXPECT_FALSE(m_subject->GetState().HasStoredProfile());
 }
 
 } // namespace

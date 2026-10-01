@@ -21,8 +21,11 @@ public:
     {
     }
 
-    [[nodiscard]] bg::manager::DataPlaneProbe
-    Probe(const std::string&, const std::string&, const std::string&) override
+    [[nodiscard]] bg::manager::DataPlaneProbe Probe(const std::string&,
+                                                    const std::string&,
+                                                    const std::string&,
+                                                    const std::string&,
+                                                    std::stop_token) override
     {
         return ProbeResult;
     }
@@ -51,11 +54,7 @@ public:
     {
     }
 
-    void Decapsulate(bg::service::DecapsulationContext&) override
-    {
-    }
-
-    void FlushLocal(std::vector<std::vector<std::uint8_t>>&, std::vector<std::uint8_t>&) override
+    void FlushLocal(std::vector<std::vector<std::uint8_t>>&) override
     {
     }
 

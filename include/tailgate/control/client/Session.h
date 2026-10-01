@@ -1,8 +1,10 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <vector>
 
@@ -25,6 +27,8 @@ struct SessionOptions
     tailgate::base::EventToken ReadinessToken;
     std::chrono::seconds IoTimeout{20};
     std::chrono::seconds PlaintextConnectTimeout{5};
+    std::stop_token Cancellation{};
+    std::optional<std::reference_wrapper<tailgate::base::EventLoop>> ReadinessEvents{};
 };
 
 class Session

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <chrono>
+#include <optional>
+#include <stop_token>
 #include <string>
 
 #include <tailgate/base/Logger.h>
@@ -15,7 +17,8 @@ class TailgateRelay final
 public:
     TailgateRelay(std::string host, std::string service);
 
-    void Resolve();
+    void Resolve(const std::optional<std::string>& networkInterface = {},
+                 std::stop_token cancellation = {});
     void UseCachedEndpoint(std::string connectAddress, std::string validationHost);
     void Preflight(std::chrono::seconds timeout);
 

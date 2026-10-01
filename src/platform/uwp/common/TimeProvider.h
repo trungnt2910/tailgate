@@ -2,12 +2,7 @@
 
 #include <memory>
 
-#include <winrt/Windows.System.Threading.h>
-
-#include <tailgate/base/Logger.h>
 #include <tailgate/base/TimeProvider.h>
-
-#include "EventSignal.h"
 
 namespace tailgate::uwp
 {
@@ -21,9 +16,8 @@ public:
     [[nodiscard]] void* Handle() const noexcept;
 
 private:
-    std::shared_ptr<EventSignal> m_signal;
-    winrt::Windows::System::Threading::ThreadPoolTimer m_timer{nullptr};
-    base::Logger m_logger{"uwp-wait-token"};
+    class State;
+    std::shared_ptr<State> m_state;
 };
 
 class TimeProvider final : public base::TimeProvider

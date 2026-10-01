@@ -2,17 +2,16 @@ add_subdirectory(tstun)
 
 tailgate_uwp_add_test_library(
     tailgate_tests_uwp_bg
+    Given_BackgroundTaskLifetime.cpp
     Given_ChannelPolicy.cpp
     Given_ControlPlaneManager.cpp
     Given_ControlRegistrationNotification.cpp
     Given_DataPlaneManager.cpp
     Given_ExitNodeService.cpp
-    Given_HostedDnsService.cpp
-    Given_NetworkService.cpp
+    Given_ModeService.cpp
     Given_PingService.cpp
     Given_SessionManager.cpp
     Given_UwpBackgroundBindings.cpp
-    Given_VpnDataPlane.cpp
 )
 target_include_directories(
     tailgate_tests_uwp_bg
@@ -25,6 +24,7 @@ target_link_libraries(
     PRIVATE
         Boost.DI
         tailgate_tests_core_fakes
+        Tailgate.Uwp.Background
         Tailgate.Uwp.Background.DI
         Tailgate.Uwp.Background.Manager
         Tailgate.Uwp.Background.Service

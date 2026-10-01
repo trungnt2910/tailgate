@@ -1,8 +1,14 @@
 tailgate_uwp_add_library(
     Tailgate.Uwp.Background.Tstun
     STATIC
+    ChannelAdapter.cpp
+    ChannelAdapter.h
+    LoopbackTransport.cpp
+    LoopbackTransport.h
     PacketDevice.cpp
     PacketDevice.h
+    VpnPacketBufferReader.cpp
+    VpnPacketBufferReader.h
 )
 target_include_directories(
     Tailgate.Uwp.Background.Tstun

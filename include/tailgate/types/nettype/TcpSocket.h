@@ -1,8 +1,10 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <stop_token>
 #include <string>
 
 #include <tailgate/base/ByteStream.h>
@@ -22,6 +24,9 @@ struct TcpSocketOptions
     tailgate::base::EventToken ReadinessToken;
     bool AllowTls13 = false;
     bool NonBlockingAfterConnect = false;
+    // Applies to opening and blocking I/O; cancellation must interrupt waits.
+    std::stop_token Cancellation{};
+    std::optional<std::reference_wrapper<base::EventLoop>> ReadinessEvents{};
 };
 
 class TcpSocket : public tailgate::base::ByteStream

@@ -1,5 +1,7 @@
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -10,6 +12,7 @@
 #include <tailgate/hosted/ClientSession.h>
 #include <tailgate/hosted/Protocol.h>
 #include <tailgate/hosted/Pump.h>
+#include <tailgate/ipn/ipnlocal/LocalServices.h>
 #include <tailgate/net/packet/Ipv4.h>
 
 #include "fakes/di/FakeNetworkBindings.h"
@@ -221,13 +224,13 @@ TEST_F(Given_HostedClientSession, When_TcpHasDeadline_Then_HostWaitCanUseIt)
     EXPECT_EQ(actual, deadline);
 }
 
-TEST_F(Given_HostedClientSession, When_DeviceCloses_Then_LocalTcpAndDeadlinesAreRetired)
+TEST_F(Given_HostedClientSession, When_DeviceCloses_Then_LocalTcpSurvivesWithoutDevicePolling)
 {
     ASSERT_NO_FATAL_FAILURE(Open());
 
     m_session->ClosePacketDevice();
 
-    EXPECT_EQ(m_stack->Stops, 1U);
+    EXPECT_EQ(m_stack->Stops, 0U);
     EXPECT_FALSE(m_session->NextDeadline().has_value());
     EXPECT_EQ(m_session->PollLocalServices().DeviceStatus, hosted::PacketDeviceStatus::Closed);
 }
@@ -246,6 +249,59 @@ TEST_F(Given_HostedClientSession, When_NetworkMapChanges_Then_ActiveServiceCatal
     EXPECT_EQ(m_stack->Starts, 2U);
     EXPECT_EQ(m_stack->Stops, 1U);
     EXPECT_EQ(m_stack->Configuration.Node.Ipv4, net::IpAddress::Parse("192.0.2.3"));
+}
+
+TEST_F(Given_HostedClientSession, When_HostedPathReopens_Then_PartialWebDavRequestContinues)
+{
+    ASSERT_NO_FATAL_FAILURE(Open());
+    auto stream = std::make_shared<fakes::FakeTcpStreamState>();
+    stream->Input = "PROPFIND / HTTP/1.1\r\nHost: 100.100.100.100:8080\r\nDepth: 0\r\n";
+    m_stack->Accepted.push_back(std::make_unique<fakes::FakeTcpStream>(stream));
+    (void)m_session->PollLocalServices();
+    ASSERT_EQ(stream->ReadOffset, stream->Input.size());
+    ASSERT_TRUE(stream->Output.empty());
+
+    m_session->ClosePacketDevice();
+    m_client->Stop();
+    m_session->RefreshNetworkConfig();
+    (void)m_client->Start(m_config);
+    const auto reopened = m_session->OpenPacketDevice({.Name = {}, .ReadinessToken = {.Value = 1}});
+    stream->Input += "Content-Length: 0\r\n\r\n";
+    const auto result = m_session->PollLocalServices();
+
+    EXPECT_TRUE(reopened);
+    EXPECT_EQ(result.DeviceStatus, hosted::PacketDeviceStatus::Ready);
+    EXPECT_TRUE(stream->Output.starts_with("HTTP/1.1 207"));
+    EXPECT_FALSE(stream->Aborted);
+    EXPECT_EQ(m_stack->Starts, 1U);
+    EXPECT_EQ(m_stack->Stops, 0U);
+}
+
+TEST_F(Given_HostedClientSession, When_PathRetires_Then_SharedServiceFinishesBlockedWebDavResponse)
+{
+    ASSERT_NO_FATAL_FAILURE(Open());
+    auto stream = std::make_shared<fakes::FakeTcpStreamState>();
+    stream->Input = "PROPFIND / HTTP/1.1\r\nHost: 100.100.100.100:8080\r\nDepth: 0\r\n"
+                    "Content-Length: 0\r\n\r\n";
+    stream->WriteBlocked = true;
+    m_stack->Accepted.push_back(std::make_unique<fakes::FakeTcpStream>(stream));
+    (void)m_session->PollLocalServices();
+    ASSERT_EQ(stream->ReadOffset, stream->Input.size());
+    ASSERT_TRUE(stream->Output.empty());
+    auto& services = m_injector.create<ipn::ipnlocal::LocalServices&>();
+
+    m_session->ClosePacketDevice();
+    m_client->Stop();
+    m_session->RefreshNetworkConfig();
+    stream->WriteBlocked = false;
+    services.SetNetworkConfig(m_config.Network);
+    services.Poll();
+
+    EXPECT_TRUE(stream->Output.starts_with("HTTP/1.1 207"));
+    EXPECT_FALSE(stream->Aborted);
+    EXPECT_EQ(m_stack->Starts, 1U);
+    EXPECT_EQ(m_stack->Stops, 0U);
+    EXPECT_EQ(m_session->PollLocalServices().DeviceStatus, hosted::PacketDeviceStatus::Closed);
 }
 
 TEST_F(Given_HostedClientSession, When_ControlStartsAfterDevice_Then_RefreshEnablesLocalServices)

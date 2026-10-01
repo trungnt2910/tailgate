@@ -160,4 +160,22 @@ TEST_F(Given_HostedServerWriter, When_ScheduleChanges_Then_WriterCanBeWoken)
     EXPECT_EQ(active.Injector.create<WriterEventLoop&>().WakeCalls, 1U);
 }
 
+TEST_F(Given_HostedServerWriter, When_AuthenticationChallengeIsPosted_Then_WriterSendsIt)
+{
+    auto& writer = active.Injector.create<hosted::ServerWriter&>();
+    const auto challenge = active.Session->BuildDerpChallenge({});
+
+    writer.Post(challenge.Output);
+    writer.Run(*active.Session, stream, streamMutex, stopping);
+    hosted::Decoder decoder;
+    decoder.Feed(stream.Written);
+    const auto frame = decoder.Next();
+    ASSERT_TRUE(frame);
+    const auto decoded = hosted::ProtocolCodec::DecodeDerpChallenge(frame->Payload());
+
+    EXPECT_EQ(frame->Type(), hosted::MessageType::DerpChallenge);
+    EXPECT_EQ(decoded.RequestId(), challenge.RequestId);
+    EXPECT_EQ(active.Injector.create<WriterEventLoop&>().WakeCalls, 1U);
+}
+
 } // namespace tailgate::tests

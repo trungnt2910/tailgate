@@ -18,11 +18,8 @@ namespace tailgate::linux_frontend::impl
 {
 
 TunDevice::TunDevice(std::shared_ptr<PacketDescriptorProvider> descriptorProvider,
-                     std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry,
-                     tailgate::types::nettype::TcpSocketFactory& socketFactory)
-    : m_descriptorProvider(std::move(descriptorProvider)),
-      m_eventRegistry(std::move(eventRegistry)),
-      m_socketFactory(socketFactory)
+                     std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry)
+    : m_descriptorProvider(std::move(descriptorProvider)), m_eventRegistry(std::move(eventRegistry))
 {
 }
 
@@ -146,12 +143,6 @@ void TunDevice::Close() noexcept
     m_descriptor.Reset();
     m_writeInterest = false;
     m_isSocket = false;
-}
-
-std::unique_ptr<tailgate::types::nettype::TcpSocket>
-TunDevice::OpenTransportSocket(const tailgate::types::nettype::TcpSocketOptions& options)
-{
-    return m_socketFactory.OpenTcpSocket(options);
 }
 
 } // namespace tailgate::linux_frontend::impl

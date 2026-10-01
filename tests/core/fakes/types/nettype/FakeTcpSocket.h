@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -23,6 +24,7 @@ struct FakeTcpSocketState
     std::string Name;
     std::deque<std::vector<std::uint8_t>> Incoming;
     std::vector<std::uint8_t> Written;
+    std::size_t MaximumWriteSize = std::numeric_limits<std::size_t>::max();
     bool ReadWouldBlock = false;
     bool WriteWouldBlock = false;
     bool ReadNeedsWrite = false;
@@ -62,8 +64,9 @@ public:
         {
             return 0;
         }
-        m_state->Written.insert(m_state->Written.end(), data, data + size);
-        return size;
+        const auto written = std::min(size, m_state->MaximumWriteSize);
+        m_state->Written.insert(m_state->Written.end(), data, data + written);
+        return written;
     }
 
     std::optional<std::vector<std::uint8_t>> TryReadSome(std::size_t maximumSize) override

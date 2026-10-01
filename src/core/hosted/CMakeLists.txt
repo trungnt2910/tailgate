@@ -4,14 +4,20 @@ tailgate_add_library(
     Client.cpp
     ClientSession.cpp
     Connection.cpp
+    Delegation.cpp
+    DerpAuthenticator.cpp
+    DerpRouteTable.cpp
     DiscoProbes.cpp
     Dns.cpp
     PacketFraming.cpp
     Protocol.cpp
     Pump.cpp
     PumpController.cpp
+    Recovery.cpp
+    RelayEndpoint.cpp
     ServerSession.cpp
     ServerWriter.cpp
+    StreamTransport.cpp
 )
 target_link_libraries(
     tailgate_core_hosted
@@ -24,9 +30,11 @@ target_link_libraries(
         tailgate_core_net_packet
         tailgate_core_types_netmap
         tailgate_core_types_nettype
+        tailgate_core_wgengine
         tailgate_core_wgengine_tstun
         tailgate_core_wgengine_wireguard
     PRIVATE
+        Boost::url
         sodium
         nlohmann_json::nlohmann_json
 )

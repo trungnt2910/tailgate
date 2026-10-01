@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <tailgate/control/client/ControlClient.h>
 #include <tailgate/crypto/Crypto.h>
@@ -31,10 +32,13 @@ class ControlPlaneManager
 public:
     virtual ~ControlPlaneManager() = default;
 
-    virtual void Start(SessionGeneration generation) = 0;
+    virtual void Start(SessionGeneration generation, const std::string& networkInterface) = 0;
     virtual void LoadIdentity(bool registered) = 0;
     [[nodiscard]] virtual tailgate::control::client::RegistrationResult
     Connect(const std::string& authKey) = 0;
+    virtual void
+    PublishEndpoints(std::vector<tailgate::control::client::MapEndpoint> endpoints) = 0;
+    virtual void ChangeNetwork(const std::string& networkInterface) = 0;
     virtual void StartMaintenance(NetworkMapHandler networkMapHandler) = 0;
     virtual void StopMaintenance() = 0;
     virtual void RequestStop() = 0;

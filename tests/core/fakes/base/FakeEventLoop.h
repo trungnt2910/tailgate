@@ -45,13 +45,13 @@ public:
         m_wakeCondition.notify_all();
     }
 
-    void WaitForWake()
+    void WaitForWake(std::size_t count = 1)
     {
         std::unique_lock lock(m_mutex);
         m_wakeCondition.wait(lock,
-                             [this]()
+                             [this, count]()
                              {
-                                 return m_wakeCalls != 0;
+                                 return m_wakeCalls >= count;
                              });
     }
 

@@ -33,6 +33,18 @@ bool ConnectionImpl::Open(const tailgate::types::nettype::UdpSocketOptions& opti
     return true;
 }
 
+bool ConnectionImpl::Rebind(const tailgate::types::nettype::UdpSocketOptions& options)
+{
+    CloseSocket();
+    for (auto& [key, peer] : m_peers)
+    {
+        peer.Pending.clear();
+        peer.PendingBytes = 0;
+        peer.Path.Reset(PeerPathState::ResetMode::ForgetVerifiedEndpoints);
+    }
+    return Open(options);
+}
+
 bool ConnectionImpl::AddPeer(const tailgate::crypto::Bytes32& peer)
 {
     const auto [_, inserted] = m_peers.emplace(peer, PeerState{});
@@ -280,6 +292,11 @@ std::size_t ConnectionImpl::QueuedBytes(const tailgate::crypto::Bytes32& peer) c
 void ConnectionImpl::Close() noexcept
 {
     m_peers.clear();
+    CloseSocket();
+}
+
+void ConnectionImpl::CloseSocket() noexcept
+{
     if (m_socket)
     {
         m_socket->Close();
