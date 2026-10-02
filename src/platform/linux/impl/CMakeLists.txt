@@ -4,8 +4,9 @@ tailgate_add_library(
     CancellableWait.cpp
     EventLoop.cpp
     HostInfoProvider.cpp
-    ResolveTcp.cpp
     TcpPortReservationFactory.cpp
+    TcpResolver.cpp
+    TcpSocketBinder.cpp
     TcpSocketFactory.cpp
     TcpStream.cpp
     TimeProvider.cpp

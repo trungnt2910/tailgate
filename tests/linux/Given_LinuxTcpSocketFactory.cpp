@@ -23,6 +23,8 @@
 #include "UniqueFd.h"
 #include "event/EventRegistry.h"
 #include "impl/EventLoop.h"
+#include "impl/TcpResolver.h"
+#include "impl/TcpSocketBinder.h"
 #include "impl/TcpSocketFactory.h"
 #include "impl/TimeProvider.h"
 
@@ -79,7 +81,9 @@ TEST(Given_LinuxTcpSocketFactory, When_BlockingSocketReceivesData_Then_EventLoop
     auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
     tailgate::linux_frontend::impl::EventLoop loop(registry);
     tailgate::linux_frontend::impl::TimeProvider timeProvider;
-    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry);
+    tailgate::linux_frontend::impl::TcpResolver resolver;
+    tailgate::linux_frontend::impl::TcpSocketBinder binder;
+    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry, resolver, binder);
     tailgate::types::nettype::TcpSocketOptions options;
     options.ReadinessToken = TestToken;
     options.NonBlockingAfterConnect = false;
@@ -99,7 +103,9 @@ TEST(Given_LinuxTcpSocketFactory, When_BlockingSocketBecomesNonBlocking_Then_Eve
 {
     auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
     tailgate::linux_frontend::impl::EventLoop loop(registry);
-    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry);
+    tailgate::linux_frontend::impl::TcpResolver resolver;
+    tailgate::linux_frontend::impl::TcpSocketBinder binder;
+    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry, resolver, binder);
     tailgate::types::nettype::TcpSocketOptions options;
     options.ReadinessToken = TestToken;
     options.NonBlockingAfterConnect = false;
@@ -120,7 +126,9 @@ TEST(Given_LinuxTcpSocketFactory, When_BlockingSocketBecomesNonBlocking_Then_Eve
 TEST(Given_LinuxTcpSocketFactory, When_BlockingReadIsCancelled_Then_NoNetworkResponseIsRequired)
 {
     auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
-    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry);
+    tailgate::linux_frontend::impl::TcpResolver resolver;
+    tailgate::linux_frontend::impl::TcpSocketBinder binder;
+    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry, resolver, binder);
     std::stop_source cancellation;
     tailgate::types::nettype::TcpSocketOptions options;
     options.Cancellation = cancellation.get_token();
@@ -151,7 +159,9 @@ TEST(Given_LinuxTcpSocketFactory, When_BlockingReadIsCancelled_Then_NoNetworkRes
 TEST(Given_LinuxTcpSocketFactory, When_OpenIsAlreadyCancelled_Then_DnsAndConnectAreSkipped)
 {
     auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
-    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry);
+    tailgate::linux_frontend::impl::TcpResolver resolver;
+    tailgate::linux_frontend::impl::TcpSocketBinder binder;
+    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry, resolver, binder);
     std::stop_source cancellation;
     cancellation.request_stop();
     tailgate::types::nettype::TcpSocketOptions options;
@@ -175,7 +185,9 @@ TEST(Given_LinuxTcpSocketFactory, When_OpenIsAlreadyCancelled_Then_DnsAndConnect
 TEST(Given_LinuxTcpSocketFactory, When_TlsHandshakeIsCancelled_Then_ItDoesNotWaitForIoTimeout)
 {
     auto registry = std::make_shared<tailgate::linux_frontend::event::EventRegistry>();
-    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry);
+    tailgate::linux_frontend::impl::TcpResolver resolver;
+    tailgate::linux_frontend::impl::TcpSocketBinder binder;
+    tailgate::linux_frontend::impl::TcpSocketFactory factory(registry, resolver, binder);
     tailgate::linux_frontend::UniqueFd listener(socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0));
     ASSERT_GE(listener.Fd, 0);
     sockaddr_in address{};

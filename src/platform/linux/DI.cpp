@@ -13,6 +13,8 @@
 #include "impl/EventLoop.h"
 #include "impl/HostInfoProvider.h"
 #include "impl/TcpPortReservationFactory.h"
+#include "impl/TcpResolver.h"
+#include "impl/TcpSocketBinder.h"
 #include "impl/TcpSocketFactory.h"
 #include "impl/TimeProvider.h"
 #include "impl/TunDevice.h"
@@ -31,6 +33,8 @@ void InstallBindings(tailgate::di::Injector& injector)
     injector.install(
         boost_di::bind<PacketDescriptorProvider>(),
         boost_di::bind<linux_event::EventRegistry>(),
+        boost_di::bind<linux_impl::TcpResolver>(),
+        boost_di::bind<linux_impl::TcpSocketBinder>(),
         boost_di::bind<tailgate::control::client::HostInfoProvider>.to<linux_impl::HostInfoProvider>(),
         boost_di::bind<tailgate::base::TimeProvider>.to<linux_impl::TimeProvider>(),
         boost_di::bind<tailgate::base::EventLoop>.to<linux_impl::EventLoop>(),

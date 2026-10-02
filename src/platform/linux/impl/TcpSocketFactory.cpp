@@ -23,6 +23,8 @@
 
 #include "CancellableWait.h"
 #include "SocketIo.h"
+#include "TcpResolver.h"
+#include "TcpSocketBinder.h"
 #include "TcpStream.h"
 
 namespace tailgate::linux_frontend::impl
@@ -76,8 +78,12 @@ class TcpSocket final : public tailgate::types::nettype::TcpSocket
 {
 public:
     TcpSocket(const tailgate::types::nettype::TcpSocketOptions& options,
-              std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry)
+              std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry,
+              TcpResolver& resolver,
+              TcpSocketBinder& binder)
         : m_transport(std::make_unique<TcpStream>(
+              resolver,
+              binder,
               options.ConnectAddress,
               options.Service,
               options.NetworkInterface.value_or(std::string{}),
@@ -245,15 +251,17 @@ private:
 } // namespace
 
 TcpSocketFactory::TcpSocketFactory(
-    std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry)
-    : m_eventRegistry(std::move(eventRegistry))
+    std::shared_ptr<tailgate::linux_frontend::event::EventRegistry> eventRegistry,
+    TcpResolver& resolver,
+    TcpSocketBinder& binder)
+    : m_eventRegistry(std::move(eventRegistry)), m_resolver(resolver), m_binder(binder)
 {
 }
 
 std::unique_ptr<tailgate::types::nettype::TcpSocket>
 TcpSocketFactory::OpenTcpSocket(const tailgate::types::nettype::TcpSocketOptions& options)
 {
-    return std::make_unique<TcpSocket>(options, m_eventRegistry);
+    return std::make_unique<TcpSocket>(options, m_eventRegistry, m_resolver, m_binder);
 }
 
 } // namespace tailgate::linux_frontend::impl

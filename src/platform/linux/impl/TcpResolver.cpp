@@ -1,4 +1,4 @@
-#include "ResolveTcp.h"
+#include "TcpResolver.h"
 
 #include <condition_variable>
 #include <cstring>
@@ -58,10 +58,10 @@ void Resolved(void* context, int status, int, ares_addrinfo* addresses)
 
 } // namespace
 
-std::vector<TcpAddress> ResolveTcp(const std::string& host,
-                                   const std::string& service,
-                                   std::chrono::seconds timeout,
-                                   std::stop_token cancellation)
+std::vector<TcpAddress> TcpResolver::Resolve(const std::string& host,
+                                             const std::string& service,
+                                             std::chrono::seconds timeout,
+                                             std::stop_token cancellation)
 {
     ThrowIfCancelled(cancellation);
     static ResolverLibrary library;

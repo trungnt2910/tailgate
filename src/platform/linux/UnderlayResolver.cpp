@@ -4,7 +4,7 @@
 
 #include <arpa/inet.h>
 
-#include "impl/ResolveTcp.h"
+#include "impl/TcpResolver.h"
 
 namespace tailgate::linux_frontend
 {
@@ -16,8 +16,9 @@ net::Endpoint UnderlayResolver::Resolve(const std::string& host,
 {
     // The system resolver may be localhost/Quad100. Do not bind that DNS query to
     // a physical adapter; only the resulting STUN socket uses the underlay.
+    impl::TcpResolver resolver;
     for (const auto& address :
-         impl::ResolveTcp(host, std::to_string(port), std::chrono::seconds(10), cancellation))
+         resolver.Resolve(host, std::to_string(port), std::chrono::seconds(10), cancellation))
     {
         if (address.Family == AF_INET)
         {

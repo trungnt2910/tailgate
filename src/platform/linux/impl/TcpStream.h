@@ -10,6 +10,9 @@
 namespace tailgate::linux_frontend::impl
 {
 
+class TcpResolver;
+class TcpSocketBinder;
+
 class TcpStream final : public tailgate::base::ByteStream
 {
 public:
@@ -19,7 +22,9 @@ public:
     // A zero connect timeout uses the I/O timeout. A short connect timeout lets dial-with-
     // fallback strategies abandon an unresponsive endpoint quickly while keeping long steady-
     // state read timeouts.
-    TcpStream(const std::string& host,
+    TcpStream(TcpResolver& resolver,
+              TcpSocketBinder& binder,
+              const std::string& host,
               const std::string& service,
               const std::string& interfaceName = {},
               int ioTimeoutSeconds = DefaultIoTimeoutSeconds,

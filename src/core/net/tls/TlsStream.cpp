@@ -38,11 +38,8 @@ public:
          const std::string& hostname,
          const std::vector<std::uint8_t>& caPem,
          bool allowTls13)
-        : Transport(transport)
+        : Impl(transport)
     {
-        mbedtls_ssl_init(&Ssl);
-        mbedtls_ssl_config_init(&Config);
-        mbedtls_x509_crt_init(&Certificates);
         std::vector<std::uint8_t> terminatedCa = caPem;
         if (terminatedCa.empty() || terminatedCa.back() != 0)
         {
@@ -110,7 +107,10 @@ public:
 
     ~Impl()
     {
-        mbedtls_ssl_close_notify(&Ssl);
+        if (HandshakeFinished)
+        {
+            mbedtls_ssl_close_notify(&Ssl);
+        }
         mbedtls_ssl_free(&Ssl);
         mbedtls_ssl_config_free(&Config);
         mbedtls_x509_crt_free(&Certificates);
@@ -166,6 +166,16 @@ public:
     bool HandshakeWantsWrite = false;
     std::uint64_t TransportReadGeneration = 0;
     std::vector<std::uint8_t> ReadBuffer;
+
+private:
+    // Completing the delegated constructor ensures cleanup also runs when parsing,
+    // configuration, or the initial handshake throws.
+    explicit Impl(ByteStream& transport) : Transport(transport)
+    {
+        mbedtls_ssl_init(&Ssl);
+        mbedtls_ssl_config_init(&Config);
+        mbedtls_x509_crt_init(&Certificates);
+    }
 };
 
 TlsStream::TlsStream(ByteStream& transport,

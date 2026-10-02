@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,46 @@
 #include "fakes/crypto/TestCertificates.h"
 
 #include "TlsWriteProgress.h"
+
+TEST(Given_TlsStream, When_HandshakeReachesEof_Then_ConstructionFailsAndReleasesResources)
+{
+    tailgate::tests::fakes::FakeByteStream transport("TLS transport");
+    const std::string certificate(tailgate::tests::fakes::ExampleCertificate);
+    const std::vector<std::uint8_t> caPem(certificate.begin(), certificate.end());
+    bool rejected = false;
+
+    try
+    {
+        tailgate::net::tls::TlsStream stream(transport, "node.example.ts.net", caPem, false);
+    }
+    catch (const std::runtime_error&)
+    {
+        rejected = true;
+    }
+
+    EXPECT_TRUE(rejected);
+    EXPECT_EQ(transport.ReadCalls, 1U);
+}
+
+TEST(Given_TlsStream, When_CaIsEmpty_Then_ConstructionFailsBeforeUsingTransport)
+{
+    tailgate::tests::fakes::FakeByteStream transport("TLS transport");
+    const std::vector<std::uint8_t> caPem;
+    bool rejected = false;
+
+    try
+    {
+        tailgate::net::tls::TlsStream stream(transport, "node.example.ts.net", caPem, false);
+    }
+    catch (const std::runtime_error&)
+    {
+        rejected = true;
+    }
+
+    EXPECT_TRUE(rejected);
+    EXPECT_EQ(transport.ReadCalls, 0U);
+    EXPECT_EQ(transport.WriteCalls, 0U);
+}
 
 TEST(Given_TlsStream, When_HandshakeReadWouldBlock_Then_ConstructionDoesNotPoll)
 {

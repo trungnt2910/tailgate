@@ -10,8 +10,8 @@ tailgate_add_test_executable(
     Given_LinuxPacketDevice.cpp
     Given_LinuxProcessWait.cpp
     Given_LinuxTcpPortReservation.cpp
-    Given_LinuxTcpResolutionDeathTest.cpp
     Given_LinuxTcpSocketFactory.cpp
+    Given_LinuxTcpStream.cpp
     Given_LinuxUdpSocketFactory.cpp
     Given_Network.cpp
     Given_PeerApiServer.cpp

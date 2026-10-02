@@ -17,12 +17,15 @@
 #include "UniqueFd.h"
 
 #include "CancellableWait.h"
-#include "ResolveTcp.h"
+#include "TcpResolver.h"
+#include "TcpSocketBinder.h"
 
 namespace tailgate::linux_frontend::impl
 {
 
-TcpStream::TcpStream(const std::string& host,
+TcpStream::TcpStream(TcpResolver& resolver,
+                     TcpSocketBinder& binder,
+                     const std::string& host,
                      const std::string& service,
                      const std::string& interfaceName,
                      int ioTimeoutSeconds,
@@ -41,8 +44,9 @@ TcpStream::TcpStream(const std::string& host,
         connectTimeoutSeconds = ioTimeoutSeconds;
     }
 
+    ThrowIfCancelled(cancellation);
     const auto results =
-        ResolveTcp(host, service, std::chrono::seconds(connectTimeoutSeconds), cancellation);
+        resolver.Resolve(host, service, std::chrono::seconds(connectTimeoutSeconds), cancellation);
     UniqueFd connected;
     for (const auto& entry : results)
     {
@@ -53,13 +57,9 @@ TcpStream::TcpStream(const std::string& host,
         {
             continue;
         }
-        if (!interfaceName.empty() && setsockopt(candidate.Fd,
-                                                 SOL_SOCKET,
-                                                 SO_BINDTODEVICE,
-                                                 interfaceName.c_str(),
-                                                 interfaceName.size() + 1) != 0)
+        if (!interfaceName.empty())
         {
-            throw std::system_error(errno, std::generic_category());
+            binder.BindToInterface(candidate.Fd, interfaceName);
         }
         bool success = connect(candidate.Fd,
                                reinterpret_cast<const sockaddr*>(&entry.Address),
