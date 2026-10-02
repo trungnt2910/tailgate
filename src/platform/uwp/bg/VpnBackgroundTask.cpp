@@ -2,6 +2,7 @@
 
 #include <exception>
 #include <mutex>
+#include <stop_token>
 #include <string_view>
 
 #include <winrt/Windows.ApplicationModel.Background.h>
@@ -37,6 +38,14 @@ public:
     {
         try
         {
+            std::stop_source recoveryCancellation;
+            const auto cancellation = taskInstance.Canceled(
+                winrt::auto_revoke,
+                [recoveryCancellation](const auto&,
+                                       background::BackgroundTaskCancellationReason) mutable
+                {
+                    recoveryCancellation.request_stop();
+                });
             const BackgroundTaskLifetime lifetime(taskInstance);
             const foundation::IInspectable triggerDetails = taskInstance.TriggerDetails();
             vpn::IVpnPlugIn plugin{nullptr};
@@ -57,7 +66,7 @@ public:
                     m_logger.LogDebug("created VPN plugin");
                 }
             }
-            vpn::VpnChannel::ProcessEventAsync(plugin, triggerDetails);
+            ProcessTailgateVpnEvent(plugin, triggerDetails, recoveryCancellation.get_token());
             return;
         }
         catch (const winrt::hresult_error& error)

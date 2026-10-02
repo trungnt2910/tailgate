@@ -10,6 +10,8 @@ tailgate_uwp_add_test_library(
     Given_ExitNodeService.cpp
     Given_ModeService.cpp
     Given_PingService.cpp
+    Given_ProfileRecoveryManager.cpp
+    Given_ProfileRecoveryState.cpp
     Given_SessionManager.cpp
     Given_UwpBackgroundBindings.cpp
 )

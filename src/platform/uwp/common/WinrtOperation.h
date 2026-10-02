@@ -4,11 +4,25 @@
 #include <optional>
 #include <stop_token>
 #include <system_error>
+#include <utility>
 
 #include <winrt/Windows.Foundation.h>
 
 namespace tailgate::uwp
 {
+
+// Transfer the single completion-handler slot to this waiter before suspending.
+// Keeping the action in its owner after awaiting it makes a later retry assign
+// Completed a second time, even when the action has already finished.
+inline winrt::Windows::Foundation::IAsyncAction
+ConsumeAsyncAction(winrt::Windows::Foundation::IAsyncAction& pending)
+{
+    const auto action = std::exchange(pending, nullptr);
+    if (action)
+    {
+        co_await action;
+    }
+}
 
 template <typename T>
 auto AwaitOperation(const T& operation,

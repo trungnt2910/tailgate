@@ -39,6 +39,7 @@ public:
     BuildClientInfo(const Key& privateKey, const Key& publicKey, const Key& serverKey);
     void Connect(const std::string& hostname, std::stop_token cancellation = {});
     void Send(const Key& destination, const std::vector<std::uint8_t>& packet);
+    void SendPing(const std::array<std::uint8_t, 8>& payload);
     [[nodiscard]] Packet Receive();
     [[nodiscard]] std::optional<Packet> ReceiveAvailable();
     [[nodiscard]] std::vector<Packet> ReceiveAvailableBatch();

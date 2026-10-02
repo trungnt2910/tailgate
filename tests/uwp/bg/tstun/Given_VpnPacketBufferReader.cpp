@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "VpnPacketBufferReader.h"
+#include "bg/tstun/VpnPacketBufferReader.h"
 
 #include "fakes/bg/tstun/FakeVpnPacketBuffer.h"
 #include "fakes/bg/tstun/FakeVpnPacketBufferList.h"
@@ -32,7 +32,7 @@ TEST_F(Given_VpnPacketBufferReader,
 {
     Input.Append(Packet);
 
-    const auto bytes = bg::VpnPacketBufferReader::Read(Input, Output);
+    const auto bytes = bg::VpnPacketBufferReader::Read(Input, Output, 0);
     ASSERT_EQ(Output.Size(), 1U);
     const auto recycled = Output.RemoveAtBegin();
     const auto buffer = recycled.Buffer();
@@ -57,7 +57,7 @@ TEST_F(Given_VpnPacketBufferReader, When_PoolBufferIsReusedRepeatedly_Then_Every
         std::ranges::copy(Payload, buffer.data());
         buffer.Length(static_cast<std::uint32_t>(Payload.size()));
         Input.Append(recycled);
-        const auto bytes = bg::VpnPacketBufferReader::Read(Input, Output);
+        const auto bytes = bg::VpnPacketBufferReader::Read(Input, Output, 0);
         ASSERT_EQ(Output.Size(), 1U);
         recycled = Output.RemoveAtBegin();
         payloadsPreserved &= bytes == Payload && recycled.Buffer().Length() == 1;
@@ -69,6 +69,23 @@ TEST_F(Given_VpnPacketBufferReader, When_PoolBufferIsReusedRepeatedly_Then_Every
     EXPECT_EQ(Input.Size(), 0U);
     EXPECT_EQ(Output.Size(), 0U);
     EXPECT_EQ(recycled, Packet);
+}
+
+TEST_F(Given_VpnPacketBufferReader,
+       When_OptionalLoopbackIsSelected_Then_RecycledPacketAvoidsMainTcp)
+{
+    constexpr std::uint32_t OptionalTransport = 1;
+    Packet.TransportAffinity(0);
+    Input.Append(Packet);
+
+    const auto bytes = bg::VpnPacketBufferReader::Read(Input, Output, OptionalTransport);
+    ASSERT_EQ(Output.Size(), 1U);
+    const auto recycled = Output.RemoveAtBegin();
+
+    EXPECT_EQ(bytes, Payload);
+    EXPECT_EQ(recycled.TransportAffinity(), OptionalTransport);
+    EXPECT_EQ(recycled.Buffer().Length(), 1U);
+    EXPECT_EQ(recycled.Buffer().data()[0], 0);
 }
 
 } // namespace

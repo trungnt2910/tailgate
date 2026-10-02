@@ -31,6 +31,7 @@ uwp_add_executable(
         Given_UwpUdpSocketFactory.cpp
         Given_VpnPhonebook.cpp
         Given_VpnReconnectState.cpp
+        Given_WinrtOperation.cpp
         IdlingRegistry.cpp
         IdlingRegistry.h
         TestHost.cpp

@@ -296,3 +296,32 @@ TEST(Given_DerpClient, When_SettingPreference_Then_BooleanFrameIsSent)
 
     EXPECT_EQ(stream.Written, expected);
 }
+
+TEST(Given_DerpClient, When_ClientSendsPing_Then_EncodesEightBytePayload)
+{
+    tailgate::test::ScriptedByteStream stream;
+    tailgate::derp::DerpClient client(stream, {}, {});
+    const std::array<std::uint8_t, 8> payload{1, 2, 3, 4, 5, 6, 7, 8};
+
+    client.SendPing(payload);
+
+    EXPECT_EQ(stream.Written, Frame(PingFrame, {payload.begin(), payload.end()}));
+    EXPECT_FALSE(client.HasPendingOutput());
+}
+
+TEST(Given_DerpClient, When_PingWriteIsBlocked_Then_FlushPreservesFrameAcrossPartialWrites)
+{
+    tailgate::test::ScriptedByteStream stream;
+    stream.BlockedWrites = 1;
+    stream.MaximumWriteSize = 2;
+    tailgate::derp::DerpClient client(stream, {}, {});
+    const std::array<std::uint8_t, 8> payload{8, 7, 6, 5, 4, 3, 2, 1};
+
+    client.SendPing(payload);
+    const bool pending = client.HasPendingOutput();
+    client.Flush();
+
+    EXPECT_TRUE(pending);
+    EXPECT_FALSE(client.HasPendingOutput());
+    EXPECT_EQ(stream.Written, Frame(PingFrame, {payload.begin(), payload.end()}));
+}

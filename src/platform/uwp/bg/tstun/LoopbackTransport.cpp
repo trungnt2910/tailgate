@@ -140,6 +140,7 @@ LoopbackTransport::~LoopbackTransport()
 }
 
 void LoopbackTransport::Open(const winrt::Windows::Networking::Vpn::VpnChannel& channel,
+                             const winrt::Windows::Networking::Sockets::StreamSocket& mainTransport,
                              std::stop_token cancellation)
 {
     if (m_state)
@@ -159,7 +160,7 @@ void LoopbackTransport::Open(const winrt::Windows::Networking::Vpn::VpnChannel& 
             {
             });
         AwaitOperation(state->Local.BindEndpointAsync(loopback, L"0"), SetupTimeout, cancellation);
-        channel.AssociateTransport(state->Transport, nullptr);
+        channel.AssociateTransport(mainTransport, state->Transport);
         AwaitOperation(
             state->Transport.ConnectAsync(loopback, state->Local.Information().LocalPort()),
             SetupTimeout,

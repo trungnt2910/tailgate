@@ -11,7 +11,7 @@
 namespace tailgate::uwp::bg
 {
 
-// The sole associated VPN transport. Its datagrams only request receive callbacks;
+// The optional associated UDP transport. Its datagrams only request receive callbacks;
 // application-owned sockets carry all relay/DERP/peer traffic.
 class LoopbackTransport final
 {
@@ -19,6 +19,7 @@ public:
     LoopbackTransport(std::shared_ptr<base::EventLoop> events, base::TimeProvider& time);
     ~LoopbackTransport();
     void Open(const winrt::Windows::Networking::Vpn::VpnChannel& channel,
+              const winrt::Windows::Networking::Sockets::StreamSocket& mainTransport,
               std::stop_token cancellation);
     [[nodiscard]] winrt::Windows::Networking::Sockets::DatagramSocket Socket() const;
     void StartPulsing();

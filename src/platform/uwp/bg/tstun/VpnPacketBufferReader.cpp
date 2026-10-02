@@ -19,11 +19,15 @@ void PrepareLoopbackSend(const winrt::Windows::Storage::Streams::Buffer& buffer)
 
 std::vector<std::uint8_t>
 VpnPacketBufferReader::Read(const winrt::Windows::Networking::Vpn::VpnPacketBufferList& input,
-                            const winrt::Windows::Networking::Vpn::VpnPacketBufferList& output)
+                            const winrt::Windows::Networking::Vpn::VpnPacketBufferList& output,
+                            std::uint32_t loopbackAffinity)
 {
     const auto packet = input.RemoveAtBegin();
     // Transfer ownership before allocation, just as when filling a receive buffer.
     output.Append(packet);
+    // The main transport now carries DERP. Recycled one-byte buffers must only
+    // reach the optional local UDP sink, otherwise they corrupt the TCP stream.
+    packet.TransportAffinity(loopbackAffinity);
     const auto buffer = packet.Buffer();
     std::vector<std::uint8_t> result;
     try

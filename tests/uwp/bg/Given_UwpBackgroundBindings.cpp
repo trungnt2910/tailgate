@@ -8,11 +8,11 @@
 #include <tailgate/types/nettype/TcpSocket.h>
 #include <tailgate/wgengine/tstun/Device.h>
 
+#include "bg/DI.h"
+#include "bg/manager/ProfileRecoveryManager.h"
+#include "bg/tstun/PacketDevice.h"
 #include "common/TcpPortReservationFactory.h"
 #include "common/TcpSocketFactory.h"
-
-#include "bg/DI.h"
-#include "bg/tstun/PacketDevice.h"
 
 TEST(Given_UwpBackgroundBindings, When_ResolvingTimeProvider_Then_ProductionGraphProvidesClock)
 {
@@ -63,4 +63,18 @@ TEST(Given_UwpBackgroundBindings, When_ResolvingPortReservations_Then_CoreUsesTh
 
     EXPECT_EQ(abstractFactory,
               static_cast<tailgate::types::nettype::TcpPortReservationFactory*>(concreteFactory));
+}
+
+TEST(Given_UwpBackgroundBindings, When_ResolvingRecoveryManager_Then_SharedWithinOnePluginOnly)
+{
+    auto firstGraph = tailgate::uwp::bg::CreatePluginInjector();
+    auto secondGraph = tailgate::uwp::bg::CreatePluginInjector();
+    using tailgate::uwp::bg::manager::ProfileRecoveryManager;
+
+    const auto* plugin = &firstGraph->create<ProfileRecoveryManager&>();
+    const auto* dispatcher = &firstGraph->create<ProfileRecoveryManager&>();
+    const auto* independent = &secondGraph->create<ProfileRecoveryManager&>();
+
+    EXPECT_EQ(plugin, dispatcher);
+    EXPECT_NE(plugin, independent);
 }

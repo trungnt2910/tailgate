@@ -20,6 +20,7 @@
 #include "common/TimeProvider.h"
 #include "common/VpnConstants.h"
 #include "common/VpnReconnectState.h"
+#include "common/WinrtOperation.h"
 
 namespace tailgate::uwp
 {
@@ -506,7 +507,7 @@ FireAndForget VpnProfileControllerImpl::ConnectInBackground(winrt::hstring tailg
         // before reading, deleting or dialing the profile through this management agent.
         if (m_refreshOperation)
         {
-            co_await m_refreshOperation;
+            co_await ConsumeAsyncAction(m_refreshOperation);
         }
         if (m_connectCancelled)
         {
@@ -634,7 +635,7 @@ FireAndForget VpnProfileControllerImpl::DisconnectInBackground()
     {
         if (m_refreshOperation)
         {
-            co_await m_refreshOperation;
+            co_await ConsumeAsyncAction(m_refreshOperation);
         }
         auto profile = co_await FindProfileAsync();
         if (profile)
@@ -672,7 +673,7 @@ FireAndForget VpnProfileControllerImpl::LogoutInBackground()
     {
         if (m_refreshOperation)
         {
-            co_await m_refreshOperation;
+            co_await ConsumeAsyncAction(m_refreshOperation);
         }
         auto profile = co_await FindProfileAsync();
         if (profile)
@@ -715,7 +716,7 @@ FireAndForget VpnProfileControllerImpl::DiscardProfileInBackground()
     {
         if (m_refreshOperation)
         {
-            co_await m_refreshOperation;
+            co_await ConsumeAsyncAction(m_refreshOperation);
         }
         vpn::VpnPlugInProfile profile{nullptr};
         if (m_newlyAddedProfile)

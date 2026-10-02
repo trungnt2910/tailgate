@@ -3,10 +3,14 @@ tailgate_uwp_add_library(
     STATIC
     ChannelAdapter.cpp
     ChannelAdapter.h
+    DerpWakeTransport.cpp
+    DerpWakeTransport.h
     LoopbackTransport.cpp
     LoopbackTransport.h
     PacketDevice.cpp
     PacketDevice.h
+    VpnCallbackStream.cpp
+    VpnCallbackStream.h
     VpnPacketBufferReader.cpp
     VpnPacketBufferReader.h
 )

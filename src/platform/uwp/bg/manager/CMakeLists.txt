@@ -11,8 +11,13 @@ tailgate_uwp_add_library(
     impl/ControlPlaneManagerImpl.h
     impl/DataPlaneManagerImpl.cpp
     impl/DataPlaneManagerImpl.h
+    impl/ProfileRecoveryManagerImpl.cpp
+    impl/ProfileRecoveryManagerImpl.h
     impl/SessionManagerImpl.cpp
     impl/SessionManagerImpl.h
+    ProfileRecoveryManager.cpp
+    ProfileRecoveryManager.h
+    ProfileRecoveryState.h
     SessionManager.h
 )
 target_include_directories(

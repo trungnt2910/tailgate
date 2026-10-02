@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #include <winrt/Windows.Foundation.Collections.h>
@@ -104,9 +105,28 @@ ChannelAdapter::ChannelAdapter(std::shared_ptr<tailgate::base::EventLoop> events
 {
 }
 
-void ChannelAdapter::Open(const vpn::VpnChannel& channel, std::stop_token cancellation)
+void ChannelAdapter::Open(const vpn::VpnChannel& channel,
+                          const std::string& derpHost,
+                          std::stop_token cancellation)
 {
-    m_loopback.Open(channel, cancellation);
+    std::string_view stage = "DerpWakeTransport.Prepare";
+    try
+    {
+        m_derpWake.Prepare();
+        stage = "LoopbackTransport.Open";
+        m_loopback.Open(channel, m_derpWake.Socket(), cancellation);
+        stage = "DerpWakeTransport.Connect";
+        m_derpWake.Connect(derpHost, cancellation);
+    }
+    catch (...)
+    {
+        m_logger.LogError("transport setup failed stage={} hresult=0x{:08x} cancelled={}: {}",
+                          stage,
+                          static_cast<std::uint32_t>(winrt::to_hresult().value),
+                          cancellation.stop_requested(),
+                          winrt::to_message());
+        throw;
+    }
 }
 
 void ChannelAdapter::Start(const vpn::VpnChannel& channel, const manager::ChannelPolicy& policy)
@@ -129,20 +149,33 @@ void ChannelAdapter::Start(const vpn::VpnChannel& channel, const manager::Channe
         std::lock_guard lock(m_mutex);
         m_enabled = true;
     }
-    channel.StartWithMainTransport(assignedIpv4.GetView(),
-                                   ipv6,
-                                   nullptr,
-                                   routes,
-                                   domains,
-                                   VpnConstants::Channel::Mtu,
-                                   VpnConstants::Channel::MaximumFrameSize,
-                                   false,
-                                   transport);
+    try
+    {
+        channel.StartWithTrafficFilter(assignedIpv4.GetView(),
+                                       ipv6,
+                                       nullptr,
+                                       routes,
+                                       domains,
+                                       VpnConstants::Channel::Mtu,
+                                       VpnConstants::Channel::MaximumFrameSize,
+                                       false,
+                                       m_derpWake.Socket(),
+                                       transport,
+                                       nullptr);
+    }
+    catch (...)
+    {
+        m_logger.LogError("setup failed api=VpnChannel.StartWithTrafficFilter hresult=0x{:08x}: {}",
+                          static_cast<std::uint32_t>(winrt::to_hresult().value),
+                          winrt::to_message());
+        throw;
+    }
     {
         std::lock_guard lock(m_mutex);
         m_started = true;
     }
     m_loopback.StartPulsing();
+    m_derpWake.Start();
     // Older Windows can rewrite DEVICE=modem during Start, misclassifying the VPN in
     // Settings. Repair once on this callback worker, including Settings-initiated connections.
     VpnPhonebook::RepairAsync(winrt::Windows::Storage::ApplicationData::Current().LocalFolder())
@@ -151,6 +184,7 @@ void ChannelAdapter::Start(const vpn::VpnChannel& channel, const manager::Channe
 
 void ChannelAdapter::Close()
 {
+    m_derpWake.Close();
     std::lock_guard lock(m_mutex);
     m_enabled = m_started = false;
     m_loopback.Close();
@@ -171,6 +205,7 @@ void ChannelAdapter::KeepAlive(const vpn::VpnChannel& channel, vpn::VpnPacketBuf
     if (m_started)
     {
         channel.RequestVpnPacketBuffer(vpn::VpnDataPathType::Send, packet);
+        packet.TransportAffinity(VpnConstants::Channel::LoopbackTransportAffinity);
         FillPacket(packet, {0});
     }
 }
@@ -186,7 +221,8 @@ void ChannelAdapter::Encapsulate(const vpn::VpnPacketBufferList& packets,
     const auto count = packets.Size();
     for (std::uint32_t index = 0; index < count; ++index)
     {
-        auto bytes = VpnPacketBufferReader::Read(packets, output);
+        auto bytes = VpnPacketBufferReader::Read(
+            packets, output, VpnConstants::Channel::LoopbackTransportAffinity);
         if (m_input.size() >= MaximumPackets || m_inputBytes + bytes.size() > MaximumBytes)
         {
             m_logger.LogWarning("host packet queue is full; dropping packet");
@@ -199,8 +235,18 @@ void ChannelAdapter::Encapsulate(const vpn::VpnPacketBufferList& packets,
 }
 
 void ChannelAdapter::Decapsulate(const vpn::VpnChannel& channel,
+                                 const vpn::VpnPacketBuffer& input,
                                  const vpn::VpnPacketBufferList& packets)
 {
+    if (input)
+    {
+        const auto buffer = input.Buffer();
+        const auto affinity = input.TransportAffinity();
+        if (affinity == VpnConstants::Channel::DerpTransportAffinity)
+        {
+            m_derpWake.Receive({buffer.data(), buffer.Length()});
+        }
+    }
     std::lock_guard lock(m_mutex);
     if (!m_enabled)
     {

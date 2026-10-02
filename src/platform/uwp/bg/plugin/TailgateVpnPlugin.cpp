@@ -58,13 +58,13 @@
 #include "common/UwpError.h"
 #include "common/UwpFireAndForget.h"
 #include "common/VpnConstants.h"
+
+#include "bg/DI.h"
+#include "manager/ChannelPolicy.h"
+#include "manager/ProfileRecoveryManager.h"
+#include "service/ExitNodeService.h"
 #include "tstun/ChannelAdapter.h"
 
-#include "manager/ChannelPolicy.h"
-
-#include "service/ExitNodeService.h"
-
-#include "DI.h"
 #include "HostedConnection.h"
 #include "ModeRequests.h"
 #include "NativeConnection.h"
@@ -97,6 +97,7 @@ class TailgateVpnPlugin : public winrt::implements<TailgateVpnPlugin, vpn::IVpnP
 public:
     TailgateVpnPlugin()
         : m_injector(CreatePluginInjector()),
+          m_profileRecovery(m_injector->create<ProfileRecoveryManager&>()),
           m_events(m_injector->create<std::shared_ptr<tailgate::base::EventLoop>>()),
           m_time(m_injector->create<tailgate::base::TimeProvider&>()),
           m_channelAdapter(m_events, m_time),
@@ -119,8 +120,16 @@ public:
         m_node.Stop();
     }
 
+    void ProcessEvent(const foundation::IInspectable& triggerDetails, std::stop_token cancellation)
+    {
+        vpn::VpnChannel::ProcessEventAsync(get_strong().as<vpn::IVpnPlugIn>(), triggerDetails);
+        // Recovery must follow callback return, using this plugin's own dependency graph.
+        m_profileRecovery.RunPending(cancellation);
+    }
+
     void Connect(const vpn::VpnChannel& channel)
     {
+        const ProfileRecoveryManager::ConnectScope connectScope(m_profileRecovery);
         winrt::hstring serverText;
         winrt::hstring profileId;
         try
@@ -164,6 +173,10 @@ public:
             // machine, node, and disco keys are loaded again below.
             m_controlPlaneManager.StopMaintenance();
             StopDataWorker();
+            m_logger.LogInfo("Connect cleanup begin channel={} generation={}; "
+                             "resetting previous transports without VpnChannel.Stop",
+                             channel.Id(),
+                             callbackGeneration);
             ResetConnectionAttempt();
             m_connectionGeneration = m_sessionManager.BeginConnect();
             const bool nativeMode = serverText.empty();
@@ -365,7 +378,7 @@ public:
                     m_logger.LogDebug("starting VPN channel");
                     ReportSession(SessionComponent::Platform, SessionEventKind::Connecting);
                     transportAssociationStarted = true;
-                    m_channelAdapter.Open(channel, ConnectionCancellation());
+                    m_channelAdapter.Open(channel, config.DerpHost(), ConnectionCancellation());
                     StartChannel(channel, config);
                     m_networkMonitor.ExcludeAddress(config.SelfAddress());
                     m_underlay.Start(m_networkMonitor.Current(), m_networkInterface);
@@ -387,6 +400,7 @@ public:
                     // for reconnect even when it has no relay.
                     Settings::SetString(L"ProfileValidated", L"true");
                     m_sessionManager.SignalStateChanged();
+                    m_profileRecovery.Connected();
                     m_logger.LogInfo("VPN connected mode={} exit-node-enabled={}",
                                      nativeMode ? "native" : "hosted",
                                      !m_exitNode.empty());
@@ -411,11 +425,7 @@ public:
                     {
                         m_sessionManager.StopForegroundMonitor();
                         ResetConnectionAttempt();
-                        channel.SetErrorMessage(
-                            m_resourceLoader.Get(UwpError::Code::VpnProfileDidNotConnect));
-                        m_logger.LogWarning(
-                            "ending the current Connect callback after an associated "
-                            "transport failed; Windows may start a fresh callback");
+                        EndConnectionAttempt(channel);
                         return;
                     }
                 }
@@ -436,11 +446,7 @@ public:
                     {
                         m_sessionManager.StopForegroundMonitor();
                         ResetConnectionAttempt();
-                        channel.SetErrorMessage(
-                            m_resourceLoader.Get(UwpError::Code::VpnProfileDidNotConnect));
-                        m_logger.LogWarning(
-                            "ending the current Connect callback after an associated "
-                            "transport failed; Windows may start a fresh callback");
+                        EndConnectionAttempt(channel);
                         return;
                     }
                 }
@@ -502,6 +508,9 @@ public:
 
     void Disconnect(const vpn::VpnChannel& channel)
     {
+        const auto channelId = channel.Id();
+        m_logger.LogInfo("VpnPlugin.Disconnect entered channel={}", channelId);
+        m_profileRecovery.Disconnecting();
         {
             std::lock_guard lock(m_callbackMutex);
             ++m_callbackGeneration;
@@ -513,14 +522,13 @@ public:
         StopDataWorker();
         {
             std::lock_guard lock(m_dataPathMutex);
-            m_logger.LogDebug("VpnPlugin.Disconnect entered channel={}", channel.Id());
             m_node.Stop();
             m_controlPlaneManager.Reset();
         }
         // Keep the associated outer transport alive until Stop disassociates and closes it. If the
         // plug-in releases the transport first, RS2 may treat that as an unexpected transport loss
         // and dispatch a concurrent reconnect while this disconnect is still in progress.
-        m_logger.LogDebug("calling VpnChannel.Stop channel={}", channel.Id());
+        m_logger.LogDebug("calling VpnChannel.Stop channel={}", channelId);
         try
         {
             channel.Stop();
@@ -541,6 +549,12 @@ public:
             m_node.ResetTransport();
             m_channelAdapter.Close();
         }
+        // Workers are joined and per-session transports have been released. Do not
+        // retain the retired Windows channel through the cached plugin instance.
+        m_channel = nullptr;
+        m_logger.LogInfo(
+            "Disconnect cleanup completed; plugin channel reference released channel={}",
+            channelId);
         m_sessionManager.CompleteStop();
         m_sessionManager.SignalStateChanged();
         {
@@ -569,17 +583,30 @@ public:
     }
 
     void Decapsulate(const vpn::VpnChannel& channel,
-                     const vpn::VpnPacketBuffer&,
+                     const vpn::VpnPacketBuffer& input,
                      const vpn::VpnPacketBufferList& packets,
                      const vpn::VpnPacketBufferList&)
     {
         if (!m_stopConnection)
         {
-            m_channelAdapter.Decapsulate(channel, packets);
+            m_channelAdapter.Decapsulate(channel, input, packets);
         }
     }
 
 private:
+    // TerminateConnection completes the failed Connect protocol inside Windows.
+    // A later management-agent disconnect (or SetErrorMessage alone) does not
+    // substitute for it, and can leave the original ProcessEventAsync outstanding.
+    void EndConnectionAttempt(const vpn::VpnChannel& channel)
+    {
+        m_profileRecovery.FinishFailedConnect(
+            [&]
+            {
+                channel.TerminateConnection(
+                    m_resourceLoader.Get(UwpError::Code::VpnProfileDidNotConnect));
+            });
+    }
+
     void ReportSession(SessionComponent component, SessionEventKind kind)
     {
         m_sessionManager.Report(SessionEvent{
@@ -954,6 +981,7 @@ private:
     static constexpr tailgate::base::EventToken RelayToken{.Value = 2};
     static constexpr std::size_t MaximumPacketsPerTurn = 64;
     PluginInjector m_injector;
+    ProfileRecoveryManager& m_profileRecovery;
     std::shared_ptr<tailgate::base::EventLoop> m_events;
     tailgate::base::TimeProvider& m_time;
     ChannelAdapter m_channelAdapter;
@@ -998,6 +1026,13 @@ private:
 vpn::IVpnPlugIn CreateTailgateVpnPlugin()
 {
     return winrt::make<TailgateVpnPlugin>();
+}
+
+void ProcessTailgateVpnEvent(const vpn::IVpnPlugIn& plugin,
+                             const foundation::IInspectable& triggerDetails,
+                             std::stop_token cancellation)
+{
+    winrt::get_self<TailgateVpnPlugin>(plugin)->ProcessEvent(triggerDetails, cancellation);
 }
 
 } // namespace tailgate::uwp

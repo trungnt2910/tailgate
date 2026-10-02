@@ -11,11 +11,13 @@
 #include "common/TimeProvider.h"
 #include "common/UdpSocketFactory.h"
 
-#include "bg/ResourceLoader.h"
 #include "manager/impl/ControlPlaneManagerImpl.h"
 #include "manager/impl/DataPlaneManagerImpl.h"
+#include "manager/impl/ProfileRecoveryManagerImpl.h"
 #include "manager/impl/SessionManagerImpl.h"
 #include "plugin/NodeContext.h"
+
+#include "ResourceLoader.h"
 
 namespace tailgate::uwp::bg
 {
@@ -36,6 +38,7 @@ PluginInjector CreatePluginInjector()
         di::bind<ModeService>(),
         di::bind<PingService>());
     injector->install(di::bind<NodeContext>());
+    injector->InstallSingleton<ProfileRecoveryManagerImpl, ProfileRecoveryManager>();
     injector->InstallSingleton<tailgate::uwp::EventLoop, tailgate::base::EventLoop>();
     injector->InstallSingleton<PacketDevice, tailgate::wgengine::tstun::Device>();
     injector->InstallSingleton<tailgate::uwp::TimeProvider, tailgate::base::TimeProvider>();

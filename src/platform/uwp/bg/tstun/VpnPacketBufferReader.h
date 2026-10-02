@@ -15,7 +15,8 @@ public:
     // loopback receiver ignores its one-byte payload; protocol traffic uses owned bytes.
     [[nodiscard]] static std::vector<std::uint8_t>
     Read(const winrt::Windows::Networking::Vpn::VpnPacketBufferList& input,
-         const winrt::Windows::Networking::Vpn::VpnPacketBufferList& output);
+         const winrt::Windows::Networking::Vpn::VpnPacketBufferList& output,
+         std::uint32_t loopbackAffinity);
 };
 
 } // namespace tailgate::uwp::bg

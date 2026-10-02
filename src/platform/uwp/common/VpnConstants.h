@@ -20,6 +20,9 @@ struct VpnConstants final
 
     struct Channel final
     {
+        // RS2 TransportAffinity: zero selects main TCP, one selects optional UDP.
+        static constexpr std::uint32_t DerpTransportAffinity = 0;
+        static constexpr std::uint32_t LoopbackTransportAffinity = 1;
         static constexpr std::uint32_t Mtu = 1280;
         static constexpr std::uint32_t MaximumFrameSize = 1500;
     };

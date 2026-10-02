@@ -6,7 +6,8 @@ namespace tailgate::uwp::bg
 {
 
 // One dispatch owns one deferral. Complete it when ProcessEventAsync work returns,
-// including exception paths; the connected channel has an independent lifetime.
+// including exception paths and any bounded profile recovery after dispatch.
+// The connected channel has an independent lifetime.
 class BackgroundTaskLifetime final
 {
 public:

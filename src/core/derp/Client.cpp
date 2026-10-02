@@ -149,6 +149,11 @@ void DerpClient::Send(const Key& destination, const std::vector<std::uint8_t>& p
     WriteFrame(SendPacketFrame, packet, destination);
 }
 
+void DerpClient::SendPing(const std::array<std::uint8_t, 8>& payload)
+{
+    WriteFrame(PingFrame, payload);
+}
+
 DerpClient::Packet DerpClient::Receive()
 {
     while (true)

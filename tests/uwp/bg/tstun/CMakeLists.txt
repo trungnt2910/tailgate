@@ -1,13 +1,16 @@
 tailgate_uwp_add_test_library(
     tailgate_tests_uwp_bg_tstun
     Given_PacketDevice.cpp
+    Given_VpnCallbackStream.cpp
     Given_VpnPacketBufferReader.cpp
 )
 target_include_directories(
     tailgate_tests_uwp_bg_tstun
     PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/platform/uwp"
         "${PROJECT_SOURCE_DIR}/src/platform/uwp/bg/tstun"
         "${PROJECT_SOURCE_DIR}/tests/uwp"
+        "${PROJECT_SOURCE_DIR}/tests"
 )
 target_link_libraries(
     tailgate_tests_uwp_bg_tstun

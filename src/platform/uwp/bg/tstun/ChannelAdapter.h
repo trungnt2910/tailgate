@@ -9,20 +9,24 @@
 #include <tailgate/base/Logger.h>
 
 #include "common/UwpFormat.h"
+
 #include "manager/ChannelPolicy.h"
-#include "tstun/LoopbackTransport.h"
+
+#include "DerpWakeTransport.h"
+#include "LoopbackTransport.h"
 
 namespace tailgate::uwp::bg
 {
 
 // RS2 channel boundary. Windows buffers never escape their callback; the worker only
-// exchanges owned packets. The wake transport is independent of all network sockets.
+// exchanges owned packets. Associated wake sockets are separate from Core peer transports.
 class ChannelAdapter final
 {
 public:
     ChannelAdapter(std::shared_ptr<tailgate::base::EventLoop> events,
                    tailgate::base::TimeProvider& time);
     void Open(const winrt::Windows::Networking::Vpn::VpnChannel& channel,
+              const std::string& derpHost,
               std::stop_token cancellation);
     void Start(const winrt::Windows::Networking::Vpn::VpnChannel& channel,
                const manager::ChannelPolicy& policy);
@@ -31,6 +35,7 @@ public:
     void Encapsulate(const winrt::Windows::Networking::Vpn::VpnPacketBufferList& packets,
                      const winrt::Windows::Networking::Vpn::VpnPacketBufferList& output);
     void Decapsulate(const winrt::Windows::Networking::Vpn::VpnChannel& channel,
+                     const winrt::Windows::Networking::Vpn::VpnPacketBuffer& input,
                      const winrt::Windows::Networking::Vpn::VpnPacketBufferList& packets);
     void KeepAlive(const winrt::Windows::Networking::Vpn::VpnChannel& channel,
                    winrt::Windows::Networking::Vpn::VpnPacketBuffer& packet);
@@ -43,6 +48,7 @@ private:
     static constexpr std::size_t MaximumPacketsPerTurn = 64;
     std::shared_ptr<tailgate::base::EventLoop> m_events;
     LoopbackTransport m_loopback;
+    DerpWakeTransport m_derpWake;
     std::mutex m_mutex;
     std::deque<std::vector<std::uint8_t>> m_input;
     std::deque<std::vector<std::uint8_t>> m_output;
