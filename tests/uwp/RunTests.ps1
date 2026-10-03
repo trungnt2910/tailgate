@@ -14,6 +14,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = "$PSHOME\Modules"
 
 function ConvertTo-TestUri
 {
