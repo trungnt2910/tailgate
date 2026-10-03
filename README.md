@@ -2,6 +2,8 @@
 
 [![Discord Invite][2]][1]
 
+<img src="res/logo.svg" style="width: 128px">
+
 A minimal [Tailscale](https://github.com/tailscale/tailscale) client in C++.
 
 ## Overview
@@ -14,8 +16,6 @@ available.
 Tailgate currently supports:
 - Linux
 - UWP (Windows 10 RS2 or newer).
-  - UWP clients require a Tailgate relay server.
-  - This can be done by running `tailgate expose` on a Linux node.
 
 Tailgate plans to support:
 - [Wear OS](https://github.com/tailscale/tailscale/issues/3972).
@@ -36,6 +36,7 @@ Tailgate plans to support:
 - DERP
 - Ping
 - Funnel
+- Taildrive
 4. Interface
 - CLI resembling the official `tailscale` client.
 
@@ -53,6 +54,10 @@ Tailgate plans to support:
 2. `cli`: Minimal command-line interface mimicking `tailscale`.
 3. `linux`: Linux platform support.
 4. `uwp`: UWP (Windows) platform support.
+
+## Disclaimer
+
+This project is **not** associated with Tailscale Inc.
 
 ## Community
 
