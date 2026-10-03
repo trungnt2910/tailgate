@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="468" height="468" viewBox="0 0 468 468">
+  <circle cx="70" cy="70" r="30" fill="#0078D4" />
+  <circle cx="152" cy="70" r="30" fill="#0078D4" />
+  <circle cx="234" cy="70" r="30" fill="#0078D4" />
+  <circle cx="316" cy="70" r="30" fill="#0078D4" />
+  <circle cx="398" cy="70" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="70" cy="152" r="30" fill="#0078D4" />
+  <circle cx="152" cy="152" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="234" cy="152" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="316" cy="152" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="398" cy="152" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="70" cy="234" r="30" fill="#0078D4" />
+  <circle cx="152" cy="234" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="234" cy="234" r="30" fill="#0078D4" />
+  <circle cx="316" cy="234" r="30" fill="#0078D4" />
+  <circle cx="398" cy="234" r="30" fill="#0078D4" />
+  <circle cx="70" cy="316" r="30" fill="#0078D4" />
+  <circle cx="152" cy="316" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="234" cy="316" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="316" cy="316" r="30" fill="#0078D4" />
+  <circle cx="398" cy="316" r="30" fill="#0078D4" fill-opacity="0.24" />
+  <circle cx="70" cy="398" r="30" fill="#0078D4" />
+  <circle cx="152" cy="398" r="30" fill="#0078D4" />
+  <circle cx="234" cy="398" r="30" fill="#0078D4" />
+  <circle cx="316" cy="398" r="30" fill="#0078D4" />
+  <circle cx="398" cy="398" r="30" fill="#0078D4" fill-opacity="0.24" />
+</svg>

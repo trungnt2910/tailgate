@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources targetOsVersion="10.0.0" majorVersion="1">
+  <!-- The loose AppX contains every scale, so keep all candidates in one PRI. -->
+  <packaging />
+  <index root="\" startIndexAt="\">
+    <default>
+      <qualifier name="Language" value="en-US" />
+      <qualifier name="Contrast" value="standard" />
+      <qualifier name="Scale" value="100" />
+      <qualifier name="TargetSize" value="256" />
+    </default>
+    <indexer-config type="folder" foldernameAsQualifier="true"
+                    filenameAsQualifier="true" qualifierDelimiter="." />
+    <indexer-config type="resw" convertDotsToSlashes="true" initialPath="" />
+  </index>
+</resources>

@@ -133,8 +133,14 @@ include(Resources.cmake)
 set(TAILGATE_UWP_GENERATED_RESW
     "${CMAKE_CURRENT_BINARY_DIR}/pri/Strings/en-US/Resources.resw"
 )
-set(TAILGATE_UWP_PRI_CONFIG "${CMAKE_CURRENT_BINARY_DIR}/priconfig.xml")
+set(TAILGATE_UWP_PRI_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/priconfig.xml")
 set(TAILGATE_UWP_PRI "${CMAKE_CURRENT_BINARY_DIR}/resources.pri")
+set(TAILGATE_UWP_IMAGE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../Images")
+file(
+    GLOB TAILGATE_UWP_IMAGES
+    CONFIGURE_DEPENDS
+    "${TAILGATE_UWP_IMAGE_DIRECTORY}/*.png"
+)
 tailgate_generate_resources(
     HEADER_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/Resources.h.in"
     HEADER_OUTPUT "${TAILGATE_UWP_GENERATED_DIR}/strings/Resources.h"
@@ -143,13 +149,12 @@ tailgate_generate_resources(
 )
 add_custom_command(
     OUTPUT "${TAILGATE_UWP_PRI}"
-    BYPRODUCTS "${TAILGATE_UWP_PRI_CONFIG}"
     COMMAND
-        "${UWP_MAKEPRI_EXECUTABLE}" createconfig
-        -cf "${TAILGATE_UWP_PRI_CONFIG}"
-        -dq en-US
-        -pv 10.0.0
-        -o
+        ${CMAKE_COMMAND} -E rm -rf "${CMAKE_CURRENT_BINARY_DIR}/pri/Images"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_directory
+        "${TAILGATE_UWP_IMAGE_DIRECTORY}"
+        "${CMAKE_CURRENT_BINARY_DIR}/pri/Images"
     COMMAND
         "${UWP_MAKEPRI_EXECUTABLE}" new
         -pr "${CMAKE_CURRENT_BINARY_DIR}/pri"
@@ -160,8 +165,10 @@ add_custom_command(
     DEPENDS
         "${TAILGATE_UWP_GENERATED_RESW}"
         "${TAILGATE_UWP_MANIFEST}"
+        "${TAILGATE_UWP_PRI_CONFIG}"
+        ${TAILGATE_UWP_IMAGES}
         ${UWP_MAKEPRI_TARGET}
-    COMMENT "Compiling UWP string resources"
+    COMMENT "Compiling UWP string and image resources"
     VERBATIM
 )
 add_custom_target(Tailgate.Strings.Generated DEPENDS "${TAILGATE_UWP_PRI}")
