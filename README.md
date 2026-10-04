@@ -65,5 +65,5 @@ This repo is a part of [Project Reality][1].
 
 Need help using this project? Join me on [Discord][1], and let's find a solution together.
 
-[1]: https://reality.trungnt2910.com/discord
+[1]: https://reality.trungnt2910.com/discord/tailgate
 [2]: https://img.shields.io/discord/1185622479436251227?logo=discord&logoColor=white&label=Discord&labelColor=%235865F2
