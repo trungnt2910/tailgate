@@ -36,7 +36,7 @@ private:
     std::unique_ptr<ExitNodeControlView> m_exitNodePage;
     std::unique_ptr<HomePageView> m_homePage;
     std::unique_ptr<SettingsPageView> m_settingsPage;
-    controls::ContentControl m_page;
+    controls::Page m_page;
 };
 
 } // namespace tailgate::uwp
